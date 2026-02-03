@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "dataset": "BNCI2014_001",
+  "eval_type": "within_session",
+  "seed": 42,
+  "models": {
+    "CSP+LDA": {
+      "accuracy": 0.678,
+      "tolerance_percent": 10
+    },
+    "EEGNet": {
+      "accuracy": 0.592,
+      "tolerance_percent": 10
+    },
+    "BDEEGNet": {
+      "accuracy": null,
+      "tolerance_percent": 10,
+      "note": "Baseline TBD - first run will establish"
+    }
+  },
+  "smoke_test_config": {
+    "epochs": 2,
+    "subjects": [1]
+  },
+  "full_benchmark_config": {
+    "epochs": 100,
+    "subjects": null
+  }
+}

@@ -1,0 +1,135 @@
+[project]
+name = "dendrite"
+dynamic = ["version"]
+description = "Open-source platform for real-time neural signal processing and brain-computer interfaces"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.12"
+keywords = ["bmi", "bci", "eeg", "neuroscience", "real-time", "neural-signal-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+
+dependencies = [
+    "h5py==3.12.1",
+    "matplotlib==3.9.2",
+    "mne>=1.10.0",
+    "numpy>=2.0.0",
+    "pandas==2.2.3",
+    "pylsl==1.16.2",
+    "pyqt6==6.7.1",
+    "pyqtgraph==0.13.7",
+    "scikit-learn>=1.6.0",
+    "scipy>=1.16.0",
+    "torch>=2.6.0,<2.7.0",
+    "pydantic==2.11.5",
+    "psutil>=6.1.0",
+    "plotly>=5.18.0",
+    "optuna>=4.1.0",
+    "moabb>=1.2.0",
+    "braindecode>=1.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/dendrite-bci/dendrite"
+Documentation = "https://dendrite-bci.github.io/dendrite"
+Repository = "https://github.com/dendrite-bci/dendrite"
+
+[project.optional-dependencies]
+zmq = ["pyzmq>=25.0.0"]
+
+[project.scripts]
+dendrite-dashboard = "dendrite.auxiliary.dashboard.app:main"
+dendrite-stream-manager = "dendrite.auxiliary.stream_manager.app:main"
+dendrite-trainer = "dendrite.auxiliary.ml_workbench.app:main"
+dendrite-db-explorer = "dendrite.auxiliary.database.app:main"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dendrite"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-qt>=4.2.0",
+    "ruff>=0.1.0",
+    "jupyter>=1.0.0",
+    "ipykernel>=6.29.0",
+    "pydoc-markdown>=4.8",
+    "pyright>=1.1.408",
+]
+
+# ============================================================================
+# PyTorch Installation Notes
+# ============================================================================
+# By default, this installs CPU-only PyTorch from PyPI, which works on all platforms:
+# - macOS (Apple Silicon): Includes Metal Performance Shaders (MPS) GPU support
+# - Linux/Windows: CPU-only by default
+#
+# For NVIDIA GPU support (Linux/Windows only):
+# After installing the package, reinstall PyTorch with CUDA support:
+#
+#   uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+#
+# Or for CUDA 12.1:
+#   uv pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Or for CPU-only (explicit):
+#   uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# See: https://pytorch.org/get-started/locally/
+# ============================================================================
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: Slow running tests",
+    "integration: Integration tests (require LSL/hardware)",
+]
+testpaths = ["tests"]
+addopts = "--ignore=tests/experimental/"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "RUF"]
+ignore = ["E501", "E402", "E741", "RUF001", "RUF005", "RUF012", "RUF015", "RUF022", "RUF059"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.pyright]
+typeCheckingMode = "off"
+pythonVersion = "3.12"
+include = ["src"]
+exclude = ["tests", ".venv", "docs", "private", "scripts"]
+reportMissingImports = "warning"
+reportUndefinedVariable = true
+
+[tool.coverage.run]
+source = ["src/dendrite"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
