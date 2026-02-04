@@ -1,0 +1,90 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpugixml1v5 libegl1 libxkbcommon0 \
+            libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0
+          wget https://github.com/sccn/liblsl/releases/download/v1.16.2/liblsl-1.16.2-jammy_amd64.deb
+          sudo dpkg -i liblsl-1.16.2-jammy_amd64.deb
+
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $lslUrl = "https://github.com/sccn/liblsl/releases/download/v1.16.2/liblsl-1.16.2-Win_amd64.zip"
+          Invoke-WebRequest -Uri $lslUrl -OutFile liblsl.zip
+          Expand-Archive -Path liblsl.zip -DestinationPath liblsl
+          echo "${{ github.workspace }}\liblsl\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          wget https://github.com/sccn/liblsl/releases/download/v1.17.5/liblsl-1.17-Darwin-universal.pkg
+          sudo installer -pkg liblsl-1.17-Darwin-universal.pkg -target /
+          echo "PYLSL_LIB=/usr/local/lib/liblsl.dylib" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          uv run pytest -v \
+            -m "not slow and not integration" \
+            --tb=short \
+            --ignore=tests/experimental/
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          uv run pytest -v \
+            -m "not slow and not integration" \
+            --tb=short \
+            --ignore=tests/experimental/ \
+            --ignore=tests/unit/test_data_saver.py \
+            --ignore=tests/unit/test_metrics_saver.py \
+            --ignore=tests/integration/test_saver_graceful_shutdown.py
+
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          uv run pytest -v \
+            -m "not slow and not integration" \
+            --tb=short \
+            --ignore=tests/experimental/ \
+            --ignore=tests/unit/test_data_saver.py \
+            --ignore=tests/unit/test_metrics_saver.py \
+            --ignore=tests/integration/test_saver_graceful_shutdown.py
