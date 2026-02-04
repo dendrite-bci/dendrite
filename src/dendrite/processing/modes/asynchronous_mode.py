@@ -81,7 +81,7 @@ class AsynchronousMode(BaseMode):
         self.model_check_interval = MODEL_CHECK_INTERVAL_SEC
         self.last_model_modification_time = 0
 
-        # Prediction timing configuration
+        # Prediction timing configuration (recalculated in _initialize_mode with effective rate)
         self.step_size_ms = instance_config.get("step_size_ms", 100)
         self.samples_per_prediction_step = max(
             1, int(self.sample_rate * (self.step_size_ms / 1000.0))
@@ -128,6 +128,15 @@ class AsynchronousMode(BaseMode):
         """Initialize asynchronous mode components."""
         try:
             self._model_lock = threading.Lock()
+
+            # Calculate timing using effective sample rate (accounts for preprocessing)
+            primary_modality = next(iter(self.channel_selection.keys()), "eeg")
+            effective_rate = self._get_modality_sample_rate(primary_modality)
+            self.epoch_length_samples = int(self.window_length_sec * effective_rate)
+            self.samples_per_prediction_step = max(
+                1, int(effective_rate * (self.step_size_ms / 1000.0))
+            )
+            self.logger.info(f"Window: {self.epoch_length_samples} samples at {effective_rate}Hz")
 
             self._setup_buffer(self.epoch_length_samples)
 
@@ -391,14 +400,15 @@ class AsynchronousMode(BaseMode):
         model_epoch_length = model_shape[1] if len(model_shape) > 1 else model_shape[0]
 
         if model_epoch_length != self.epoch_length_samples:
+            effective_rate = self._get_modality_sample_rate(primary_modality)
             self.logger.info(
                 f"Updating epoch length: {self.epoch_length_samples} -> {model_epoch_length}"
             )
             self.epoch_length_samples = model_epoch_length
-            self.window_length_sec = model_epoch_length / self.sample_rate
+            self.window_length_sec = model_epoch_length / effective_rate
             self._setup_buffer(self.epoch_length_samples)
             self.samples_per_prediction_step = max(
-                1, int(self.sample_rate * (self.step_size_ms / 1000.0))
+                1, int(effective_rate * (self.step_size_ms / 1000.0))
             )
 
     def _check_for_model_updates(self):

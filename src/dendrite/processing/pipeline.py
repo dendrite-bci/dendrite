@@ -33,13 +33,6 @@ from dendrite.utils.logger_central import get_logger, setup_logger
 logger = get_logger("MainProcessor")
 
 
-def _get_effective_sample_rate(config: dict, sample_rate: int) -> int:
-    """Get EEG sample rate after resampling (for modes/decoders)."""
-    eeg_config = config.get("modality_preprocessing", {}).get("eeg", {})
-    target_rate = eeg_config.get("target_sample_rate")
-    return target_rate if target_rate else sample_rate
-
-
 def _cleanup_processes(processes: dict, logger) -> None:
     """Clean up processes with appropriate timeouts, terminating if necessary."""
     for name, (process, timeout) in processes.items():
@@ -89,7 +82,6 @@ def run_pipeline(config: dict) -> None:
         shared_state = config.get("shared_state")
 
         preprocess_data = config["preprocess_data"]
-        effective_sample_rate = _get_effective_sample_rate(config, sample_rate)
         preprocessing_config = (
             {
                 "preprocess_data": config["preprocess_data"],
@@ -118,9 +110,7 @@ def run_pipeline(config: dict) -> None:
 
         # Log config summary
         modality_count = len(preprocessing_config.get("modality_preprocessing", {}))
-        logger.info(
-            f"Preprocessing: {modality_count} modalities, {effective_sample_rate}Hz effective rate"
-        )
+        logger.info(f"Preprocessing: {modality_count} modalities configured")
 
         # Spawn DataAcquisition & DataSaver
         stream_configs = config.get("stream_configs", [])
@@ -222,7 +212,7 @@ def run_pipeline(config: dict) -> None:
                     "output_queue": mode_output_queues[instance_name],
                     "stop_event": stop_event,
                     "instance_config": enhanced_config,
-                    "sample_rate": effective_sample_rate,
+                    "sample_rate": sample_rate,
                     "prediction_queue": prediction_queue,
                     "shared_state": shared_state,
                 }

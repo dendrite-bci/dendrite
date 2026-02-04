@@ -514,3 +514,30 @@ class BaseMode(multiprocessing.Process, ABC):
         except Exception as e:
             self.logger.debug(f"Could not validate sample rate: {e}")
 
+    def _get_modality_sample_rate(self, modality: str) -> int:
+        """Get effective sample rate for a modality after preprocessing.
+
+        Checks preprocessing config for target_sample_rate or downsample_factor.
+        Falls back to native stream sample_rate if no preprocessing is configured.
+
+        Args:
+            modality: The modality name (e.g., 'eeg', 'emg')
+
+        Returns:
+            Effective sample rate in Hz after any resampling/downsampling
+        """
+        if not self.preprocessing_config:
+            return int(self.sample_rate)
+
+        mod_config = self.preprocessing_config.get("modality_preprocessing", {}).get(modality, {})
+
+        # Check for explicit target sample rate first
+        target = mod_config.get("target_sample_rate")
+        if target:
+            return int(target)
+
+        # Fall back to downsample_factor calculation
+        native = mod_config.get("sample_rate") or self.sample_rate
+        downsample = mod_config.get("downsample_factor", 1)
+        return int(native) // downsample
+

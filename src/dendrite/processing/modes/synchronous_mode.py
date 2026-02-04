@@ -115,7 +115,7 @@ class SynchronousMode(BaseMode):
         self.enable_decoder_search = instance_config.get("enable_decoder_search", False)
         self.decoder_pool = None
 
-        # Calculate epoch timing
+        # Calculate epoch timing (recalculated in _initialize_mode with effective rate)
         self.start_offset = instance_config.get("start_offset", 0.0)
         self.end_offset = instance_config.get("end_offset", 2.0)
         self.start_offset_samples = int(self.start_offset * self.sample_rate)
@@ -158,30 +158,30 @@ class SynchronousMode(BaseMode):
 
         return True
 
-    def _calculate_sync_buffer_size(
-        self, start_offset: float, end_offset: float, safety_factor: float = 2.0
-    ) -> int:
+    def _calculate_sync_buffer_size(self, safety_factor: float = 2.0) -> int:
         """Calculate appropriate buffer size for synchronous mode epochs."""
-        start_samples = int(start_offset * self.sample_rate)
-        end_samples = int(end_offset * self.sample_rate)
-        epoch_length = end_samples - start_samples
-
-        pre_event = abs(start_samples) if start_samples < 0 else 0
-        min_buffer = pre_event + epoch_length
+        pre_event = abs(self.start_offset_samples) if self.start_offset_samples < 0 else 0
+        min_buffer = pre_event + self.epoch_length_samples
         recommended = int(min_buffer * safety_factor)
 
         self.logger.info(
-            f"Buffer size: {recommended} samples (epoch={epoch_length}, safety={safety_factor}x)"
+            f"Buffer size: {recommended} samples (epoch={self.epoch_length_samples}, safety={safety_factor}x)"
         )
         return recommended
 
     def _initialize_mode(self) -> bool:
         """Initialize synchronous mode components."""
         try:
+            # Calculate epoch timing using effective sample rate (accounts for preprocessing)
+            primary_modality = self.modalities[0] if self.modalities else "eeg"
+            effective_rate = self._get_modality_sample_rate(primary_modality)
+            self.start_offset_samples = int(self.start_offset * effective_rate)
+            self.end_offset_samples = int(self.end_offset * effective_rate)
+            self.epoch_length_samples = self.end_offset_samples - self.start_offset_samples
+            self.logger.info(f"Epoch: {self.epoch_length_samples} samples at {effective_rate}Hz")
+
             # Setup unified buffer with appropriate size for epochs + pre-event data
-            buffer_size = self._calculate_sync_buffer_size(
-                self.start_offset, self.end_offset, safety_factor=2.0
-            )
+            buffer_size = self._calculate_sync_buffer_size(safety_factor=2.0)
             self._setup_buffer(buffer_size)
 
             num_classes = len(self.label_mapping) if self.label_mapping else 2
