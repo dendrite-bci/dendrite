@@ -42,7 +42,7 @@ uv run python main.py
 ## Documentation
 
 - [Quickstart](https://dendrite-bci.github.io/dendrite/docs/quickstart)
-- [Introduction](https://dendrite-bci.github.io/dendrite/docs/intro)
+- [Introduction](https://dendrite-bci.github.io/dendrite/docs/)
 - [Guides](https://dendrite-bci.github.io/dendrite/docs/guides)
 - [API Reference](https://dendrite-bci.github.io/dendrite/docs/api)
 
