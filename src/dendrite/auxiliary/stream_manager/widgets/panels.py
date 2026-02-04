@@ -30,7 +30,7 @@ class MOAABDiscoveryWorker(QtCore.QThread):
 
     def run(self):
         try:
-            from dendrite.auxiliary.ml_workbench.datasets import discover_moabb_datasets
+            from dendrite.data import discover_moabb_datasets
 
             configs = discover_moabb_datasets()
             self.finished.emit(configs)

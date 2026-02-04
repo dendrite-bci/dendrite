@@ -9,8 +9,8 @@ import re
 
 from moabb.datasets.base import BaseDataset
 
+from .base_loader import BaseLoader
 from .config import DatasetConfig
-from .loader import DataLoader
 
 
 def _to_camel_kebab(name: str) -> str:
@@ -43,7 +43,7 @@ class InternalDatasetWrapper(BaseDataset):
         results = evaluation.process(pipelines)
     """
 
-    def __init__(self, loader: DataLoader, config: DatasetConfig):
+    def __init__(self, loader: BaseLoader, config: DatasetConfig):
         """Initialize wrapper with existing loader and config.
 
         Args:

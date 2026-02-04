@@ -12,7 +12,7 @@ class TestDatasetConfigDefaults:
 
     def test_default_values(self):
         """DatasetConfig should have sensible defaults."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(name="test_dataset")
 
@@ -36,7 +36,7 @@ class TestDatasetConfigDefaults:
 
     def test_custom_values(self):
         """DatasetConfig should accept custom values."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="custom_dataset",
@@ -66,7 +66,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_valid_fif_config(self):
         """Valid FIF config should pass validation."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="valid_fif",
@@ -80,7 +80,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_valid_moabb_config(self):
         """Valid MOABB config should pass validation."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="valid_moabb",
@@ -95,7 +95,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_empty_name(self):
         """Empty name should fail validation."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="",
@@ -109,7 +109,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_moabb_requires_dataset(self):
         """MOABB source type requires moabb_dataset."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="missing_moabb_dataset",
@@ -123,7 +123,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_moabb_requires_paradigm(self):
         """MOABB source type requires moabb_paradigm."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="missing_moabb_paradigm",
@@ -137,7 +137,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_non_moabb_requires_data_root(self):
         """Non-MOABB source type requires data_root."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="missing_data_root",
@@ -152,7 +152,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_empty_subjects(self):
         """Empty subjects list should fail validation."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="no_subjects",
@@ -166,7 +166,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_empty_events_fif(self):
         """Empty events for non-MOABB should fail validation."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="no_events",
@@ -180,7 +180,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_empty_events_moabb_allowed(self):
         """Empty events for MOABB is allowed (auto-generated)."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="moabb_no_events",
@@ -196,7 +196,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_invalid_sample_rate(self):
         """Zero or negative sampling rate should fail."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="bad_sampling",
@@ -211,7 +211,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_negative_sample_rate(self):
         """Negative sampling rate should fail."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="negative_sampling",
@@ -226,7 +226,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_epoch_bounds(self):
         """tmax must be greater than tmin."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="bad_epoch",
@@ -242,7 +242,7 @@ class TestDatasetConfigValidation:
 
     def test_validate_epoch_bounds_equal(self):
         """tmax equal to tmin should fail."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="equal_epoch",
@@ -262,7 +262,7 @@ class TestDatasetConfigWindowSamples:
 
     def test_window_samples_default(self):
         """Default epoch (0.0 to 0.5s at 500Hz) should be 251 samples."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(name="test")
 
@@ -271,7 +271,7 @@ class TestDatasetConfigWindowSamples:
 
     def test_window_samples_custom_epoch(self):
         """Custom epoch bounds should calculate correctly."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="test",
@@ -285,7 +285,7 @@ class TestDatasetConfigWindowSamples:
 
     def test_window_samples_high_rate(self):
         """Higher sampling rate should increase samples."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="test",
@@ -299,7 +299,7 @@ class TestDatasetConfigWindowSamples:
 
     def test_window_samples_negative_tmin(self):
         """Negative tmin should work correctly."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="test",
@@ -317,7 +317,7 @@ class TestDatasetConfigSerialization:
 
     def test_to_dict(self):
         """to_dict should return complete dictionary."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="test",
@@ -342,7 +342,7 @@ class TestDatasetConfigSerialization:
 
     def test_from_dict(self):
         """from_dict should restore config correctly."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         data = {
             "name": "restored",
@@ -380,7 +380,7 @@ class TestDatasetConfigSerialization:
 
     def test_to_dict_from_dict_roundtrip(self):
         """Config should survive to_dict -> from_dict roundtrip."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         original = DatasetConfig(
             name="roundtrip_test",
@@ -418,7 +418,7 @@ class TestDatasetConfigSerialization:
 
     def test_to_json(self):
         """to_json should return valid JSON string."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         config = DatasetConfig(
             name="json_test",
@@ -435,7 +435,7 @@ class TestDatasetConfigSerialization:
 
     def test_from_json(self):
         """from_json should parse JSON correctly."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         json_str = json.dumps({
             "name": "from_json_test",
@@ -469,7 +469,7 @@ class TestDatasetConfigSerialization:
 
     def test_to_json_from_json_roundtrip(self):
         """Config should survive to_json -> from_json roundtrip."""
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import DatasetConfig
 
         original = DatasetConfig(
             name="json_roundtrip",

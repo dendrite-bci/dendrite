@@ -4,8 +4,7 @@ import json
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from dendrite.auxiliary.ml_workbench.datasets import DatasetConfig, StudyItem
-from dendrite.auxiliary.ml_workbench.datasets.custom_loader import CustomFIFLoader
+from dendrite.data import DatasetConfig, SingleFileLoader, StudyItem
 from dendrite.auxiliary.ml_workbench.utils import setup_worker_thread
 from dendrite.auxiliary.ml_workbench.widgets import DatasetInfoPanel
 from dendrite.gui.styles.design_tokens import (
@@ -32,7 +31,7 @@ class _DiscoveryWorker(QtCore.QObject):
     def run(self):
         """Discover all dataset sources."""
         try:
-            from dendrite.auxiliary.ml_workbench.datasets import discover_moabb_datasets
+            from dendrite.data import discover_moabb_datasets
 
             moabb_configs = discover_moabb_datasets()
 
@@ -67,7 +66,7 @@ class _DetailsWorker(QtCore.QThread):
     def run(self):
         """Load dataset details (subjects, events, etc.)."""
         try:
-            from dendrite.auxiliary.ml_workbench.datasets import load_moabb_dataset_details
+            from dendrite.data import load_moabb_dataset_details
 
             load_moabb_dataset_details(self.config)
             self.finished_with_config.emit(self.config)
@@ -399,7 +398,7 @@ class DataTab(QtWidgets.QWidget):
             preproc_highcut=self._info_panel.get_preproc_highcut(),
             preproc_rereference=self._info_panel.get_preproc_rereference(),
         )
-        loader = CustomFIFLoader(config, dataset_info)
+        loader = SingleFileLoader.from_dataset_info(config, dataset_info)
 
         self.study_changed.emit(
             {

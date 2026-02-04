@@ -12,9 +12,7 @@ from multiprocessing.queues import Queue
 import numpy as np
 from pylsl import local_clock
 
-from dendrite.auxiliary.ml_workbench.datasets import get_moabb_dataset_info
-from dendrite.auxiliary.ml_workbench.datasets.moabb_loader import MOAABLoader
-from dendrite.data import EventOutlet
+from dendrite.data import EventOutlet, MOAABLoader, get_moabb_dataset_info
 from dendrite.data.lsl_helpers import LSLOutlet
 from dendrite.data.stream_schemas import StreamConfig
 from dendrite.utils.format_loaders import SUPPORTED_FORMATS, load_file
@@ -343,8 +341,8 @@ class OfflineDataStreamer(Process):
                 f"subject {self.moabb_subject}, session {self.moabb_session}"
             )
 
-            # Load continuous data
-            data, event_times, event_labels = loader.load_continuous(
+            # Load continuous data (returns 4 values including event_mapping)
+            data, event_times, event_labels, event_mapping = loader.load_continuous(
                 self.moabb_subject, self.moabb_session
             )
 
@@ -356,9 +354,7 @@ class OfflineDataStreamer(Process):
             # Data is (n_channels, n_samples), transpose to (n_samples, n_channels)
             data = data.T
 
-            # Convert from volts to microvolts (MOABB returns volts)
-            data = data * 1e6
-
+            # Data is already in microvolts (preprocessing applies 1e6 scaling)
             n_samples, n_channels = data.shape
             total_duration = n_samples / sample_rate
             self.logger.info(
@@ -378,25 +374,26 @@ class OfflineDataStreamer(Process):
 
             # Create separate event outlet if enabled
             event_outlet = None
+            # Build reverse lookup: label -> event name
+            label_to_name = {label: name for name, label in event_mapping.items()}
             if self.enable_event_stream and len(event_times) > 0:
-                # Build event mapping from unique labels (with +1 offset to match marker channel)
-                unique_labels = sorted(set(event_labels))
-                event_mapping = {f"class_{label + 1}": int(label) + 1 for label in unique_labels}
+                # Use proper event names with +1 offset for marker codes (0 = no event)
+                stream_event_mapping = {name: label + 1 for name, label in event_mapping.items()}
 
                 stream_name = self._get_stream_name("MOABB_Events")
                 event_outlet = EventOutlet(
                     stream_name=stream_name,
-                    events=event_mapping,
+                    events=stream_event_mapping,
                     stream_id=f"moabb_events_{self.moabb_preset}",
                 )
-                self.logger.info(f"Event stream enabled: {event_mapping}")
+                self.logger.info(f"Event stream enabled: {stream_event_mapping}")
 
-            # Create event lookup for fast access
+            # Create event lookup for fast access: sample_idx -> (marker_code, event_name)
             # Offset event codes by +1 so that 0 = "no event"
-            # This avoids conflict with presets that use 0 as a valid event code (e.g., P300 NonTarget)
             event_dict = {}
             for evt_time, evt_label in zip(event_times, event_labels, strict=False):
-                event_dict[int(evt_time)] = int(evt_label) + 1  # +1 offset
+                event_name = label_to_name.get(evt_label, f"class_{evt_label}")
+                event_dict[int(evt_time)] = (int(evt_label) + 1, event_name)  # +1 offset
 
             # Stream data with timing control
             start_time = time.perf_counter()
@@ -416,12 +413,13 @@ class OfflineDataStreamer(Process):
                 # Get sample and add marker from annotations
                 # MOABB events come from annotations (event_dict), not embedded in data
                 sample = data[sample_idx].tolist()
-                marker = event_dict.get(sample_idx, 0)
+                event_info = event_dict.get(sample_idx)
+                marker = event_info[0] if event_info else 0
 
                 # Send event on separate stream if enabled (before zeroing marker)
-                if event_outlet and marker != 0:
+                if event_outlet and event_info:
                     event_outlet.send_event(
-                        event_type=f"class_{marker}", additional_data={"sample_idx": sample_idx}
+                        event_type=event_info[1], additional_data={"sample_idx": sample_idx}
                     )
 
                 # Zero out marker in main stream if separate events enabled and remove option is on

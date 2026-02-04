@@ -44,9 +44,7 @@ class StudyItem:
 
                 self._loader = MOAABLoader(self.config)
             else:
-                from .loader import DataLoader
-
-                self._loader = DataLoader(self.config, use_cache=True)
+                raise NotImplementedError("Only MOABB datasets are supported")
         return self._loader
 
     def detect_capability(self) -> str:
@@ -76,7 +74,7 @@ class StudyItem:
                         else None
                     )
 
-                data, times, labels = self.loader.load_continuous(subject, block=block)
+                data, times, labels, _ = self.loader.load_continuous(subject, block=block)
                 if len(times) > 0:
                     self._capability = self.CAPABILITY_FULL
                     return self._capability

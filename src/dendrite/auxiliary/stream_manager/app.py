@@ -176,7 +176,7 @@ class StreamManager(QtWidgets.QMainWindow):
         """Handle MOABB preset selection from sidebar."""
         # Load details if not already loaded (BIDS datasets are lazy-loaded)
         if not config.subjects:
-            from dendrite.auxiliary.ml_workbench.datasets import load_moabb_dataset_details
+            from dendrite.data import load_moabb_dataset_details
 
             load_moabb_dataset_details(config)
         dialog = MOAABSubjectDialog(preset_name, config, parent=self)

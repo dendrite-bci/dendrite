@@ -5,7 +5,7 @@ from typing import Any
 
 from PyQt6 import QtCore, QtWidgets
 
-from dendrite.auxiliary.ml_workbench.datasets import StudyItem
+from dendrite.data import StudyItem
 from dendrite.gui.styles.design_tokens import (
     STATUS_SUCCESS,
     STATUS_WARNING_ALT,

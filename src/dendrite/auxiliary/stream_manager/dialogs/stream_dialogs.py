@@ -94,7 +94,7 @@ class StreamDetailsDialog(QtWidgets.QDialog):
         elif source_type == "moabb":
             preset_name = self.config.get("preset_name")
             if preset_name:
-                from dendrite.auxiliary.ml_workbench.datasets import get_moabb_dataset_info
+                from dendrite.data import get_moabb_dataset_info
 
                 info = get_moabb_dataset_info(preset_name)
                 if info:

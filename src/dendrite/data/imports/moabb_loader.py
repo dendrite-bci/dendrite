@@ -176,10 +176,12 @@ class MOAABLoader:
     def _extract_events_from_raw(
         self,
         raw: mne.io.BaseRaw,
-    ) -> tuple[list[int], list[int]]:
-        """Extract event times and labels from raw MNE object.
+    ) -> tuple[list[int], list[int], dict[str, int]]:
+        """Extract event times, labels, and mapping from raw MNE object.
 
-        Filters events to only those in config.events mapping.
+        If config.events is specified, filters to those events. Otherwise,
+        auto-generates a mapping from all MNE event types (consistent with
+        _encode_labels behavior for epoch loading).
 
         Args:
             raw: MNE Raw object with annotations
@@ -187,22 +189,34 @@ class MOAABLoader:
         Returns:
             event_times: List of sample indices
             event_labels: List of integer labels
+            label_map: Dict mapping event names to integer labels
         """
         events_array, event_id = mne.events_from_annotations(raw, verbose=False)
+        logger.debug(f"MNE event_id mapping: {event_id}")
+        logger.debug(f"Config events filter: {self.config.events}")
 
         # Build reverse lookup: code -> event name
         code_to_name = {code: name for name, code in event_id.items()}
+
+        # If config.events is empty, auto-generate mapping from MNE event_id
+        # (matches _encode_labels behavior for consistency)
+        if self.config.events:
+            label_map = self.config.events
+        else:
+            # Auto-generate: assign sequential integers to sorted event names
+            label_map = {name: i for i, name in enumerate(sorted(event_id.keys()))}
+            logger.info(f"Auto-generated event mapping for continuous data: {label_map}")
 
         event_times = []
         event_labels = []
         for event in events_array:
             sample_idx, _, code = event
             event_name = code_to_name.get(code)
-            if event_name and self.config.events and event_name in self.config.events:
+            if event_name and event_name in label_map:
                 event_times.append(sample_idx)
-                event_labels.append(self.config.events[event_name])
+                event_labels.append(label_map[event_name])
 
-        return event_times, event_labels
+        return event_times, event_labels, label_map
 
     def load_epochs(
         self,
@@ -388,7 +402,7 @@ class MOAABLoader:
         block: int | None = None,
         session: str | None = None,
         run: str | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
         """Load continuous data with events for async evaluation.
 
         Matches the DataLoader interface for continuous data access.
@@ -403,6 +417,7 @@ class MOAABLoader:
             data: (n_channels, n_samples) - continuous EEG
             event_times: (n_events,) - sample indices of events
             event_labels: (n_events,) - integer labels
+            event_mapping: Dict mapping event names to integer labels
         """
         if run is not None:
             # Load specific run
@@ -416,7 +431,7 @@ class MOAABLoader:
         data = raw.get_data()  # (n_channels, n_samples)
 
         # Extract and filter events
-        event_times, event_labels = self._extract_events_from_raw(raw)
+        event_times, event_labels, event_mapping = self._extract_events_from_raw(raw)
 
         if not event_times:
             logger.warning(
@@ -429,14 +444,14 @@ class MOAABLoader:
                 f"data shape {data.shape}, {len(event_times)} events"
             )
 
-        return data, np.array(event_times), np.array(event_labels)
+        return data, np.array(event_times), np.array(event_labels), event_mapping
 
     def load_data_split(
         self,
         subject_id: int,
         block: int = 1,
         val_ratio: float = 0.3,
-    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]]:
         """Split data using sessions/runs for train and eval.
 
         Uses natural dataset structure for clean train/eval separation:
@@ -451,7 +466,7 @@ class MOAABLoader:
 
         Returns:
             train_data: (X_train, y_train) - epochs for training
-            val_data: (continuous, event_times, event_labels) - for async eval
+            val_data: (continuous, event_times, event_labels, event_mapping) - for async eval
         """
         sessions = self.get_sessions(subject_id)
 
@@ -471,7 +486,7 @@ class MOAABLoader:
             y_train = y_all[train_mask]
 
             # Load continuous data from eval session
-            val_continuous, val_times, val_labels = self.load_continuous(
+            val_continuous, val_times, val_labels, val_mapping = self.load_continuous(
                 subject_id, session=eval_session
             )
 
@@ -497,7 +512,7 @@ class MOAABLoader:
                 y_train = y_all[train_mask]
 
                 # Load continuous from eval runs
-                val_continuous, val_times, val_labels = self._load_runs_continuous(
+                val_continuous, val_times, val_labels, val_mapping = self._load_runs_continuous(
                     subject_id, session, eval_runs
                 )
             else:
@@ -513,7 +528,7 @@ class MOAABLoader:
                 y_train = y_all[:-n_val]
 
                 # For continuous, just use the full session
-                val_continuous, val_times, val_labels = self.load_continuous(subject_id)
+                val_continuous, val_times, val_labels, val_mapping = self.load_continuous(subject_id)
                 # Take only last portion of events
                 n_val_events = int(len(val_times) * val_ratio)
                 val_times = val_times[-n_val_events:]
@@ -524,14 +539,14 @@ class MOAABLoader:
             f"{len(X_train)} train epochs, {len(val_labels)} eval events"
         )
 
-        return (X_train, y_train), (val_continuous, val_times, val_labels)
+        return (X_train, y_train), (val_continuous, val_times, val_labels, val_mapping)
 
     def _load_runs_continuous(
         self,
         subject_id: int,
         session: str,
         runs: list[str],
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
         """Load continuous data from specific runs within a session."""
         raw_data = self.dataset.get_data(subjects=[subject_id])
         subj_data = raw_data[subject_id][session]
@@ -548,9 +563,9 @@ class MOAABLoader:
         data = raw.get_data()
 
         # Extract and filter events
-        event_times, event_labels = self._extract_events_from_raw(raw)
+        event_times, event_labels, event_mapping = self._extract_events_from_raw(raw)
 
-        return data, np.array(event_times), np.array(event_labels)
+        return data, np.array(event_times), np.array(event_labels), event_mapping
 
     def get_channel_names(self, subject_id: int) -> list[str]:
         """Get channel names from preprocessed data (matching load_continuous)."""

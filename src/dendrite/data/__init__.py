@@ -1,12 +1,14 @@
-"""
-Dendrite Data Module
-
-Import classes directly from submodules:
-- `from dendrite.data.acquisition import DataAcquisition`
-- `from dendrite.data.storage.data_saver import DataSaver`
-- `from dendrite.data.stream_schemas import StreamConfig, StreamMetadata`
-"""
+"""Dendrite Data Module."""
 
 from .event_outlet import EventOutlet
-
-__all__ = ["EventOutlet"]
+from .imports import (
+    BaseLoader,
+    DatasetConfig,
+    InternalDatasetWrapper,
+    MOAABLoader,
+    SingleFileLoader,
+    StudyItem,
+    discover_moabb_datasets,
+    get_moabb_dataset_info,
+    load_moabb_dataset_details,
+)

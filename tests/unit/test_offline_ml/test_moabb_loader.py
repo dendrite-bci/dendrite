@@ -14,8 +14,7 @@ class TestLoadContinuous:
         Bug: Line 469 references 'events_array' which is only defined inside
         _extract_events_from_raw(), causing NameError when events are found.
         """
-        from dendrite.auxiliary.ml_workbench.datasets.moabb_loader import MOAABLoader
-        from dendrite.auxiliary.ml_workbench.datasets.config import DatasetConfig
+        from dendrite.data import MOAABLoader, DatasetConfig
 
         # Create minimal config
         config = DatasetConfig(
@@ -46,15 +45,16 @@ class TestLoadContinuous:
         loader._apply_paradigm_preprocessing = Mock(return_value=mock_raw)
 
         # Return events that trigger the "else" branch (non-empty events)
-        # This is where the NameError occurs
+        # Returns (event_times, event_labels, event_mapping)
         loader._extract_events_from_raw = Mock(
-            return_value=([100, 200, 300], [0, 1, 0])
+            return_value=([100, 200, 300], [0, 1, 0], {"left_hand": 0, "right_hand": 1})
         )
 
         # This should NOT raise NameError
-        data, event_times, event_labels = loader.load_continuous(subject_id=1)
+        data, event_times, event_labels, event_mapping = loader.load_continuous(subject_id=1)
 
         # Basic assertions to verify it worked
         assert data.shape[0] == 22  # Has channels
         assert len(event_times) == 3
         assert len(event_labels) == 3
+        assert event_mapping == {"left_hand": 0, "right_hand": 1}

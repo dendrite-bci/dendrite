@@ -99,7 +99,7 @@ class DataLoaderWorker(QtCore.QObject):
 
                         # Accumulate validation data from all subjects
                         if val_data is not None:
-                            val_cont, val_times, val_labels = val_data
+                            val_cont, val_times, val_labels, _ = val_data
                             # Adjust times with offset for multi-subject concatenation
                             adjusted_times = val_times + val_sample_offset
                             validation_chunks.append((val_cont, adjusted_times, val_labels))

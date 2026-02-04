@@ -78,10 +78,8 @@ class BenchmarkWorker(QtCore.QThread):
         try:
             from moabb.paradigms import P300, LeftRightImagery, MotorImagery
 
-            from dendrite.auxiliary.ml_workbench.datasets.internal_moabb_wrapper import (
-                InternalDatasetWrapper,
-            )
-            from dendrite.auxiliary.ml_workbench.datasets.moabb_loader import _get_moabb_dataset
+            from dendrite.data import InternalDatasetWrapper
+            from dendrite.data.imports.moabb_loader import _get_moabb_dataset
         except ImportError as e:
             self.error.emit(f"MOABB not available: {e}")
             return
