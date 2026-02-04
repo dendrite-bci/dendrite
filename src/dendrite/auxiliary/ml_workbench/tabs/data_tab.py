@@ -257,10 +257,7 @@ class DataTab(QtWidgets.QWidget):
 
     def _on_source_changed(self, source: str):
         """Handle dataset source tab change."""
-        if source == "moabb":
-            self._panel_stack.setCurrentIndex(0)
-        else:
-            self._panel_stack.setCurrentIndex(1)
+        self._panel_stack.setCurrentIndex(0 if source == "moabb" else 1)
 
     def _scan_datasets(self):
         """Scan and populate the dataset trees asynchronously."""

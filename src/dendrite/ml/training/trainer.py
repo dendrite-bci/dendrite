@@ -465,18 +465,18 @@ class TrainingLoop:
         if val_loss is None:
             return
 
-        min_delta = self.config.early_stopping_min_delta
-
-        if val_loss < self.best_val_loss - min_delta:
+        if val_loss < self.best_val_loss - self.config.early_stopping_min_delta:
             self.best_val_loss = val_loss
             self.best_val_acc = val_acc or 0.0
             self.best_model_state = copy.deepcopy(self.model.state_dict())
             self.patience_counter = 0
         else:
             self.patience_counter += 1
-            if self.config.use_early_stopping:
-                if self.patience_counter >= self.config.early_stopping_patience:
-                    self.stop_training = True
+            if (
+                self.config.use_early_stopping
+                and self.patience_counter >= self.config.early_stopping_patience
+            ):
+                self.stop_training = True
 
     def _update_swa(self, epoch: int) -> None:
         """Update SWA model if in SWA phase."""

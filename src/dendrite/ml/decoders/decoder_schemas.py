@@ -213,14 +213,7 @@ class NeuralNetConfig(BaseModel):
         return torch.device(self.device)
 
     def get_model_specific_params(self) -> dict[str, Any]:
-        """Extract parameters specific to the configured model type.
-
-        Returns model_params dict. Each model's default_parameters (from
-        get_model_info) handles its own dropout parameter naming.
-
-        Returns:
-            Dictionary of model-specific parameters
-        """
+        """Get a copy of model_params for passing to model constructor."""
         return self.model_params.copy() if self.model_params else {}
 
 

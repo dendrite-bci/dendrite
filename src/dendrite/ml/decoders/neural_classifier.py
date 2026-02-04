@@ -75,11 +75,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         else:
             input_domain = "time-series"
 
-        model_params = (
-            self.config.get_model_specific_params()
-            if hasattr(self.config, "get_model_specific_params")
-            else self.config.model_params.copy()
-        )
+        model_params = self.config.get_model_specific_params()
 
         if input_domain == "time-frequency":
             n_channels, n_frequencies, n_times = input_shape

@@ -42,19 +42,7 @@ class BaseAugmentationStrategy(ABC):
 
     @abstractmethod
     def _apply_to_array(self, sample: np.ndarray) -> np.ndarray:
-        """
-        Apply augmentation to a single array.
-
-        Parameters:
-        -----------
-        sample : np.ndarray
-            Data array in (channels, times) format
-
-        Returns:
-        --------
-        np.ndarray
-            Augmented array
-        """
+        """Apply augmentation to a single array in (channels, times) format."""
         pass
 
     def __call__(
@@ -354,13 +342,9 @@ class AugmentationManager:
                 continue
 
             # Apply augmentation to each sample in the batch
-            batch_samples = []
-            for i in range(len(data)):
-                # Apply strategy to single sample (channels, times)
-                aug_sample = strategy._apply_to_array(data[i])
-                batch_samples.append(aug_sample)
-
-            transformed_batch[modality] = np.array(batch_samples)
+            transformed_batch[modality] = np.array(
+                [strategy._apply_to_array(sample) for sample in data]
+            )
 
         return transformed_batch
 
@@ -398,14 +382,7 @@ class AugmentationManager:
         if len(data) == 0:
             return data
 
-        # Apply augmentation to each sample in the batch
-        batch_samples = []
-        for i in range(len(data)):
-            # Apply strategy to single sample (channels, times)
-            aug_sample = strategy._apply_to_array(data[i])
-            batch_samples.append(aug_sample)
-
-        return np.array(batch_samples)
+        return np.array([strategy._apply_to_array(sample) for sample in data])
 
     def list_available(self) -> dict[str, list[str]]:
         """List all available strategies and presets."""
