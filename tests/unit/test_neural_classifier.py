@@ -284,30 +284,6 @@ class TestClassWeights:
         ratio = weights[1] / weights[0]
         assert torch.isclose(ratio, torch.tensor(4.0), atol=1e-3)
 
-    def test_equal_class_weights(self):
-        """Test equal class weights strategy via TrainingLoop."""
-        from dendrite.ml.training import TrainingLoop
-
-        config = NeuralNetConfig(num_classes=2, use_class_weights=True, class_weight_strategy='equal')
-
-        mock_model = Mock()
-        mock_param = torch.nn.Parameter(torch.randn(10, 10))
-        mock_model.parameters.return_value = [mock_param]
-
-        def mock_prepare_input(X):
-            return torch.FloatTensor(X)
-
-        training_loop = TrainingLoop(mock_model, config, prepare_input_fn=mock_prepare_input)
-        device = torch.device('cpu')
-
-        y = np.array([0] * 100 + [1] * 50)  # Imbalanced but should get equal weights
-
-        weights = training_loop._calculate_class_weights(y, device)
-
-        assert weights is not None
-        assert len(weights) == 2
-        assert torch.allclose(weights, torch.ones(2, device=device))
-
     def test_disabled_class_weights(self):
         """Test disabled class weights via TrainingLoop."""
         from dendrite.ml.training import TrainingLoop
@@ -499,7 +475,7 @@ class TestPredictionFunctionality:
     @pytest.fixture
     def trained_classifier(self):
         """Create a mock trained classifier."""
-        config = NeuralNetConfig(num_classes=2, mc_dropout_samples=10)
+        config = NeuralNetConfig(num_classes=2)
         classifier = NeuralNetClassifier(config)
         classifier.is_fitted = True
         classifier.model = Mock()
@@ -547,67 +523,6 @@ class TestPredictionFunctionality:
         with pytest.raises(ValueError, match="must be fitted before prediction"):
             classifier.predict(sample_prediction_data)
 
-    def test_predict_proba_with_uncertainty_returns_mean_and_std(
-        self, trained_classifier, sample_prediction_data
-    ):
-        """Test MC Dropout uncertainty estimation returns mean and std probabilities."""
-        # Mock mc_dropout_predict to return expected shape
-        mock_mean = np.array([[0.7, 0.3], [0.4, 0.6], [0.8, 0.2], [0.5, 0.5], [0.6, 0.4]])
-        mock_std = np.array([[0.1, 0.1], [0.2, 0.2], [0.05, 0.05], [0.15, 0.15], [0.12, 0.12]])
-
-        with patch.object(trained_classifier, '_prepare_input_tensor') as mock_prepare, \
-             patch('dendrite.ml.decoders.neural_classifier.mc_dropout_predict') as mock_mc:
-            mock_prepare.return_value = torch.randn(5, 1, 32, 250)
-            mock_mc.return_value = (mock_mean, mock_std)
-
-            mean_proba, std_proba = trained_classifier.predict_proba_with_uncertainty(
-                sample_prediction_data
-            )
-
-            # Verify returns are correct shapes and values
-            np.testing.assert_array_equal(mean_proba, mock_mean)
-            np.testing.assert_array_equal(std_proba, mock_std)
-            assert mean_proba.shape == (5, 2)
-            assert std_proba.shape == (5, 2)
-
-    def test_predict_proba_with_uncertainty_uses_config_samples(
-        self, trained_classifier, sample_prediction_data
-    ):
-        """Test that MC Dropout uses config.mc_dropout_samples by default."""
-        with patch.object(trained_classifier, '_prepare_input_tensor') as mock_prepare, \
-             patch('dendrite.ml.decoders.neural_classifier.mc_dropout_predict') as mock_mc:
-            mock_prepare.return_value = torch.randn(5, 1, 32, 250)
-            mock_mc.return_value = (np.zeros((5, 2)), np.zeros((5, 2)))
-
-            trained_classifier.predict_proba_with_uncertainty(sample_prediction_data)
-
-            # Should use config value (10 from fixture)
-            mock_mc.assert_called_once()
-            call_args = mock_mc.call_args
-            assert call_args[0][2] == 10  # n_samples argument
-
-    def test_predict_proba_with_uncertainty_custom_samples(
-        self, trained_classifier, sample_prediction_data
-    ):
-        """Test that MC Dropout can use custom n_samples."""
-        with patch.object(trained_classifier, '_prepare_input_tensor') as mock_prepare, \
-             patch('dendrite.ml.decoders.neural_classifier.mc_dropout_predict') as mock_mc:
-            mock_prepare.return_value = torch.randn(5, 1, 32, 250)
-            mock_mc.return_value = (np.zeros((5, 2)), np.zeros((5, 2)))
-
-            trained_classifier.predict_proba_with_uncertainty(sample_prediction_data, n_samples=25)
-
-            # Should use custom value
-            mock_mc.assert_called_once()
-            call_args = mock_mc.call_args
-            assert call_args[0][2] == 25  # n_samples argument
-
-    def test_predict_proba_with_uncertainty_unfitted_raises(self, sample_prediction_data):
-        """Test that predict_proba_with_uncertainty raises error on unfitted classifier."""
-        classifier = NeuralNetClassifier(NeuralNetConfig(num_classes=2))
-
-        with pytest.raises(ValueError, match="must be fitted before prediction"):
-            classifier.predict_proba_with_uncertainty(sample_prediction_data)
 
 
 class TestCapabilitiesAndInfo:

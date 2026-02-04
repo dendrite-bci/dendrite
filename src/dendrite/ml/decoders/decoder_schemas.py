@@ -38,6 +38,7 @@ class NeuralNetConfig(BaseModel):
     # Training parameters with sensible defaults
     epochs: int = Field(default=100, ge=1, le=1000, description="Number of training epochs")
     batch_size: int = Field(default=32, ge=1, le=512, description="Batch size for training")
+    seed: int = Field(default=42, ge=0, description="Random seed for reproducibility")
     validation_split: float = Field(
         default=0.2, ge=0.0, le=0.5, description="Validation split ratio"
     )
@@ -83,7 +84,7 @@ class NeuralNetConfig(BaseModel):
     use_class_weights: bool = Field(
         default=True, description="Use class weights for imbalanced data"
     )
-    class_weight_strategy: Literal["balanced", "inverse", "equal"] = Field(
+    class_weight_strategy: Literal["balanced", "inverse"] = Field(
         default="balanced", description="Strategy for calculating class weights"
     )
 
@@ -125,7 +126,7 @@ class NeuralNetConfig(BaseModel):
         le=1.0,
         description="Beta distribution alpha for mixup (0 = disabled, 0.2 recommended when enabled)",
     )
-    mixup_type: Literal["mixup", "cutmix", "both"] = Field(
+    mixup_type: Literal["mixup", "cutmix"] = Field(
         default="mixup",
         description="Type of mixing augmentation (cutmix better for preserving local structure)",
     )
@@ -153,16 +154,6 @@ class NeuralNetConfig(BaseModel):
         default=None, gt=0.0, description="SWA learning rate (None = use current LR)"
     )
 
-    # MC Dropout for uncertainty estimation
-    use_mc_dropout: bool = Field(
-        default=False, description="Enable MC Dropout for prediction uncertainty estimation"
-    )
-    mc_dropout_samples: int = Field(
-        default=10,
-        ge=2,
-        le=50,
-        description="Number of MC forward passes for uncertainty estimation",
-    )
 
     # Model-specific parameters (passed directly to model constructor)
     model_params: dict[str, Any] = Field(

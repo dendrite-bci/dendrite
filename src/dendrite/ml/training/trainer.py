@@ -261,11 +261,9 @@ class TrainingLoop:
 
         if self.config.class_weight_strategy == "balanced":
             weights = n_samples / (n_classes * class_counts)
-        elif self.config.class_weight_strategy == "inverse":
+        else:  # inverse
             weights = 1.0 / class_counts
             weights = weights / weights.sum() * n_classes
-        else:
-            weights = np.ones(n_classes)
 
         weight_tensor = torch.zeros(self.config.num_classes, device=device)
         for idx, class_label in enumerate(unique_classes):
@@ -286,9 +284,6 @@ class TrainingLoop:
             return X_batch, None, None, None
 
         mixup_fn = apply_cutmix if self.config.mixup_type == "cutmix" else apply_mixup
-        if self.config.mixup_type == "both":
-            mixup_fn = apply_cutmix if np.random.random() > 0.5 else apply_mixup
-
         X_mixed, y1, y2, lam = mixup_fn(X_batch, y_batch, self.config.mixup_alpha)
         return X_mixed, y1, y2, lam
 

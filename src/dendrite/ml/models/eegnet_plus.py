@@ -1,7 +1,7 @@
 """
 EEGNet++ - Enhanced EEGNet with modern ML techniques.
 
-Improvements over original EEGNet:
+Modifications over original EEGNet:
 1. Squeeze-and-Excitation (SE) block for channel attention
 2. Residual connection around separable conv block
 3. Maintains parameter efficiency of original design

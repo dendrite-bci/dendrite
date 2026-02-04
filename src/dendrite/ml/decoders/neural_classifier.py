@@ -15,7 +15,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 
 from dendrite.ml.decoders.decoder_schemas import NeuralNetConfig
 from dendrite.ml.models import MODEL_REGISTRY, create_model
-from dendrite.ml.training import TrainingLoop, mc_dropout_predict
+from dendrite.ml.training import TrainingLoop
 from dendrite.utils.logger_central import get_logger
 
 
@@ -132,8 +132,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
 
         if validation_split > 0.0:
             n_val = int(n_samples * validation_split)
-            # Use seeded RandomState for reproducible splits
-            rng = np.random.RandomState(self.config.seed if hasattr(self.config, "seed") else 42)
+            rng = np.random.RandomState(self.config.seed)
             indices = rng.permutation(n_samples)
             train_indices, val_indices = indices[n_val:], indices[:n_val]
 
@@ -268,26 +267,6 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
             outputs = self.model(X_tensor)
             probabilities = torch.softmax(outputs, dim=1)
             return probabilities.cpu().numpy()
-
-    def predict_proba_with_uncertainty(self, X: np.ndarray, n_samples: int | None = None) -> tuple:
-        """
-        Get predictions with uncertainty estimation using MC Dropout.
-
-        Args:
-            X: Input data with shape (n_samples, n_channels, n_times)
-            n_samples: Number of MC forward passes (default from config)
-
-        Returns:
-            mean_proba: Mean class probabilities
-            std_proba: Standard deviation (uncertainty)
-        """
-        if not self.is_fitted:
-            raise ValueError("Classifier must be fitted before prediction")
-
-        n_samples = n_samples or self.config.mc_dropout_samples
-        X_tensor = self._prepare_input_tensor(X)
-
-        return mc_dropout_predict(self.model, X_tensor, n_samples)
 
     def get_training_results(self) -> dict[str, Any] | None:
         """Get training results from the last training session."""
