@@ -5,6 +5,7 @@ from typing import Any
 
 import mne
 
+from dendrite.data.imports import H5Loader
 from dendrite.utils.logger_central import get_logger
 
 logger = get_logger("StreamManagerGUI")
@@ -124,20 +125,14 @@ def get_file_info(file_path: str) -> tuple[float, Any, dict] | None:
 
     ext = Path(file_path).suffix.lower()
     try:
-        if ext in [".set", ".fif"]:
-            # MNE formats
-            if ext == ".set":
-                raw = mne.io.read_raw_eeglab(file_path, preload=False)
-            else:
-                raw = mne.io.read_raw_fif(file_path, preload=False)
+        if ext == ".fif":
+            raw = mne.io.read_raw_fif(file_path, preload=False)
             duration = raw.times[-1] if len(raw.times) > 0 else 0.0
             events, event_ids = mne.events_from_annotations(raw)
 
-        elif ext in [".h5", ".hdf5"]:
+        elif ext in H5Loader.EXTENSIONS:
             # H5 format - use lightweight metadata function
-            from dendrite.utils.format_loaders import get_h5_file_info
-
-            duration, n_channels, channel_names = get_h5_file_info(file_path)
+            duration, n_channels, channel_names = H5Loader.get_file_info(file_path)
             events = []
             event_ids = {}
         else:

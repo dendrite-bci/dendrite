@@ -15,8 +15,16 @@ from dendrite.gui.utils import set_app_icon
 from dendrite.gui.widgets.common.pill_navigation import PillNavigation
 from dendrite.utils.logger_central import INFO, get_logger, setup_logger
 
-from .dialogs import FileStreamDialog, MOAABSubjectDialog, StreamConfigDialog
-from .widgets import InternalDatasetsPanel, MOAABPresetPanel, StreamCard
+from dendrite.auxiliary.stream_manager.dialogs import (
+    FileStreamDialog,
+    MOAABSubjectDialog,
+    StreamConfigDialog,
+)
+from dendrite.auxiliary.stream_manager.widgets import (
+    InternalDatasetsPanel,
+    MOAABPresetPanel,
+    StreamCard,
+)
 
 
 class StreamManager(QtWidgets.QMainWindow):

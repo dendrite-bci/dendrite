@@ -13,9 +13,9 @@ import numpy as np
 from pylsl import local_clock
 
 from dendrite.data import EventOutlet, MOAABLoader, get_moabb_dataset_info
+from dendrite.data.imports import FIFLoader, is_supported_format, load_file
 from dendrite.data.lsl_helpers import LSLOutlet
 from dendrite.data.stream_schemas import StreamConfig
-from dendrite.utils.format_loaders import SUPPORTED_FORMATS, load_file
 
 
 class OfflineDataStreamer(Process):
@@ -173,10 +173,7 @@ class OfflineDataStreamer(Process):
 
     def _is_supported_file(self, file_path: str) -> bool:
         """Check if file format is supported."""
-        from pathlib import Path
-
-        ext = Path(file_path).suffix.lower()
-        return ext in SUPPORTED_FORMATS
+        return is_supported_format(file_path)
 
     def _convert_units(self, data: np.ndarray, channel_types: list[str]) -> np.ndarray:
         """Convert data from volts to appropriate units based on channel types.
@@ -197,40 +194,32 @@ class OfflineDataStreamer(Process):
     def _stream_data_from_file(self):
         """Stream data from file using format-agnostic loader.
 
-        Supports .set (EEGLAB), .fif (MNE), .h5/.hdf5 (internal BMI format).
+        Supports .fif (MNE), .h5/.hdf5 (internal BMI format).
         """
         try:
-            # Load via format abstraction
-            loaded = load_file(self.data_file_path)
-
-            # Apply unit conversion (MNE data is in volts)
             from pathlib import Path
 
             ext = Path(self.data_file_path).suffix.lower()
-            if ext in [".set", ".fif"]:
-                # MNE formats need unit conversion
+            loaded = load_file(self.data_file_path)
+
+            # Apply unit conversion (MNE data is in volts)
+            if ext in FIFLoader.EXTENSIONS:
                 data = self._convert_units(loaded.data, loaded.channel_types)
             else:
-                # H5 data is already in correct units
                 data = loaded.data
 
             n_samples, n_channels = data.shape
             channel_types_upper = [t.upper() for t in loaded.channel_types]
-
-            # Check if data already has markers (H5 format)
             has_markers_column = "MARKERS" in channel_types_upper
 
             # Log channel type summary
             type_counts = {}
             for ch_type in channel_types_upper:
                 type_counts[ch_type] = type_counts.get(ch_type, 0) + 1
-            type_summary = ", ".join(
-                [f"{count} {ch_type}" for ch_type, count in type_counts.items()]
-            )
+            type_summary = ", ".join(f"{count} {t}" for t, count in type_counts.items())
             markers_info = "" if has_markers_column else " + markers"
             self.logger.info(f"Streaming {type_summary}{markers_info} @ {loaded.sample_rate} Hz")
 
-            # Create stream config
             config = self._create_file_stream_config(
                 "FileData", loaded.channel_names, channel_types_upper, loaded.sample_rate
             )
@@ -239,7 +228,6 @@ class OfflineDataStreamer(Process):
             # Create separate event outlet if enabled
             event_outlet = None
             if self.enable_event_stream and loaded.events:
-                # Build event mapping from event_id or generate from unique codes
                 if loaded.event_id:
                     event_mapping = loaded.event_id
                 else:
@@ -250,28 +238,22 @@ class OfflineDataStreamer(Process):
                 event_outlet = EventOutlet(
                     stream_name=stream_name, events=event_mapping, stream_id="file_events_id"
                 )
-                self.logger.info(
-                    f"Event stream enabled: {len(loaded.events)} events, mapping: {event_mapping}"
-                )
+                self.logger.info(f"Event stream enabled: {len(loaded.events)} events, mapping: {event_mapping}")
 
-            # Build event lookup for fast access (sample_idx -> event_code)
             event_dict = {sample_idx: code for sample_idx, code in loaded.events}
 
-            # Send duration to GUI
             total_duration = n_samples / loaded.sample_rate
             if self.info_queue:
                 self.info_queue.put({"type": "duration", "value": total_duration})
 
-            # Stream data with timing control
             start_time = time.perf_counter()
             sample_interval = 1.0 / loaded.sample_rate
-            progress_interval = int(loaded.sample_rate // 2)  # Report progress every 0.5s
+            progress_interval = int(loaded.sample_rate // 2)
 
             for sample_idx in range(n_samples):
                 if self.stop_event.is_set():
                     break
 
-                # Timing control
                 expected_time = start_time + (sample_idx * sample_interval)
                 sleep_time = expected_time - time.perf_counter()
                 if sleep_time > 0:
@@ -279,22 +261,19 @@ class OfflineDataStreamer(Process):
 
                 sample = data[sample_idx].tolist()
 
-                # Only add marker if data doesn't already have markers column
                 marker = 0
                 if not has_markers_column:
                     marker = event_dict.get(sample_idx, 0)
 
-                    # Send event on separate stream if enabled (before zeroing marker)
                     if event_outlet and marker != 0:
-                        event_mapping = loaded.event_id or {}
+                        ev_mapping = loaded.event_id or {}
                         event_name = next(
-                            (k for k, v in event_mapping.items() if v == marker), f"event_{marker}"
+                            (k for k, v in ev_mapping.items() if v == marker), f"event_{marker}"
                         )
                         event_outlet.send_event(
                             event_type=event_name, additional_data={"sample_idx": sample_idx}
                         )
 
-                    # Zero out marker in main stream if separate events enabled and remove option is on
                     if self.enable_event_stream:
                         marker = 0
 
@@ -302,15 +281,12 @@ class OfflineDataStreamer(Process):
 
                 streamer.push_sample(sample, local_clock())
 
-                # Report progress to GUI
                 if self.info_queue and sample_idx % progress_interval == 0:
-                    progress = sample_idx / n_samples
-                    self.info_queue.put({"type": "progress", "value": progress})
+                    self.info_queue.put({"type": "progress", "value": sample_idx / n_samples})
 
                 if sample_idx % 10000 == 0:
                     self.logger.debug(f"Streamed {sample_idx}/{n_samples} samples")
 
-            # Send final progress
             if self.info_queue:
                 self.info_queue.put({"type": "progress", "value": 1.0})
 

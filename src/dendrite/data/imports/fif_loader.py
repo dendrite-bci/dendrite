@@ -12,6 +12,7 @@ import mne
 import numpy as np
 
 from ._event_utils import apply_preprocessing, create_epochs, encode_labels, filter_events_by_codes
+from ._types import LoadedData
 from .base_loader import BaseLoader
 from .config import DatasetConfig
 
@@ -23,6 +24,30 @@ class FIFLoader(BaseLoader):
 
     Handles custom datasets with a FIF file and event mapping from JSON.
     """
+
+    EXTENSIONS = {".fif"}
+
+    @staticmethod
+    def load_file(file_path: str) -> LoadedData:
+        """Load data from FIF file for streaming."""
+        logger.info(f"Loading FIF file via MNE: {file_path}")
+        raw = mne.io.read_raw_fif(file_path, preload=True, verbose=False)
+
+        data = raw.get_data().T  # (samples, channels)
+        channel_names = list(raw.ch_names)
+        channel_types = raw.get_channel_types()
+        sample_rate = raw.info["sfreq"]
+
+        events = []
+        event_id = None
+        try:
+            events_array, event_id = mne.events_from_annotations(raw)
+            events = [(int(e[0]), int(e[2])) for e in events_array]
+        except (ValueError, KeyError, RuntimeError):
+            pass
+
+        logger.info(f"Loaded: {data.shape[0]} samples, {data.shape[1]} channels @ {sample_rate} Hz")
+        return LoadedData(data, channel_names, channel_types, sample_rate, events, event_id)
 
     def __init__(
         self,

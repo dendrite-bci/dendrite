@@ -20,9 +20,14 @@ from dendrite.gui.styles.design_tokens import (
 )
 from dendrite.gui.styles.widget_styles import WidgetStyles
 from dendrite.gui.widgets.common.toggle_pill import TogglePillWidget
-from dendrite.utils.format_loaders import get_file_filter
 
-from ..utils import STREAM_TYPE_PRESETS, TYPE_NORMALIZATION, get_file_info, get_source_display
+from dendrite.auxiliary.stream_manager.utils import (
+    STREAM_TYPE_PRESETS,
+    TYPE_NORMALIZATION,
+    get_file_info,
+    get_source_display,
+)
+from dendrite.data.imports import get_file_filter
 
 
 class StreamDetailsDialog(QtWidgets.QDialog):
@@ -634,9 +639,8 @@ class FileStreamDialog(QtWidgets.QDialog):
 
     def get_config(self) -> dict:
         """Return stream configuration."""
-        from dendrite.utils.format_loaders import load_file
+        from dendrite.data.imports import load_file
 
-        # Load file to get metadata
         loaded = load_file(self.file_path)
         filename = Path(self.file_path).stem
 

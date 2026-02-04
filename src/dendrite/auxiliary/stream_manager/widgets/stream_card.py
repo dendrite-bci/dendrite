@@ -20,8 +20,8 @@ from dendrite.gui.styles.design_tokens import (
 from dendrite.gui.styles.widget_styles import WidgetStyles
 from dendrite.gui.widgets.common import StatusPillWidget
 
-from ..dialogs.stream_dialogs import StreamDetailsDialog
-from ..utils import get_file_info, get_source_display
+from dendrite.auxiliary.stream_manager.dialogs.stream_dialogs import StreamDetailsDialog
+from dendrite.auxiliary.stream_manager.utils import get_file_info, get_source_display
 
 
 class StreamCard(QtWidgets.QFrame):

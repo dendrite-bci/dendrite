@@ -5,9 +5,9 @@ from typing import Literal
 
 from PyQt6 import QtCore, QtWidgets
 
+from dendrite.data.imports import get_file_filter, is_supported_format, load_file
 from dendrite.data.storage.database import Database, DatasetRepository, StudyRepository
 from dendrite.gui.styles.widget_styles import LAYOUT, WidgetStyles
-from dendrite.utils.format_loaders import SUPPORTED_FORMATS, get_file_filter, load_file
 from dendrite.utils.logger_central import get_logger
 
 from ._form_widgets import (
@@ -252,26 +252,24 @@ class DatasetDialog(QtWidgets.QDialog):
 
     def _load_file(self, file_path: str):
         """Load file and update UI."""
-        ext = Path(file_path).suffix.lower()
-        if ext not in SUPPORTED_FORMATS:
+        if not is_supported_format(file_path):
             QtWidgets.QMessageBox.warning(
                 self,
                 "Unsupported Format",
-                f"File format '{ext}' is not supported.\n"
-                f"Supported: {', '.join(SUPPORTED_FORMATS.keys())}",
+                f"File format is not supported.\nSupported: .fif, .h5, .hdf5",
             )
             return
 
         try:
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-            data = load_file(file_path)
+            loaded = load_file(file_path)
             QtWidgets.QApplication.restoreOverrideCursor()
 
             self._file_path = file_path
             self._file_info = {
-                "n_samples": data.data.shape[0],
-                "n_channels": len(data.channel_names),
-                "sample_rate": data.sample_rate,
+                "n_samples": loaded.data.shape[0],
+                "n_channels": len(loaded.channel_names),
+                "sample_rate": loaded.sample_rate,
             }
 
             self._file_edit.setText(file_path)

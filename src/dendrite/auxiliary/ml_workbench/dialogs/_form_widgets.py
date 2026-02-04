@@ -301,24 +301,24 @@ class EventsSelectorWidget(QtWidgets.QWidget):
 
         try:
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-            from dendrite.utils.format_loaders import load_file
+            from dendrite.data.imports import load_file
 
-            data = load_file(self._file_path)
+            loaded = load_file(self._file_path)
             QtWidgets.QApplication.restoreOverrideCursor()
 
-            if not data.events:
+            if not loaded.events:
                 self._status_label.setText("No events detected in file")
                 return
 
-            self._total_events = len(data.events)
+            self._total_events = len(loaded.events)
 
             # Get unique event codes
-            event_codes = sorted(set(e[1] for e in data.events))
+            event_codes = sorted(set(e[1] for e in loaded.events))
 
             # Reverse event_id mapping: code -> name
             code_to_name = {}
-            if data.event_id:
-                code_to_name = {v: k for k, v in data.event_id.items()}
+            if loaded.event_id:
+                code_to_name = {v: k for k, v in loaded.event_id.items()}
 
             # Determine which codes to pre-check
             if preselect_codes is not None:
