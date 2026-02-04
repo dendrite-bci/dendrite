@@ -9,7 +9,7 @@ OptunaRunner and OptunaSearchCV have been moved to:
     dendrite.auxiliary.ml_workbench.backend
 """
 
-from .config import OptunaConfig
+from .config import OptunaConfig, create_sampler
 from .optuna_utils import (
     DEFAULT_SEARCH_SPACE,
     create_optuna_search_configs,
@@ -25,6 +25,7 @@ from .search_space import (
 
 __all__ = [
     "OptunaConfig",
+    "create_sampler",
     "create_optuna_search_configs",
     "suggest_params",
     "DEFAULT_SEARCH_SPACE",

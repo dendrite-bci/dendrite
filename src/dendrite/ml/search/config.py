@@ -1,6 +1,39 @@
 """Configuration dataclasses for Optuna hyperparameter search."""
 
+import logging
 from dataclasses import dataclass
+
+import optuna
+
+logger = logging.getLogger(__name__)
+
+
+def create_sampler(
+    sampler_type: str,
+    seed: int | None = None,
+    n_startup_trials: int = 10,
+) -> optuna.samplers.BaseSampler:
+    """Create Optuna sampler based on type.
+
+    Args:
+        sampler_type: Sampler type ('tpe', 'random', 'cmaes', 'grid')
+        seed: Random seed for reproducibility
+        n_startup_trials: Random trials before TPE kicks in
+
+    Returns:
+        Configured Optuna sampler
+    """
+    if sampler_type == "tpe":
+        return optuna.samplers.TPESampler(seed=seed, n_startup_trials=n_startup_trials)
+    elif sampler_type == "random":
+        return optuna.samplers.RandomSampler(seed=seed)
+    elif sampler_type == "cmaes":
+        return optuna.samplers.CmaEsSampler(seed=seed)
+    elif sampler_type == "grid":
+        return optuna.samplers.GridSampler({})
+    else:
+        logger.warning(f"Unknown sampler '{sampler_type}', using TPE")
+        return optuna.samplers.TPESampler(seed=seed)
 
 
 @dataclass

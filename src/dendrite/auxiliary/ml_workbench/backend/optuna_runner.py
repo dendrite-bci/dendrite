@@ -30,7 +30,7 @@ from typing import Any
 import optuna
 from optuna.trial import TrialState
 
-from dendrite.ml.search import OptunaConfig
+from dendrite.ml.search import OptunaConfig, create_sampler
 from dendrite.utils.logger_central import get_logger
 
 logger = get_logger(__name__)
@@ -85,7 +85,11 @@ class OptunaRunner:
             study_name=self.config.study_name,
             storage=self.config.storage,
             load_if_exists=self.config.load_if_exists,
-            sampler=self._create_sampler(),
+            sampler=create_sampler(
+                self.config.sampler_type,
+                self.config.seed,
+                self.config.n_startup_trials,
+            ),
             pruner=self._create_pruner(),
             direction=self.config.direction,
         )
@@ -110,24 +114,6 @@ class OptunaRunner:
             self._save_results(results)
 
         return results
-
-    def _create_sampler(self) -> optuna.samplers.BaseSampler:
-        """Create sampler based on config."""
-        sampler_type = self.config.sampler_type
-        seed = self.config.seed
-        n_startup_trials = self.config.n_startup_trials
-
-        if sampler_type == "tpe":
-            return optuna.samplers.TPESampler(seed=seed, n_startup_trials=n_startup_trials)
-        elif sampler_type == "random":
-            return optuna.samplers.RandomSampler(seed=seed)
-        elif sampler_type == "cmaes":
-            return optuna.samplers.CmaEsSampler(seed=seed)
-        elif sampler_type == "grid":
-            return optuna.samplers.GridSampler({})
-        else:
-            logger.warning(f"Unknown sampler '{sampler_type}', using TPE")
-            return optuna.samplers.TPESampler(seed=seed)
 
     def _create_pruner(self) -> optuna.pruners.BasePruner:
         """Create pruner based on config."""
