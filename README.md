@@ -41,10 +41,10 @@ uv run python main.py
 
 ## Documentation
 
-- [Quickstart Guide](https://dendrite-bci.github.io/dendrite/quickstart) - Installation and setup
-- [Introduction](https://dendrite-bci.github.io/dendrite/) - System overview and capabilities
-- [User Guides](https://dendrite-bci.github.io/dendrite/user-guides) - Feature tutorials and workflows
-- [API Reference](https://dendrite-bci.github.io/dendrite/api) - Technical documentation
+- [Quickstart](https://dendrite-bci.github.io/dendrite/docs/quickstart)
+- [Introduction](https://dendrite-bci.github.io/dendrite/docs/intro)
+- [Guides](https://dendrite-bci.github.io/dendrite/docs/guides)
+- [API Reference](https://dendrite-bci.github.io/dendrite/docs/api)
 
 ## License
 
