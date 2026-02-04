@@ -109,13 +109,10 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         """Remove all widgets from a layout recursively."""
         while layout.count():
             item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                while item.layout().count():
-                    sub = item.layout().takeAt(0)
-                    if sub.widget():
-                        sub.widget().deleteLater()
+            if widget := item.widget():
+                widget.deleteLater()
+            elif sub_layout := item.layout():
+                self._clear_layout(sub_layout)
 
     def _add_info_row(self, label: str, value: str, tooltip: str = ""):
         """Add a label: value row to the stats container."""

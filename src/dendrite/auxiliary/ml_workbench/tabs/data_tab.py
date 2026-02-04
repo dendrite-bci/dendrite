@@ -390,7 +390,6 @@ class DataTab(QtWidgets.QWidget):
                 "type": "dataset",
                 "config": config,
                 "loader": loader,
-                "capability": "full",
                 "selected_subject": 1,
             }
         )

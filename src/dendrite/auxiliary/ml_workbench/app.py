@@ -172,9 +172,8 @@ class TrainerApp(QtWidgets.QMainWindow):
             return
         if isinstance(data, dict) and "config" in data:
             config = data["config"]
-            cap = data.get("capability", "unknown")
             self._status_bar.showMessage(
-                f"Study: {config.name} ({len(config.subjects)} subj, {cap})"
+                f"Study: {config.name} ({len(config.subjects)} subjects)"
             )
 
     @property

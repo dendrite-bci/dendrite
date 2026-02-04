@@ -269,7 +269,6 @@ class BenchmarkTab(QtWidgets.QWidget):
     def _update_data_status(self):
         if self._study_data:
             config = self._study_data["config"]
-            capability = self._study_data.get("capability", "unknown")
             is_moabb = config.source_type == "moabb"
             selected_subject = self._study_data.get("selected_subject")
 
@@ -278,9 +277,7 @@ class BenchmarkTab(QtWidgets.QWidget):
 
             source_str = "[MOABB]" if is_moabb else ""
             self._data_label.setText(
-                f"<b>{config.name}</b> {source_str}<br>"
-                f"Subjects: {n_subjects}<br>"
-                f"Capability: {capability}"
+                f"<b>{config.name}</b> {source_str}<br>" f"Subjects: {n_subjects}"
             )
             self._data_label.setStyleSheet(WidgetStyles.inline_label(color=STATUS_SUCCESS))
             self._run_btn.setEnabled(True)

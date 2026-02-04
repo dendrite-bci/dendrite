@@ -5,6 +5,7 @@ for training and benchmarking BCI decoders.
 """
 
 import logging
+from typing import Any
 
 import mne
 import numpy as np
@@ -451,7 +452,11 @@ class MOAABLoader:
         subject_id: int,
         block: int = 1,
         val_ratio: float = 0.3,
-    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]]:
+    ) -> tuple[
+        tuple[np.ndarray, np.ndarray],
+        tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]],
+        dict[str, Any],
+    ]:
         """Split data using sessions/runs for train and eval.
 
         Uses natural dataset structure for clean train/eval separation:
@@ -467,6 +472,7 @@ class MOAABLoader:
         Returns:
             train_data: (X_train, y_train) - epochs for training
             val_data: (continuous, event_times, event_labels, event_mapping) - for async eval
+            split_info: Metadata about split method
         """
         sessions = self.get_sessions(subject_id)
 
@@ -489,6 +495,12 @@ class MOAABLoader:
             val_continuous, val_times, val_labels, val_mapping = self.load_continuous(
                 subject_id, session=eval_session
             )
+
+            split_info: dict[str, Any] = {
+                "method": "session",
+                "train": train_session,
+                "eval": eval_session,
+            }
 
         else:
             # Single session - split by runs
@@ -515,6 +527,12 @@ class MOAABLoader:
                 val_continuous, val_times, val_labels, val_mapping = self._load_runs_continuous(
                     subject_id, session, eval_runs
                 )
+
+                split_info = {
+                    "method": "run",
+                    "train_runs": train_runs,
+                    "eval_runs": eval_runs,
+                }
             else:
                 # Single run - temporal split of epochs
                 logger.info("Single run - using temporal epoch split")
@@ -534,12 +552,17 @@ class MOAABLoader:
                 val_times = val_times[-n_val_events:]
                 val_labels = val_labels[-n_val_events:]
 
+                split_info = {
+                    "method": "temporal",
+                    "val_ratio": val_ratio,
+                }
+
         logger.info(
             f"Split MOABB data for subject {subject_id}: "
             f"{len(X_train)} train epochs, {len(val_labels)} eval events"
         )
 
-        return (X_train, y_train), (val_continuous, val_times, val_labels, val_mapping)
+        return (X_train, y_train), (val_continuous, val_times, val_labels, val_mapping), split_info
 
     def _load_runs_continuous(
         self,

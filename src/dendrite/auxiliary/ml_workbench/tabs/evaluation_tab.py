@@ -272,7 +272,6 @@ class EvaluationTab(QtWidgets.QWidget):
 
         self._study_data = data
         config = data["config"]
-        capability = data.get("capability", "unknown")
         selected_subj = data.get("selected_subject")
 
         # Extract class names from events dict (e.g., {'left_hand': 1, 'right_hand': 2})
@@ -290,12 +289,8 @@ class EvaluationTab(QtWidgets.QWidget):
         subj_str = (
             f"Subject {selected_subj}" if selected_subj else f"{len(config.subjects)} subjects"
         )
-        cap_color = STATUS_SUCCESS if capability == "full" else STATUS_WARNING_ALT
 
-        self._dataset_label.setText(
-            f"<b>{config.name}</b><br>{subj_str}<br>"
-            f"<span style='color:{cap_color}'>Capability: {capability}</span>"
-        )
+        self._dataset_label.setText(f"<b>{config.name}</b><br>{subj_str}")
         self._update_button_states()
 
     def _update_y_axis_labels(self):

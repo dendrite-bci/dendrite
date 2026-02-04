@@ -6,6 +6,7 @@ Loads data from a FIF file with event mapping from JSON.
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import mne
 import numpy as np
@@ -280,7 +281,11 @@ class FIFLoader(BaseLoader):
         subject_id: int = 1,
         block: int = 1,
         val_ratio: float = 0.3,
-    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]]:
+    ) -> tuple[
+        tuple[np.ndarray, np.ndarray],
+        tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]],
+        dict[str, Any],
+    ]:
         """Load data split into train epochs and validation continuous.
 
         Args:
@@ -291,6 +296,7 @@ class FIFLoader(BaseLoader):
         Returns:
             train_data: (X_train, y_train) - epochs for training
             val_data: (continuous, event_times, event_labels, event_mapping) - for async eval
+            split_info: Metadata about split method
         """
         raw = self.load_raw(subject_id, preprocess=True)
         mne_events, _ = mne.events_from_annotations(raw, verbose=False)
@@ -325,8 +331,16 @@ class FIFLoader(BaseLoader):
         val_times = val_events[:, 0] - val_start
         val_labels = encode_labels(val_events[:, 2], self._event_mapping)
 
-        logger.info(f"Split data: {len(train_events)} train, {len(val_events)} val events")
-        return (X_train, y_train), (val_continuous, val_times, val_labels, self._event_mapping)
+        n_train = len(train_events)
+        split_info: dict[str, Any] = {
+            "method": "temporal",
+            "val_ratio": val_ratio,
+            "n_train": n_train,
+            "n_val": n_val,
+        }
+
+        logger.info(f"Split data: {n_train} train, {n_val} val events")
+        return (X_train, y_train), (val_continuous, val_times, val_labels, self._event_mapping), split_info
 
     def get_n_times(self, subject_id: int = 1) -> int:
         """Get number of time samples per epoch.

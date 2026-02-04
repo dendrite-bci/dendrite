@@ -427,16 +427,13 @@ class TrainingTab(QtWidgets.QWidget):
 
         self._study_data = data
         config = data["config"]
-        capability = data.get("capability", "unknown")
         selected_subj = data.get("selected_subject")
 
         subj_str = (
             f"Subject {selected_subj}" if selected_subj else f"{len(config.subjects)} subjects"
         )
 
-        self._dataset_label.setText(
-            f"<b>{config.name}</b><br>{subj_str}<br>Capability: {capability}"
-        )
+        self._dataset_label.setText(f"<b>{config.name}</b><br>{subj_str}")
         self._train_btn.setEnabled(True)
 
         # Reset split label (actual counts shown after data loads for training)
@@ -468,7 +465,6 @@ class TrainingTab(QtWidgets.QWidget):
         config = self._study_data["config"]
         loader = self._study_data["loader"]
         selected_subject = self._study_data.get("selected_subject")
-        capability = self._study_data.get("capability", "epochs")
 
         subjects = [selected_subject] if selected_subject is not None else config.subjects
 
@@ -506,7 +502,6 @@ class TrainingTab(QtWidgets.QWidget):
         self._data_loader_worker = DataLoaderWorker(
             loader=loader,
             subjects=subjects,
-            capability=capability,
             holdout_pct=holdout_pct,
         )
         setup_worker_thread(

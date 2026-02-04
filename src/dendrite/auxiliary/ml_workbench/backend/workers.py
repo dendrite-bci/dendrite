@@ -34,7 +34,6 @@ class DataLoaderWorker(QtCore.QObject):
         self,
         loader: Any,
         subjects: list[int],
-        capability: str = "epochs",
         holdout_pct: int = 0,
     ):
         """Initialize the data loader worker.
@@ -42,13 +41,11 @@ class DataLoaderWorker(QtCore.QObject):
         Args:
             loader: Dataset loader with load_epochs() method
             subjects: List of subject IDs to load
-            capability: Dataset capability ('full' or 'epochs')
             holdout_pct: Percentage of events to hold out for evaluation (0-50)
         """
         super().__init__()
         self.loader = loader
         self.subjects = subjects
-        self.capability = capability
         self.holdout_pct = holdout_pct
         self._stopped = False
 
@@ -56,12 +53,50 @@ class DataLoaderWorker(QtCore.QObject):
         """Signal the worker to stop."""
         self._stopped = True
 
+    def _build_split_description(self, split_infos: list[dict]) -> str | None:
+        """Build a human-readable description of the split method.
+
+        Args:
+            split_infos: List of split_info dicts from load_data_split calls
+
+        Returns:
+            Description string or None if no split info available
+        """
+        if not split_infos:
+            return None
+
+        # For single subject, show detailed info
+        if len(split_infos) == 1:
+            info = split_infos[0]
+            method = info.get("method", "unknown")
+            if method == "session":
+                return f"session split ({info.get('train')} / {info.get('eval')})"
+            elif method == "run":
+                return "run split"
+            else:
+                return f"temporal split ({int(self.holdout_pct)}%)"
+
+        # For multiple subjects, summarize by method
+        methods = {info.get("method", "unknown") for info in split_infos}
+        if len(methods) == 1:
+            method = methods.pop()
+            if method == "session":
+                return "session split"
+            elif method == "run":
+                return "run split"
+            else:
+                return f"temporal split ({int(self.holdout_pct)}%)"
+
+        # Mixed methods
+        return "mixed split methods"
+
     @QtCore.pyqtSlot()
     def run(self):
         """Load data from all subjects."""
         try:
             all_X, all_y = [], []
             validation_chunks = []
+            split_infos: list[dict] = []
             val_sample_offset = 0
 
             for i, subj in enumerate(self.subjects):
@@ -72,30 +107,16 @@ class DataLoaderWorker(QtCore.QObject):
                 self.progress.emit(f"Loading subject {subj} ({i + 1}/{len(self.subjects)})...")
 
                 try:
-                    # Warn if holdout requested but conditions not met
-                    if self.holdout_pct > 0:
-                        if self.capability != "full":
-                            logger.warning(
-                                f"Holdout requested ({self.holdout_pct}%) but capability is "
-                                f"'{self.capability}', not 'full'. Holdout disabled."
-                            )
-                        elif not hasattr(self.loader, "load_data_split"):
-                            logger.warning(
-                                f"Holdout requested ({self.holdout_pct}%) but loader doesn't "
-                                "support load_data_split. Holdout disabled."
-                            )
-
-                    # Use holdout split if enabled and capability is full
-                    if (
-                        self.holdout_pct > 0
-                        and self.capability == "full"
-                        and hasattr(self.loader, "load_data_split")
-                    ):
+                    # Use holdout split if enabled and loader supports it
+                    if self.holdout_pct > 0 and hasattr(self.loader, "load_data_split"):
                         self.progress.emit(f"Loading with {self.holdout_pct}% holdout...")
                         val_ratio = self.holdout_pct / 100.0
-                        (X, y), val_data = self.loader.load_data_split(
+                        (X, y), val_data, split_info = self.loader.load_data_split(
                             subj, block=1, val_ratio=val_ratio
                         )
+                        logger.info(f"Split info for subject {subj}: {split_info}")
+                        if split_info:
+                            split_infos.append(split_info)
 
                         # Accumulate validation data from all subjects
                         if val_data is not None:
@@ -150,11 +171,17 @@ class DataLoaderWorker(QtCore.QObject):
             if validation_data:
                 val_cont = validation_data[0]
                 val_duration = val_cont.shape[1] / sample_rate
-                self.progress.emit(
+
+                # Build split method description
+                split_desc = self._build_split_description(split_infos)
+                msg = (
                     f"Loaded {len(X)} train epochs ({format_duration(train_duration)}), "
                     f"{len(val_labels)} eval events ({format_duration(val_duration)}) "
-                    f"from {len(validation_chunks)} subjects"
+                    f"from {len(validation_chunks)} subject(s)"
                 )
+                if split_desc:
+                    msg += f" [{split_desc}]"
+                self.progress.emit(msg)
                 self.validation_ready.emit(validation_data)
             else:
                 self.progress.emit(

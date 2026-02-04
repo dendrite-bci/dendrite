@@ -5,6 +5,7 @@ Defines the interface that all loaders must implement.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 import mne
 import numpy as np
@@ -128,6 +129,31 @@ class BaseLoader(ABC):
             event_times: (n_events,) - sample indices of events
             event_labels: (n_events,) - integer labels
             event_mapping: Dict mapping event names to integer labels
+        """
+        ...
+
+    @abstractmethod
+    def load_data_split(
+        self,
+        subject_id: int,
+        block: int = 1,
+        val_ratio: float = 0.3,
+    ) -> tuple[
+        tuple[np.ndarray, np.ndarray],  # train: (X, y)
+        tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]],  # val: (cont, times, labels, mapping)
+        dict[str, Any],  # split_info
+    ]:
+        """Load data split into train epochs and validation continuous.
+
+        Args:
+            subject_id: Subject ID
+            block: Block number for event filtering
+            val_ratio: Fraction of data for validation
+
+        Returns:
+            train_data: (X_train, y_train) - epochs for training
+            val_data: (continuous, event_times, event_labels, event_mapping) - for async eval
+            split_info: Metadata about split method (e.g., {"method": "temporal", "val_ratio": 0.3})
         """
         ...
 
