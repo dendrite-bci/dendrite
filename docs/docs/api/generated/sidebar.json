@@ -1,0 +1,37 @@
+{
+  "items": [
+    {
+      "items": [
+        "api/generated/dendrite/data/event_outlet"
+      ],
+      "label": "dendrite.data",
+      "type": "category"
+    },
+    {
+      "items": [
+        {
+          "items": [
+            "api/generated/dendrite/ml/decoders/__init__",
+            "api/generated/dendrite/ml/decoders/decoder",
+            "api/generated/dendrite/ml/decoders/decoder_schemas",
+            "api/generated/dendrite/ml/decoders/registry"
+          ],
+          "label": "dendrite.ml.decoders",
+          "type": "category"
+        },
+        {
+          "items": [
+            "api/generated/dendrite/ml/models/__init__",
+            "api/generated/dendrite/ml/models/base"
+          ],
+          "label": "dendrite.ml.models",
+          "type": "category"
+        }
+      ],
+      "label": "dendrite.ml",
+      "type": "category"
+    }
+  ],
+  "label": "dendrite",
+  "type": "category"
+}

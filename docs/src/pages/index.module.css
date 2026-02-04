@@ -1,0 +1,200 @@
+/**
+ * Minimal Landing Page Styles
+ */
+
+/* ===============================================
+   Hero Section
+   =============================================== */
+
+.heroBanner {
+  padding: 6rem 0 5rem;
+  text-align: center;
+  background: transparent;
+}
+
+.heroTitle {
+  font-size: 3.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.heroSubtitle {
+  font-size: 1.25rem;
+  color: var(--ifm-color-emphasis-600);
+  margin: 0 auto 2.5rem;
+  max-width: 700px;
+  line-height: 1.5;
+}
+
+.buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.accentButton {
+  background: var(--accent-color);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 2rem;
+  font-weight: 500;
+  font-size: 1rem;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+  transition: all 150ms ease;
+}
+
+.accentButton:hover {
+  background: var(--accent-color-hover);
+  color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.45);
+}
+
+/* ===============================================
+   Features Section
+   =============================================== */
+
+.featuresSection {
+  padding: 3rem 0;
+  background: transparent;
+}
+
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.featureCard {
+  padding: 1.5rem 2rem;
+  border-left: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.featureCard:first-child {
+  border-left: none;
+}
+
+[data-theme='dark'] .featureCard {
+  border-left-color: rgba(255, 255, 255, 0.15);
+}
+
+.featureTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: var(--ifm-heading-color);
+}
+
+.featureDescription {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--ifm-color-emphasis-700);
+  margin: 0;
+}
+
+/* ===============================================
+   Responsive Design
+   =============================================== */
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 4rem 0 3rem;
+  }
+
+  .heroTitle {
+    font-size: 2.5rem;
+  }
+
+  .heroSubtitle {
+    font-size: 1.1rem;
+  }
+
+  .featuresGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .featureCard:nth-child(3) {
+    border-left: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+    grid-column: span 2;
+  }
+
+  [data-theme='dark'] .featureCard:nth-child(3) {
+    border-top-color: rgba(255, 255, 255, 0.15);
+  }
+}
+
+@media screen and (max-width: 600px) {
+  .heroTitle {
+    font-size: 2rem;
+  }
+
+  .heroSubtitle {
+    font-size: 1rem;
+  }
+
+  .buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .featuresGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .featureCard {
+    border-left: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .featureCard:first-child {
+    border-top: none;
+  }
+
+  .featureCard:nth-child(3) {
+    grid-column: auto;
+  }
+
+  [data-theme='dark'] .featureCard {
+    border-top-color: rgba(255, 255, 255, 0.15);
+  }
+}
+
+/* ===============================================
+   Animations (Optional - can be removed)
+   =============================================== */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.featureCard {
+  animation: fadeInUp 0.5s ease-out forwards;
+  opacity: 0;
+}
+
+.featureCard:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.featureCard:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.featureCard:nth-child(3) {
+  animation-delay: 0.3s;
+}
+

@@ -1,0 +1,195 @@
+---
+id: quickstart
+title: Quickstart
+sidebar_label: Quickstart
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Quickstart
+
+Install Dendrite and launch the GUI.
+
+## Requirements
+
+- **LSL binaries** (liblsl) - platform-specific, see below
+- **Python 3.12** - installed automatically if using uv
+
+
+### Install LSL Binaries
+
+Install LSL native binaries for your platform before setting up Python.
+
+<Tabs>
+  <TabItem value="win-lsl" label="Windows" default>
+
+**Option 1: Download installer (recommended)**
+1. Download the latest `liblsl` release: [LSL Releases](https://github.com/sccn/liblsl/releases)
+2. Extract the `.dll` files to a system directory (e.g., `C:\Windows\System32`)
+
+**Option 2: Add to PATH**
+```powershell
+# Download and extract liblsl to a local folder
+# Add the folder to your PATH environment variable
+```
+
+  </TabItem>
+  <TabItem value="mac-lsl" label="macOS">
+
+```bash title="Install LSL (macOS)"
+# Using Homebrew
+brew install labstreaminglayer/tap/lsl
+
+# If pylsl can't find the library, set PYLSL_LIB:
+export PYLSL_LIB=$(brew --prefix lsl)/lib/liblsl.dylib
+
+# Or download from releases
+# https://github.com/sccn/liblsl/releases
+```
+
+  </TabItem>
+  <TabItem value="linux-lsl" label="Linux">
+
+**Ubuntu 24.04 LTS (Recommended):**
+
+```bash title="Install LSL (Ubuntu 24.04)" showLineNumbers
+# 1. Install liblsl (jammy package works on Ubuntu 24.04+)
+# Download liblsl-1.16.2-jammy_amd64.deb from:
+# https://github.com/sccn/liblsl/releases/tag/v1.16.2
+cd ~/Downloads
+sudo dpkg -i liblsl-1.16.2-jammy_amd64.deb
+
+# 2. Install Qt X11 dependencies for PyQt6
+sudo apt-get update
+sudo apt-get install -y libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 \
+                        libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+                        libxcb-render-util0 libxcb-shape0
+```
+
+**Alternative: Build from source**
+
+```bash title="Build LSL from source"
+git clone https://github.com/sccn/liblsl.git
+cd liblsl && mkdir build && cd build
+cmake .. && make && sudo make install
+```
+
+  </TabItem>
+</Tabs>
+
+:::warning Important
+LSL binaries must be installed **before** installing Python dependencies. If you get import errors with `pylsl`, ensure the native libraries are properly installed.
+:::
+
+### 1) Clone and Install
+
+<Tabs>
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and install
+git clone https://github.com/dendrite-bci/dendrite.git
+cd dendrite
+uv sync
+```
+
+  </TabItem>
+  <TabItem value="win" label="Windows">
+
+```powershell
+# Install uv
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Clone and install
+git clone https://github.com/dendrite-bci/dendrite.git
+cd dendrite
+uv sync
+```
+
+  </TabItem>
+</Tabs>
+
+<details>
+<summary>Alternative: pip/venv (requires Python 3.12)</summary>
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .\.venv\Scripts\Activate
+pip install -e .
+```
+
+</details>
+
+### 2) Launch
+
+```bash
+uv run python main.py
+
+# Or with pip/venv:
+python main.py
+```
+
+### 3) Auxiliary Applications (Optional)
+
+Launch standalone tools for specific workflows:
+
+```bash
+uv run dendrite-dashboard          # Real-time visualization
+uv run dendrite-stream-manager     # Replay recordings as LSL streams
+uv run dendrite-trainer            # Offline ML training workbench
+uv run dendrite-db-explorer        # Browse recordings database
+```
+
+## Optional Setup
+
+### Configure PyTorch for GPU Acceleration
+
+By default, `uv sync` installs CPU-only PyTorch which works on all platforms. For GPU acceleration (faster model training/inference), follow the platform-specific steps below.
+
+<Tabs>
+  <TabItem value="gpu-linux-win" label="NVIDIA GPU (Linux/Windows)" default>
+
+```bash
+# After uv sync, upgrade to CUDA PyTorch (ONE-TIME)
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+# Verify CUDA is available
+uv run python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+```
+
+:::tip
+The CUDA version persists - you don't need to reinstall after subsequent `uv sync` commands.
+:::
+
+  </TabItem>
+  <TabItem value="mac" label="macOS (Apple Silicon)">
+
+```bash
+# No extra steps needed - MPS GPU support included by default
+# (Metal Performance Shaders for Apple Silicon GPU acceleration)
+
+# Verify MPS is available
+uv run python -c "import torch; print(f'MPS available: {torch.backends.mps.is_available()}')"
+```
+
+  </TabItem>
+  <TabItem value="cpu" label="CPU-only (All Platforms)">
+
+```bash
+# No extra steps needed - CPU PyTorch installed by default
+
+# Verify installation
+uv run python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
+```
+
+  </TabItem>
+</Tabs>
+
+## Next Steps
+
+- **[Guides](guides/)** - Tutorials for recording, training, and deployment
+- **[API Reference](api/)** - Technical documentation

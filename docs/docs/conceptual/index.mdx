@@ -1,0 +1,60 @@
+---
+id: conceptual-overview
+title: System Overview
+sidebar_label: Overview
+slug: /conceptual/
+---
+
+import ThemedImage from '@theme/ThemedImage';
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+# System Overview
+
+Dendrite uses a multi-process architecture for real-time neural signal processing. Each component runs as an isolated process, enabling crash containment and true parallelism (bypassing Python's GIL).
+
+**Data Acquisition** reads multi-rate LSL streams and forwards raw samples. **Data Processor** applies optional preprocessing and distributes samples to mode queues. **Mode Processes** perform classification or feature extraction. **Output Streamers** broadcast results to the **Task Application**, which sends events back to close the loop.
+
+## Layers
+
+<ThemedImage
+  alt="Dendrite System Architecture"
+  sources={{
+    light: useBaseUrl('/img/architecture.svg'),
+    dark: useBaseUrl('/img/architecture-dark.svg'),
+  }}
+/>
+
+<div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', margin: '2rem 0'}}>
+  <a href="architecture/data-layer" style={{textDecoration: 'none', color: 'inherit', padding: '1.5rem', border: '1px solid var(--ifm-color-emphasis-200)', borderRadius: '8px', transition: 'all 0.2s', display: 'block'}}>
+    <h3 style={{margin: '0 0 0.5rem 0', color: 'var(--ifm-color-primary)'}}>Data Layer</h3>
+    <p style={{margin: 0, fontSize: '0.9rem', color: 'var(--ifm-color-emphasis-700)'}}>Acquire from LSL, store to HDF5, manage recordings</p>
+  </a>
+
+  <a href="architecture/processing-layer" style={{textDecoration: 'none', color: 'inherit', padding: '1.5rem', border: '1px solid var(--ifm-color-emphasis-200)', borderRadius: '8px', transition: 'all 0.2s', display: 'block'}}>
+    <h3 style={{margin: '0 0 0.5rem 0', color: 'var(--ifm-color-primary)'}}>Processing Layer</h3>
+    <p style={{margin: 0, fontSize: '0.9rem', color: 'var(--ifm-color-emphasis-700)'}}>Preprocess signals, orchestrate composable modes</p>
+  </a>
+
+  <a href="architecture/ml-layer" style={{textDecoration: 'none', color: 'inherit', padding: '1.5rem', border: '1px solid var(--ifm-color-emphasis-200)', borderRadius: '8px', transition: 'all 0.2s', display: 'block'}}>
+    <h3 style={{margin: '0 0 0.5rem 0', color: 'var(--ifm-color-primary)'}}>ML Layer</h3>
+    <p style={{margin: 0, fontSize: '0.9rem', color: 'var(--ifm-color-emphasis-700)'}}>Train and deploy neural networks or classical models</p>
+  </a>
+
+  <a href="architecture/task-application-layer" style={{textDecoration: 'none', color: 'inherit', padding: '1.5rem', border: '1px solid var(--ifm-color-emphasis-200)', borderRadius: '8px', transition: 'all 0.2s', display: 'block'}}>
+    <h3 style={{margin: '0 0 0.5rem 0', color: 'var(--ifm-color-primary)'}}>Task Application Layer</h3>
+    <p style={{margin: 0, fontSize: '0.9rem', color: 'var(--ifm-color-emphasis-700)'}}>Integrate external tasks via events and predictions</p>
+  </a>
+
+  <a href="architecture/auxiliary-layer" style={{textDecoration: 'none', color: 'inherit', padding: '1.5rem', border: '1px solid var(--ifm-color-emphasis-200)', borderRadius: '8px', transition: 'all 0.2s', display: 'block'}}>
+    <h3 style={{margin: '0 0 0.5rem 0', color: 'var(--ifm-color-primary)'}}>Auxiliary Services</h3>
+    <p style={{margin: 0, fontSize: '0.9rem', color: 'var(--ifm-color-emphasis-700)'}}>Dashboard, ML Workbench, stream replay</p>
+  </a>
+</div>
+
+<style>{`
+  a[href^="architecture/"]:hover {
+    border-color: var(--ifm-color-primary) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+  }
+`}</style>

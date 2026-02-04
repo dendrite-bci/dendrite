@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1325" height="680"
+     viewBox="0 0 1325 680">
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="8"
+    refX="6" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
+    <path d="M 0 0 L 6 3 L 0 6 z" fill="#4b5563"/>
+  </marker>
+</defs>
+<g id="source-events">
+<polygon points="60.0,193.0 95.0,220.5 60.0,248.0 25.0,220.5" fill="#1e3a5f" stroke="#4b5563" stroke-width="1.5"/>
+<g transform="translate(53.0, 202.5)"><g transform="scale(0.5833333333333334)">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1M14 12a1 1 0 0 1 1 1v1a1 1 0 0 0 1 1 1 1 0 0 0-1 1v1a1 1 0 0 1-1 1" fill="none" stroke="#f3f4f6" stroke-width="2.571428571428571"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="60.0" y="225.5" font-family="Inter, sans-serif" font-size="10" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Events</text>
+<text x="60.0" y="236.5" font-family="Inter, sans-serif" font-size="10" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(JSON)</text>
+</g>
+<g id="source-eeg">
+<polygon points="60.0,283.0 95.0,310.5 60.0,338.0 25.0,310.5" fill="#1e3a5f" stroke="#4b5563" stroke-width="1.5"/>
+<g transform="translate(53.0, 292.5)"><g transform="scale(0.5833333333333334)">
+    <path d="M2 12h2c1 0 2-1 3-1s2 1 3 1 2-1 3-1 2 1 3 1 2-1 3-1h2M2 6h2c1 0 2 1 3 1s2-1 3-1 2 1 3 1 2-1 3-1 2 1 3 1h2M2 18h2c1 0 2-1 3-1s2 1 3 1 2-1 3-1 2 1 3 1 2-1 3-1h2" fill="none" stroke="#f3f4f6" stroke-width="2.571428571428571"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="60.0" y="315.5" font-family="Inter, sans-serif" font-size="10" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">EEG</text>
+</g>
+<g id="source-emg">
+<polygon points="60.0,373.0 95.0,400.5 60.0,428.0 25.0,400.5" fill="#1e3a5f" stroke="#4b5563" stroke-width="1.5"/>
+<g transform="translate(53.0, 382.5)"><g transform="scale(0.5833333333333334)">
+    <path d="M2 12h2c1 0 2-1 3-1s2 1 3 1 2-1 3-1 2 1 3 1 2-1 3-1h2M2 6h2c1 0 2 1 3 1s2-1 3-1 2 1 3 1 2-1 3-1 2 1 3 1h2M2 18h2c1 0 2-1 3-1s2 1 3 1 2-1 3-1 2 1 3 1 2-1 3-1h2" fill="none" stroke="#f3f4f6" stroke-width="2.571428571428571"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="60.0" y="405.5" font-family="Inter, sans-serif" font-size="10" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">EMG</text>
+</g>
+<g id="source-imu">
+<polygon points="60.0,463.0 95.0,490.5 60.0,518.0 25.0,490.5" fill="#1e3a5f" stroke="#4b5563" stroke-width="1.5"/>
+<g transform="translate(53.0, 472.5)"><g transform="scale(0.5833333333333334)">
+    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z" fill="none" stroke="#f3f4f6" stroke-width="2.571428571428571"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="60.0" y="495.5" font-family="Inter, sans-serif" font-size="10" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">IMU</text>
+</g>
+<g id="layer-data">
+<rect x="170" y="170" width="190" height="350" rx="8" fill="#374151" stroke="#60a5fa" stroke-width="1.5"/>
+<g transform="translate(190, 177)"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(0.5)"/></g>
+<text x="208" y="187" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#60a5fa" text-anchor="start" dominant-baseline="auto" letter-spacing="1">DATA LAYER</text>
+<g id="component-storage">
+<rect x="200" y="210" width="120" height="60" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1"/>
+<g transform="translate(252.0, 218)"><g transform="scale(0.6666666666666666)">
+    <path d="M12 2C8.13 2 5 3.79 5 6v12c0 2.21 3.13 4 7 4s7-1.79 7-4V6c0-2.21-3.13-4-7-4zM5 6c0 2.21 3.13 4 7 4s7-1.79 7-4M5 12c0 2.21 3.13 4 7 4s7-1.79 7-4" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="260.0" y="247.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Storage</text>
+<text x="260.0" y="260" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(HDF5)</text>
+</g>
+<g id="component-acquisition">
+<rect x="200" y="325" width="120" height="60" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1"/>
+<g transform="translate(252.0, 333)"><g transform="scale(0.6666666666666666)">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="260.0" y="362.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Acquisition</text>
+</g>
+<g id="component-data_saver">
+<rect x="178" y="440" width="80" height="50" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1"/>
+<g transform="translate(210.0, 448)"><g transform="scale(0.6666666666666666)">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="218.0" y="472.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Data Saver</text>
+</g>
+<g id="component-metrics_saver">
+<rect x="268" y="440" width="80" height="50" rx="8" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1"/>
+<g transform="translate(300.0, 448)"><g transform="scale(0.6666666666666666)">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="308.0" y="472.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Metrics Saver</text>
+</g>
+</g>
+<g id="layer-ml">
+<rect x="390" y="50" width="350" height="100" rx="8" fill="#374151" stroke="#34d399" stroke-width="1.5"/>
+<g transform="translate(410, 57)"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(0.5)"/></g>
+<text x="428" y="67" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#34d399" text-anchor="start" dominant-baseline="auto" letter-spacing="1">ML LAYER</text>
+<g id="component-models">
+<rect x="430" y="75" width="120" height="60" rx="8" fill="#064e3b" stroke="#34d399" stroke-width="1"/>
+<g transform="translate(482.0, 83)"><g transform="scale(0.6666666666666666)">
+    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="490.0" y="112.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Models</text>
+<text x="490.0" y="125" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(EEGNet, CSP+LDA, ...)</text>
+</g>
+<g id="component-decoders">
+<rect x="580" y="75" width="120" height="60" rx="8" fill="#064e3b" stroke="#34d399" stroke-width="1"/>
+<g transform="translate(632.0, 83)"><g transform="scale(0.6666666666666666)">
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18ZM12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18ZM12 5v13M9 18h6" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="640.0" y="112.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Decoders</text>
+<text x="640.0" y="125" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(sklearn-compatible)</text>
+</g>
+</g>
+<g id="layer-processing">
+<rect x="390" y="170" width="680" height="350" rx="8" fill="#374151" stroke="#a78bfa" stroke-width="1.5"/>
+<g transform="translate(410, 177)"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(0.5)"/></g>
+<text x="428" y="187" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#a78bfa" text-anchor="start" dominant-baseline="auto" letter-spacing="1">PROCESSING LAYER</text>
+<g id="component-preprocessing">
+<rect x="420" y="325" width="140" height="60" rx="8" fill="#4c1d95" stroke="#a78bfa" stroke-width="1"/>
+<g transform="translate(482.0, 333)"><g transform="scale(0.6666666666666666)">
+    <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 14h4M10 8h4M18 16h4" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="490.0" y="357.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Preprocessing</text>
+<text x="490.0" y="370.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Pipeline</text>
+</g>
+<g id="component-streamers">
+<rect x="890" y="325" width="140" height="60" rx="8" fill="#4c1d95" stroke="#a78bfa" stroke-width="1"/>
+<g transform="translate(952.0, 333)"><g transform="scale(0.6666666666666666)">
+    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="960.0" y="357.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Output</text>
+<text x="960.0" y="370.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Streamers</text>
+</g>
+<g id="subgroup-runtime_modes">
+<rect x="650" y="210" width="160" height="270" rx="6" fill="none" stroke="#a78bfa" stroke-width="1" stroke-dasharray="4 2"/>
+<g transform="translate(658, 220)"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" fill="none" stroke="#a78bfa" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" transform="scale(0.5)"/></g>
+<text x="672" y="227" font-family="Inter, sans-serif" font-size="10" font-weight="600" fill="#a78bfa" text-anchor="start" dominant-baseline="auto" letter-spacing="0.5">RUNTIME MODES</text>
+<g id="component-sync_mode">
+<rect x="670" y="250" width="120" height="60" rx="8" fill="#4c1d95" stroke="#a78bfa" stroke-width="1"/>
+<g transform="translate(722.0, 258)"><g transform="scale(0.6666666666666666)">
+    <path d="M5 3l14 9-14 9V3z" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="730.0" y="287.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Synchronous</text>
+<text x="730.0" y="300" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(event-locked)</text>
+</g>
+<g id="component-async_mode">
+<rect x="670" y="325" width="120" height="60" rx="8" fill="#4c1d95" stroke="#a78bfa" stroke-width="1"/>
+<g transform="translate(722.0, 333)"><g transform="scale(0.6666666666666666)">
+    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="730.0" y="362.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Asynchronous</text>
+<text x="730.0" y="375" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(sliding-window)</text>
+</g>
+<g id="component-nfb_mode">
+<rect x="670" y="400" width="120" height="60" rx="8" fill="#4c1d95" stroke="#a78bfa" stroke-width="1"/>
+<g transform="translate(722.0, 408)"><g transform="scale(0.6666666666666666)">
+    <path d="M22 12h-4l-3 9L9 3l-3 9H2" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="730.0" y="437.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Neurofeedback</text>
+<text x="730.0" y="450" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(band-power)</text>
+</g>
+</g>
+</g>
+<g id="layer-auxiliary">
+<rect x="170" y="540" width="900" height="100" rx="8" fill="#374151" stroke="#fb7185" stroke-width="1.5"/>
+<g transform="translate(190, 547)"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="#fb7185" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(0.5)"/></g>
+<text x="208" y="557" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#fb7185" text-anchor="start" dominant-baseline="auto" letter-spacing="1">AUXILIARY LAYER</text>
+<g id="component-stream_manager">
+<rect x="262" y="565" width="120" height="60" rx="8" fill="#9f1239" stroke="#fb7185" stroke-width="1"/>
+<g transform="translate(314.0, 573)"><g transform="scale(0.6666666666666666)">
+    <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM10 8l6 4-6 4V8z" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="322.0" y="602.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Stream Manager</text>
+</g>
+<g id="component-db_explorer">
+<rect x="474" y="565" width="120" height="60" rx="8" fill="#9f1239" stroke="#fb7185" stroke-width="1"/>
+<g transform="translate(526.0, 573)"><g transform="scale(0.6666666666666666)">
+    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="534.0" y="602.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">DB Explorer</text>
+</g>
+<g id="component-ml_workbench">
+<rect x="686" y="565" width="120" height="60" rx="8" fill="#9f1239" stroke="#fb7185" stroke-width="1"/>
+<g transform="translate(738.0, 573)"><g transform="scale(0.6666666666666666)">
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18ZM12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18ZM12 5v13M9 18h6" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="746.0" y="602.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">ML Workbench</text>
+</g>
+<g id="component-dashboard">
+<rect x="900" y="565" width="120" height="60" rx="8" fill="#9f1239" stroke="#fb7185" stroke-width="1"/>
+<g transform="translate(952.0, 573)"><g transform="scale(0.6666666666666666)">
+    <path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="960.0" y="602.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Dashboard</text>
+</g>
+</g>
+<g id="layer-user">
+<rect x="1100" y="170" width="175" height="350" rx="8" fill="#1f2937" stroke="#9ca3af" stroke-width="1.5"/>
+<g transform="translate(1120, 177)"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="scale(0.5)"/></g>
+<text x="1138" y="187" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#9ca3af" text-anchor="start" dominant-baseline="auto" letter-spacing="1">USER APPLICATION</text>
+<g id="component-event_sender">
+<rect x="1128" y="210" width="120" height="60" rx="8" fill="#374151" stroke="#9ca3af" stroke-width="1"/>
+<g transform="translate(1180.0, 218)"><g transform="scale(0.6666666666666666)">
+    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="1188.0" y="247.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Event Sender</text>
+<text x="1188.0" y="260" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(EventOutlet)</text>
+</g>
+<g id="component-receiver">
+<rect x="1128" y="325" width="120" height="60" rx="8" fill="#374151" stroke="#9ca3af" stroke-width="1"/>
+<g transform="translate(1180.0, 333)"><g transform="scale(0.6666666666666666)">
+    <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7zM12 17v4M8 21h8" fill="none" stroke="#f3f4f6" stroke-width="2.25"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g></g>
+<text x="1188.0" y="362.0" font-family="Inter, sans-serif" font-size="11" font-weight="500" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">Receiver</text>
+<text x="1188.0" y="375" font-family="Inter, sans-serif" font-size="9" font-weight="400" fill="#f3f4f6" text-anchor="middle" dominant-baseline="middle">(LSL, ROS2, ...)</text>
+</g>
+</g>
+<g id="connection-events-acquisition">
+<path d="M 95 220.5 L 147.5 220.5 L 147.5 342.4 L 200 342.4" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-eeg-acquisition">
+<path d="M 95 310.5 L 147.5 310.5 L 147.5 350.8 L 200 350.8" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-emg-acquisition">
+<path d="M 95 400.5 L 147.5 400.5 L 147.5 359.2 L 200 359.2" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-imu-acquisition">
+<path d="M 95 490.5 L 147.5 490.5 L 147.5 367.6 L 200 367.6" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-acquisition-data_saver">
+<path d="M 218.0 385 L 218.0 440" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-acquisition-preprocessing">
+<path d="M 320 355.0 L 370.0 355.0 L 370.0 355.0 L 420 355.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-preprocessing-sync_mode">
+<path d="M 560 342.4 L 615.0 342.4 L 615.0 280.0 L 670 280.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-preprocessing-async_mode">
+<path d="M 560 355.0 L 615.0 355.0 L 615.0 355.0 L 670 355.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-preprocessing-nfb_mode">
+<path d="M 560 367.6 L 615.0 367.6 L 615.0 430.0 L 670 430.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-models-decoders">
+<path d="M 550 105.0 L 565.0 105.0 L 565.0 105.0 L 580 105.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-decoders-runtime_modes">
+<path d="M 640.0 135 L 640 160 L 730 160 L 730.0 210" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-storage-decoders">
+<path d="M 320 240.0 L 375 240 L 375 160 L 640 160 L 640.0 135" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-sync_mode-streamers">
+<path d="M 790 280.0 L 840.0 280.0 L 840.0 342.4 L 890 342.4" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-async_mode-streamers">
+<path d="M 790 355.0 L 840.0 355.0 L 840.0 355.0 L 890 355.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-nfb_mode-streamers">
+<path d="M 790 430.0 L 840.0 430.0 L 840.0 367.6 L 890 367.6" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-runtime_modes-metrics_saver">
+<path d="M 650 465.015 L 499.0 465.015 L 499.0 465.0 L 348 465.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-streamers-receiver">
+<path d="M 1030 355.0 L 1079.0 355.0 L 1079.0 355.0 L 1128 355.0" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-event_sender-events">
+<path d="M 1128 240.0 L 1085 240 L 1085 30 L 60 30 L 60.0 193" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-storage-stream_manager">
+<path d="M 320 240.0 L 375 240 L 375 530 L 322 530 L 322.0 565" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-storage-db_explorer">
+<path d="M 320 240.0 L 375 240 L 375 530 L 534 530 L 534.0 565" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-storage-ml_workbench">
+<path d="M 320 240.0 L 375 240 L 375 530 L 746 530 L 746.0 565" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+</g>
+<g id="connection-streamers-dashboard">
+<path d="M 960.0 385 L 960 530 L 960.0 565" fill="none" stroke="#4b5563" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+</svg>

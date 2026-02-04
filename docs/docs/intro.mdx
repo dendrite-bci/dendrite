@@ -1,0 +1,30 @@
+---
+id: intro
+title: Introduction to Dendrite
+sidebar_label: Introduction
+slug: /
+---
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+# Dendrite
+
+Dendrite is an open-source Python application for brain-computer interface R&D. Connect any [LSL-compatible amplifier](https://labstreaminglayer.org) (OpenBCI, BrainVision, ActiCHamp, g.tec) and acquire **EEG, EMG, and event markers simultaneously** with automatic time alignment across different sampling rates. All signals record to HDF5 with synchronized timestamps and full metadata. External applications (Unity, PsychoPy, MATLAB) handle paradigm logic and send events over LSL. Dendrite handles the rest.
+
+The offline workbench trains **neural networks** (EEGNet, Transformers, Conformers via [Braindecode](https://braindecode.org)) and **classical pipelines** (CSP+LDA) through the same interface. Import any of **36+ public datasets** from [MOABB](https://moabb.neurotechx.com) to benchmark your decoders, run **[Optuna](https://optuna.org) hyperparameter optimization**, then deploy trained models to real-time sessions in seconds. A SQLite backend tracks recordings, configurations, and decoder versions. Data processing builds on [MNE-Python](https://mne.tools) for EEG analysis.
+
+Three runtime modes cover the major BCI paradigms: **Synchronous** for trial-based decoding (P300, cued motor imagery), **Asynchronous** for continuous classification without event markers, and **Neurofeedback** for real-time band power feedback. Run multiple modes simultaneously for hybrid paradigms or online calibration. Stream predictions over LSL, ROS2, TCP, or ZeroMQ, and replay any recording as a live stream for hardware-free development.
+
+---
+
+<div style={{maxHeight: '350px', overflow: 'hidden', position: 'relative', marginBottom: '2rem'}}>
+  <img src={useBaseUrl('/img/GUI.png')} alt="Dendrite Main GUI" style={{width: '100%'}} />
+  <div style={{position: 'absolute', bottom: 0, left: 0, right: 0, height: '120px', background: 'linear-gradient(to bottom, rgba(0,0,0,0), var(--ifm-background-color) 70%, var(--ifm-background-color))', pointerEvents: 'none'}}></div>
+</div>
+
+## Getting Started
+
+→ [Quickstart Guide](quickstart.mdx)
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/dendrite-bci/dendrite/issues)
