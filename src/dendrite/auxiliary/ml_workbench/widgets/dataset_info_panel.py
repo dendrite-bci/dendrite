@@ -279,10 +279,11 @@ class DatasetInfoPanel(QtWidgets.QWidget):
 
         self._set_classes(events)
 
-        lowcut = dataset.get("preproc_lowcut", DEFAULT_PREPROC_LOWCUT)
-        highcut = dataset.get("preproc_highcut", DEFAULT_PREPROC_HIGHCUT)
-        car = bool(dataset.get("preproc_rereference", 0))
-        self._preproc_label.setText(_format_preproc(lowcut, highcut, car))
+        self._preproc_label.setText(_format_preproc(
+            dataset.get("preproc_lowcut", DEFAULT_PREPROC_LOWCUT),
+            dataset.get("preproc_highcut", DEFAULT_PREPROC_HIGHCUT),
+            bool(dataset.get("preproc_rereference", 0)),
+        ))
 
     def clear(self):
         self._current_data = None

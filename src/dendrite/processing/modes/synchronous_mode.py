@@ -174,11 +174,11 @@ class SynchronousMode(BaseMode):
         try:
             # Calculate epoch timing using effective sample rate (accounts for preprocessing)
             primary_modality = self.modalities[0] if self.modalities else "eeg"
-            effective_rate = self._get_modality_sample_rate(primary_modality)
-            self.start_offset_samples = int(self.start_offset * effective_rate)
-            self.end_offset_samples = int(self.end_offset * effective_rate)
+            self.effective_sample_rate = self._get_modality_sample_rate(primary_modality)
+            self.start_offset_samples = int(self.start_offset * self.effective_sample_rate)
+            self.end_offset_samples = int(self.end_offset * self.effective_sample_rate)
             self.epoch_length_samples = self.end_offset_samples - self.start_offset_samples
-            self.logger.info(f"Epoch: {self.epoch_length_samples} samples at {effective_rate}Hz")
+            self.logger.info(f"Epoch: {self.epoch_length_samples} samples at {self.effective_sample_rate}Hz")
 
             # Setup unified buffer with appropriate size for epochs + pre-event data
             buffer_size = self._calculate_sync_buffer_size(safety_factor=2.0)
@@ -417,7 +417,7 @@ class SynchronousMode(BaseMode):
                     event_type=event_type,
                     eeg_data=X_input["eeg"],
                     start_offset_ms=self.start_offset * 1000,
-                    sample_rate=float(self.sample_rate),
+                    sample_rate=float(self.effective_sample_rate),
                 )
                 self._send_output(erp_payload, "erp", queue="main")
 

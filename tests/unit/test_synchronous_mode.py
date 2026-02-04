@@ -519,9 +519,10 @@ class TestSynchronousModeDataStorage:
     def test_epoch_data_is_stored_in_dataset(self, storage_mode):
         """Test that processed epochs are stored in dataset with correct metadata."""
         storage_mode.dataset = Mock()
-        storage_mode._send_erp_data = Mock()
+        storage_mode._send_output = Mock()
         storage_mode.decoder = None  # No prediction
         storage_mode.epoch_count = 1
+        storage_mode.effective_sample_rate = 500.0
 
         X_input = {'eeg': np.array([[1, 2, 3]])}
 
