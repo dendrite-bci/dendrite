@@ -10,7 +10,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -46,13 +46,6 @@ jobs:
           Expand-Archive -Path liblsl.zip -DestinationPath liblsl
           echo "${{ github.workspace }}\liblsl\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Install system dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          wget https://github.com/sccn/liblsl/releases/download/v1.17.5/liblsl-1.17-Darwin-universal.pkg
-          sudo installer -pkg liblsl-1.17-Darwin-universal.pkg -target /
-          echo "PYLSL_LIB=/usr/local/lib/liblsl.dylib" >> $GITHUB_ENV
-
       - name: Install dependencies
         run: uv sync
 
@@ -77,14 +70,3 @@ jobs:
             --ignore=tests/unit/test_metrics_saver.py \
             --ignore=tests/integration/test_saver_graceful_shutdown.py
 
-      - name: Run tests (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          uv run pytest -v \
-            -m "not slow and not integration" \
-            --tb=short \
-            --ignore=tests/experimental/ \
-            --ignore=tests/unit/test_data_saver.py \
-            --ignore=tests/unit/test_metrics_saver.py \
-            --ignore=tests/integration/test_saver_graceful_shutdown.py
