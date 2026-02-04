@@ -8,7 +8,7 @@ A Python application for brain-computer interface research and development. Hand
 ## Features
 
 - **Three Processing Modes** - Trial-based training (synchronous), continuous inference (asynchronous), and neurofeedback - run individually or combined for hybrid paradigms
-- **Hardware-Agnostic** - Connect to any LSL-compatible amplifier; offline stream manager enables development without hardware
+- **Hardware-Agnostic** - Connect to any LSL-compatible amplifier or custom hardware
 - **Multimodal & Multi-Rate** - Synchronized acquisition across EEG, EMG, and other modalities at native sampling rates
 - **Research-to-Deployment** - Train with 36+ MOABB datasets, optimize with Optuna, deploy to real-time inference
 - **Multiple Output Protocols** - LSL, ROS2, TCP/UDP, ZeroMQ for games, robotics, and distributed systems
