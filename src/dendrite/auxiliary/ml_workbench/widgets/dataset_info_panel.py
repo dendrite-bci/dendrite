@@ -1,7 +1,6 @@
 """Dataset info panel widget for displaying dataset details."""
 
 import json
-from typing import TYPE_CHECKING
 
 from PyQt6 import QtCore, QtWidgets
 
@@ -14,9 +13,6 @@ from dendrite.gui.styles.design_tokens import (
 )
 from dendrite.gui.styles.widget_styles import LAYOUT, WidgetStyles
 from dendrite.utils.logger_central import get_logger
-
-if TYPE_CHECKING:
-    from dendrite.auxiliary.ml_workbench.datasets.moabb_loader import MOAABLoader
 
 logger = get_logger(__name__)
 
@@ -89,12 +85,6 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         subject_layout.addWidget(self._subject_combo, 1)
         info_layout.addWidget(self._subject_row)
 
-        # Session/run info (lazy-loaded when subject selected)
-        self._sessions_label = QtWidgets.QLabel()
-        self._sessions_label.setStyleSheet(WidgetStyles.label("small", color=TEXT_MUTED))
-        self._sessions_label.setWordWrap(True)
-        info_layout.addWidget(self._sessions_label)
-
         # Preprocessing (read-only)
         self._preproc_label = QtWidgets.QLabel()
         self._preproc_label.setStyleSheet(WidgetStyles.label("small", color=TEXT_MUTED))
@@ -113,15 +103,6 @@ class DatasetInfoPanel(QtWidgets.QWidget):
 
     def _on_selection_changed(self):
         if self._current_data:
-            # Update session info for MOABB when subject changes
-            if self._current_data.get("type") == "moabb":
-                subject_id = self._subject_combo.currentData()
-                if subject_id is not None:
-                    study = self._current_data.get("study")
-                    if study:
-                        self._update_session_info(study.loader, subject_id)
-                else:
-                    self._sessions_label.setText("")
             self.selection_changed.emit()
 
     def _clear_stats_layout(self):
@@ -193,22 +174,6 @@ class DatasetInfoPanel(QtWidgets.QWidget):
 
             self._classes_layout.addLayout(row)
 
-    def _update_session_info(self, loader: "MOAABLoader", subject_id: int):
-        """Fetch and display session/run structure for selected subject."""
-        try:
-            sessions = loader.get_sessions(subject_id)
-            if sessions:
-                session_info = []
-                for sess in sessions[:3]:  # Limit to first 3 for display
-                    runs = loader.get_runs(subject_id, sess)
-                    session_info.append(f"{sess}: {len(runs)} runs")
-                self._sessions_label.setText("Sessions: " + " · ".join(session_info))
-            else:
-                self._sessions_label.setText("Sessions: —")
-        except Exception as e:
-            logger.debug(f"Could not load session info: {e}")
-            self._sessions_label.setText("Sessions: —")
-
     def show_moabb_study(self, study: StudyItem):
         """Display MOABB study information."""
         self._current_data = {"type": "moabb", "study": study}
@@ -217,7 +182,6 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         self._subject_row.setVisible(True)
         self._edit_btn.setVisible(False)
         self._preproc_label.setText("Preprocessing: 0.5-50 Hz (default)")
-        self._sessions_label.setText("")
 
         config = study.config
         self._name_label.setText(config.name)
@@ -268,7 +232,6 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         self._info_container.setVisible(True)
         self._subject_row.setVisible(False)
         self._edit_btn.setVisible(True)
-        self._sessions_label.setText("")
 
         name = dataset.get("name", "Unknown")
         file_path = dataset.get("file_path", "")

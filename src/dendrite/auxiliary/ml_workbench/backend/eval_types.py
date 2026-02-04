@@ -16,8 +16,6 @@ class EvalResult:
     confusion_matrix: np.ndarray
     per_class_accuracy: dict[int, float]
     avg_inference_time_ms: float
-    predictions: np.ndarray | None = None
-    probabilities: np.ndarray | None = None
 
     def to_dict(self) -> dict:
         """Convert to dict for serialization."""

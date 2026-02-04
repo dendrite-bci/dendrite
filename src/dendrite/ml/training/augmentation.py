@@ -227,7 +227,6 @@ class CompositeAugmentation(BaseAugmentationStrategy):
         max_strategies : int
             Maximum number of strategies to apply
         """
-        [s.name for s in strategies]
         super().__init__(f"composite_{len(strategies)}")
         self.strategies = strategies
         self.apply_prob = apply_prob

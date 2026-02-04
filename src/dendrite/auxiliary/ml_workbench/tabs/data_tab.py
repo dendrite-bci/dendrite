@@ -54,6 +54,28 @@ class _DiscoveryWorker(QtCore.QObject):
             self.finished.emit(None)
 
 
+class _DetailsWorker(QtCore.QThread):
+    """Worker thread for loading MOABB dataset details in background."""
+
+    finished_with_config = QtCore.pyqtSignal(object)
+    error = QtCore.pyqtSignal(str)
+
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+
+    def run(self):
+        """Load dataset details (subjects, events, etc.)."""
+        try:
+            from dendrite.auxiliary.ml_workbench.datasets import load_moabb_dataset_details
+
+            load_moabb_dataset_details(self.config)
+            self.finished_with_config.emit(self.config)
+        except Exception as e:
+            logger.warning(f"Failed to load dataset details: {e}")
+            self.error.emit(str(e))
+
+
 # Item type for tree widget
 ITEM_TYPE_STUDY = 1
 
@@ -293,14 +315,10 @@ class DataTab(QtWidgets.QWidget):
         if isinstance(data, StudyItem):
             # MOABB study - load details if not already loaded (BIDS datasets are lazy)
             if not data.config.subjects:
-                from dendrite.auxiliary.ml_workbench.datasets import load_moabb_dataset_details
-
-                load_moabb_dataset_details(data.config)
-            self._info_panel.show_moabb_study(data)
-            if data.capability == StudyItem.CAPABILITY_UNAVAILABLE:
-                self._status_label.setText(f"Selected: {data.name} [Unavailable]")
+                self._status_label.setText(f"Loading {data.name}...")
+                self._load_moabb_details_async(data)
                 return
-            self._status_label.setText(f"Selected: {data.name} [MOABB]")
+            self._show_moabb_study(data)
 
         elif isinstance(data, dict) and data.get("type") == "dataset":
             # Dataset from database
@@ -314,6 +332,30 @@ class DataTab(QtWidgets.QWidget):
                 self._status_label.setText(f"Selected: {name}")
 
         self._emit_current_dataset()
+
+    def _load_moabb_details_async(self, data: StudyItem):
+        """Load MOABB dataset details in background thread."""
+        self._details_worker = _DetailsWorker(data.config, parent=self)
+        self._details_worker.finished_with_config.connect(
+            lambda cfg: self._on_moabb_details_loaded(data)
+        )
+        self._details_worker.error.connect(
+            lambda e: self._status_label.setText(f"Failed to load: {e}")
+        )
+        self._details_worker.start()
+
+    def _on_moabb_details_loaded(self, data: StudyItem):
+        """Handle completion of MOABB details loading."""
+        self._show_moabb_study(data)
+        self._emit_current_dataset()
+
+    def _show_moabb_study(self, data: StudyItem):
+        """Display MOABB study info after details are loaded."""
+        self._info_panel.show_moabb_study(data)
+        if data.capability == StudyItem.CAPABILITY_UNAVAILABLE:
+            self._status_label.setText(f"Selected: {data.name} [Unavailable]")
+        else:
+            self._status_label.setText(f"Selected: {data.name} [MOABB]")
 
     def _emit_current_dataset(self):
         """Emit current dataset data to other tabs."""
