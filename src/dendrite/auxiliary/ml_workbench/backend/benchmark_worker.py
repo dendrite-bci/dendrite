@@ -15,6 +15,13 @@ logger = get_logger(__name__)
 
 BENCHMARK_SEED = 42
 
+# Evaluation type display names
+EVAL_TYPE_NAMES = {
+    "within_session": "Within-session",
+    "cross_session": "Cross-session",
+    "cross_subject": "Cross-subject",
+}
+
 
 def set_reproducibility_seed(seed: int = BENCHMARK_SEED) -> None:
     """Set random seeds for reproducibility across all frameworks."""
@@ -56,7 +63,6 @@ class BenchmarkWorker(QtCore.QThread):
 
     def run(self):
         try:
-            # Set reproducibility seed at start of benchmark
             set_reproducibility_seed(BENCHMARK_SEED)
 
             config = self._study_data["config"]
@@ -140,12 +146,7 @@ class BenchmarkWorker(QtCore.QThread):
 
         n_models = len(self._models)
         n_subjects = len(dataset.subject_list)
-        eval_names = {
-            "within_session": "Within-session",
-            "cross_session": "Cross-session",
-            "cross_subject": "Cross-subject",
-        }
-        eval_name = eval_names.get(self._eval_type, "Evaluation")
+        eval_name = EVAL_TYPE_NAMES.get(self._eval_type, "Evaluation")
 
         for i, model_name in enumerate(self._models):
             self.progress.emit(

@@ -22,6 +22,7 @@ Usage:
 """
 
 import json
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -162,9 +163,10 @@ class OptunaRunner:
         if not self.study:
             return {}
 
-        completed = len([t for t in self.study.trials if t.state == TrialState.COMPLETE])
-        pruned = len([t for t in self.study.trials if t.state == TrialState.PRUNED])
-        failed = len([t for t in self.study.trials if t.state == TrialState.FAIL])
+        state_counts = Counter(t.state for t in self.study.trials)
+        completed = state_counts[TrialState.COMPLETE]
+        pruned = state_counts[TrialState.PRUNED]
+        failed = state_counts[TrialState.FAIL]
 
         results = {
             "best_params": self.study.best_params if self.study.best_trial else {},

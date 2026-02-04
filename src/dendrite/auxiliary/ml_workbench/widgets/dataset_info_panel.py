@@ -1,6 +1,7 @@
 """Dataset info panel widget for displaying dataset details."""
 
 import json
+from typing import Any
 
 from PyQt6 import QtCore, QtWidgets
 
@@ -105,14 +106,13 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         if self._current_data:
             self.selection_changed.emit()
 
-    def _clear_stats_layout(self):
-        """Remove all widgets from the stats layout."""
-        while self._stats_layout.count():
-            item = self._stats_layout.takeAt(0)
+    def _clear_layout(self, layout: QtWidgets.QLayout):
+        """Remove all widgets from a layout recursively."""
+        while layout.count():
+            item = layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
             elif item.layout():
-                # Clear nested layout
                 while item.layout().count():
                     sub = item.layout().takeAt(0)
                     if sub.widget():
@@ -136,21 +136,10 @@ class DatasetInfoPanel(QtWidgets.QWidget):
 
         self._stats_layout.addLayout(row)
 
-    def _clear_classes_layout(self):
-        """Remove all widgets from the classes layout."""
-        while self._classes_layout.count():
-            item = self._classes_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                while item.layout().count():
-                    sub = item.layout().takeAt(0)
-                    if sub.widget():
-                        sub.widget().deleteLater()
 
     def _set_classes(self, events: dict[str, int] | None):
         """Display classes with their event codes in a vertical list."""
-        self._clear_classes_layout()
+        self._clear_layout(self._classes_layout)
 
         if not events:
             self._classes_header.setText("")
@@ -201,7 +190,7 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         )
 
         # Stats as key-value rows
-        self._clear_stats_layout()
+        self._clear_layout(self._stats_layout)
         self._add_info_row("Subjects", str(len(config.subjects)))
 
         # Channel count
@@ -256,7 +245,7 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         )
 
         # Stats as key-value rows
-        self._clear_stats_layout()
+        self._clear_layout(self._stats_layout)
 
         modality = dataset.get("modality") or "—"
         n_channels = dataset.get("n_channels")
@@ -309,23 +298,20 @@ class DatasetInfoPanel(QtWidgets.QWidget):
             return None
         return self._subject_combo.currentData()
 
-    def get_preproc_lowcut(self) -> float:
-        """Get lowcut from stored data or default."""
+    def _get_dataset_field(self, field: str, default: Any) -> Any:
+        """Get field from dataset data or return default."""
         if self._current_data and self._current_data.get("type") == "dataset":
-            return self._current_data["data"].get("preproc_lowcut", 0.5)
-        return 0.5
+            return self._current_data["data"].get(field, default)
+        return default
+
+    def get_preproc_lowcut(self) -> float:
+        return self._get_dataset_field("preproc_lowcut", 0.5)
 
     def get_preproc_highcut(self) -> float:
-        """Get highcut from stored data or default."""
-        if self._current_data and self._current_data.get("type") == "dataset":
-            return self._current_data["data"].get("preproc_highcut", 50.0)
-        return 50.0
+        return self._get_dataset_field("preproc_highcut", 50.0)
 
     def get_preproc_rereference(self) -> bool:
-        """Get rereference from stored data or default."""
-        if self._current_data and self._current_data.get("type") == "dataset":
-            return bool(self._current_data["data"].get("preproc_rereference", 0))
-        return False
+        return bool(self._get_dataset_field("preproc_rereference", 0))
 
     def _on_edit_clicked(self):
         """Open edit dialog for dataset."""
