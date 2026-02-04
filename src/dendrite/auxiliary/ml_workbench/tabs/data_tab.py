@@ -4,13 +4,12 @@ import json
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from dendrite.data import DatasetConfig, SingleFileLoader, StudyItem
+from dendrite.data import DatasetConfig, FIFLoader, MOAABLoader
 from dendrite.auxiliary.ml_workbench.utils import setup_worker_thread
 from dendrite.auxiliary.ml_workbench.widgets import DatasetInfoPanel
 from dendrite.gui.styles.design_tokens import (
     BG_ELEVATED,
     STATUS_SUCCESS,
-    STATUS_WARNING_ALT,
     TEXT_DISABLED,
 )
 from dendrite.gui.styles.widget_styles import LAYOUT, WidgetStyles
@@ -84,48 +83,41 @@ _TREE_STYLE = WidgetStyles.tree_widget()
 class MOABBTreeWidget(QtWidgets.QTreeWidget):
     """Tree widget for MOABB datasets (flat list, no categories)."""
 
-    dataset_selected = QtCore.pyqtSignal(object)  # StudyItem
+    dataset_selected = QtCore.pyqtSignal(object)  # DatasetConfig
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._study_items: dict[str, StudyItem] = {}
+        self._configs: dict[str, DatasetConfig] = {}
 
         self.setHeaderHidden(True)
         self.setIndentation(0)
         self.setStyleSheet(_TREE_STYLE)
         self.itemClicked.connect(self._on_item_clicked)
 
-    def add_study(self, study: StudyItem):
-        """Add a MOABB study to the tree."""
+    def add_study(self, config: DatasetConfig):
+        """Add a MOABB dataset to the tree."""
         item = QtWidgets.QTreeWidgetItem(self)
 
-        paradigm = study.config.moabb_paradigm or "Unknown"
-        n_subjects = len(study.config.subjects)
-        text = f"{study.name} [{paradigm}] {n_subjects} subjects"
+        paradigm = config.moabb_paradigm or "Unknown"
+        n_subjects = len(config.subjects)
+        text = f"{config.name} [{paradigm}] {n_subjects} subjects"
 
         item.setText(0, text)
         item.setData(0, QtCore.Qt.ItemDataRole.UserRole, ITEM_TYPE_STUDY)
-        item.setData(0, QtCore.Qt.ItemDataRole.UserRole + 1, study.name)
+        item.setData(0, QtCore.Qt.ItemDataRole.UserRole + 1, config.name)
+        item.setForeground(0, QtGui.QColor(STATUS_SUCCESS))
 
-        cap = study.capability
-        if cap == StudyItem.CAPABILITY_FULL:
-            item.setForeground(0, QtGui.QColor(STATUS_SUCCESS))
-        elif cap == StudyItem.CAPABILITY_EPOCHS:
-            item.setForeground(0, QtGui.QColor(STATUS_WARNING_ALT))
-        else:
-            item.setForeground(0, QtGui.QColor(TEXT_DISABLED))
-
-        self._study_items[study.name] = study
+        self._configs[config.name] = config
 
     def _on_item_clicked(self, item: QtWidgets.QTreeWidgetItem, column: int):
         name = item.data(0, QtCore.Qt.ItemDataRole.UserRole + 1)
-        if name and name in self._study_items:
-            self.dataset_selected.emit(self._study_items[name])
+        if name and name in self._configs:
+            self.dataset_selected.emit(self._configs[name])
 
     def clear_all(self):
         """Clear all items."""
         self.clear()
-        self._study_items.clear()
+        self._configs.clear()
 
     def count(self) -> int:
         return self.topLevelItemCount()
@@ -292,8 +284,7 @@ class DataTab(QtWidgets.QWidget):
 
         # Add MOABB datasets to MOABB tab
         for config in moabb_configs:
-            study = StudyItem(config, is_preset=True, is_moabb=True)
-            self._moabb_tree.add_study(study)
+            self._moabb_tree.add_study(config)
 
         # Add datasets to Internal tab
         for dataset in datasets:
@@ -308,13 +299,13 @@ class DataTab(QtWidgets.QWidget):
         """Handle dataset selection."""
         self._selected_data = data
 
-        if isinstance(data, StudyItem):
-            # MOABB study - load details if not already loaded (BIDS datasets are lazy)
-            if not data.config.subjects:
+        if isinstance(data, DatasetConfig):
+            # MOABB config - load details if not already loaded (BIDS datasets are lazy)
+            if not data.subjects:
                 self._status_label.setText(f"Loading {data.name}...")
                 self._load_moabb_details_async(data)
                 return
-            self._show_moabb_study(data)
+            self._show_moabb_config(data)
 
         elif isinstance(data, dict) and data.get("type") == "dataset":
             # Dataset from database
@@ -329,29 +320,26 @@ class DataTab(QtWidgets.QWidget):
 
         self._emit_current_dataset()
 
-    def _load_moabb_details_async(self, data: StudyItem):
+    def _load_moabb_details_async(self, config: DatasetConfig):
         """Load MOABB dataset details in background thread."""
-        self._details_worker = _DetailsWorker(data.config, parent=self)
+        self._details_worker = _DetailsWorker(config, parent=self)
         self._details_worker.finished_with_config.connect(
-            lambda cfg: self._on_moabb_details_loaded(data)
+            lambda cfg: self._on_moabb_details_loaded(config)
         )
         self._details_worker.error.connect(
             lambda e: self._status_label.setText(f"Failed to load: {e}")
         )
         self._details_worker.start()
 
-    def _on_moabb_details_loaded(self, data: StudyItem):
+    def _on_moabb_details_loaded(self, config: DatasetConfig):
         """Handle completion of MOABB details loading."""
-        self._show_moabb_study(data)
+        self._show_moabb_config(config)
         self._emit_current_dataset()
 
-    def _show_moabb_study(self, data: StudyItem):
-        """Display MOABB study info after details are loaded."""
-        self._info_panel.show_moabb_study(data)
-        if data.capability == StudyItem.CAPABILITY_UNAVAILABLE:
-            self._status_label.setText(f"Selected: {data.name} [Unavailable]")
-        else:
-            self._status_label.setText(f"Selected: {data.name} [MOABB]")
+    def _show_moabb_config(self, config: DatasetConfig):
+        """Display MOABB config info after details are loaded."""
+        self._info_panel.show_moabb_config(config)
+        self._status_label.setText(f"Selected: {config.name} [MOABB]")
 
     def _emit_current_dataset(self):
         """Emit current dataset data to other tabs."""
@@ -359,14 +347,11 @@ class DataTab(QtWidgets.QWidget):
         if not data:
             return
 
-        if isinstance(data, StudyItem):
-            if data.capability == StudyItem.CAPABILITY_UNAVAILABLE:
-                return
+        if isinstance(data, DatasetConfig):
             study_data = {
                 "type": "moabb",
-                "config": data.config,
-                "loader": data.loader,
-                "capability": data.capability,
+                "config": data,
+                "loader": MOAABLoader(data),
                 "selected_subject": self._info_panel.get_selected_subject(),
             }
             self.study_changed.emit(study_data)
@@ -398,7 +383,7 @@ class DataTab(QtWidgets.QWidget):
             preproc_highcut=self._info_panel.get_preproc_highcut(),
             preproc_rereference=self._info_panel.get_preproc_rereference(),
         )
-        loader = SingleFileLoader.from_dataset_info(config, dataset_info)
+        loader = FIFLoader.from_dataset_info(config, dataset_info)
 
         self.study_changed.emit(
             {

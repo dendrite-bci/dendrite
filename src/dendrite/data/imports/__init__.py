@@ -9,5 +9,4 @@ from .moabb_discovery import (
     load_moabb_dataset_details,
 )
 from .moabb_loader import MOAABLoader
-from .single_file_loader import SingleFileLoader
-from .study_item import StudyItem
+from .fif_loader import FIFLoader

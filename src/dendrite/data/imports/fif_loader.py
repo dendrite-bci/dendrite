@@ -1,6 +1,6 @@
-"""Single-file data loader.
+"""FIF file data loader.
 
-Loads data from a single FIF file with event mapping from JSON.
+Loads data from a FIF file with event mapping from JSON.
 """
 
 import json
@@ -17,11 +17,10 @@ from .config import DatasetConfig
 logger = logging.getLogger(__name__)
 
 
-class SingleFileLoader(BaseLoader):
-    """Loader for single FIF file datasets.
+class FIFLoader(BaseLoader):
+    """Loader for FIF file datasets.
 
-    Handles custom datasets with a single file and event mapping from JSON.
-    No global cache (fast enough for single files).
+    Handles custom datasets with a FIF file and event mapping from JSON.
     """
 
     def __init__(
@@ -46,7 +45,7 @@ class SingleFileLoader(BaseLoader):
         self._raw_cache: dict[tuple, mne.io.Raw] = {}
 
     @classmethod
-    def from_dataset_info(cls, config: DatasetConfig, dataset_info: dict) -> "SingleFileLoader":
+    def from_dataset_info(cls, config: DatasetConfig, dataset_info: dict) -> "FIFLoader":
         """Create loader from database dataset_info dict.
 
         Args:
@@ -54,7 +53,7 @@ class SingleFileLoader(BaseLoader):
             dataset_info: Dict from datasets table with file_path, events_json, etc.
 
         Returns:
-            SingleFileLoader configured for the dataset
+            FIFLoader configured for the dataset
         """
         file_path = dataset_info.get("file_path")
         if not file_path:

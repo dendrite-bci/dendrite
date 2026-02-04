@@ -5,10 +5,9 @@ from typing import Any
 
 from PyQt6 import QtCore, QtWidgets
 
-from dendrite.data import StudyItem
+from dendrite.data import DatasetConfig
 from dendrite.gui.styles.design_tokens import (
     STATUS_SUCCESS,
-    STATUS_WARNING_ALT,
     TEXT_DISABLED,
     TEXT_MUTED,
 )
@@ -163,30 +162,22 @@ class DatasetInfoPanel(QtWidgets.QWidget):
 
             self._classes_layout.addLayout(row)
 
-    def show_moabb_study(self, study: StudyItem):
-        """Display MOABB study information."""
-        self._current_data = {"type": "moabb", "study": study}
+    def show_moabb_config(self, config: DatasetConfig):
+        """Display MOABB dataset information."""
+        self._current_data = {"type": "moabb", "config": config}
         self._placeholder.setVisible(False)
         self._info_container.setVisible(True)
         self._subject_row.setVisible(True)
         self._edit_btn.setVisible(False)
         self._preproc_label.setText("Preprocessing: 0.5-50 Hz (default)")
 
-        config = study.config
         self._name_label.setText(config.name)
 
         # Show paradigm and class count in type label
         paradigm = config.moabb_paradigm or "Unknown"
         n_classes = len(config.events) if config.events else 0
-        cap = study.capability
-        if cap == StudyItem.CAPABILITY_FULL:
-            cap_color = STATUS_SUCCESS
-        elif cap == StudyItem.CAPABILITY_EPOCHS:
-            cap_color = STATUS_WARNING_ALT
-        else:
-            cap_color = TEXT_DISABLED
         self._type_label.setText(
-            f"<span style='color:{cap_color}'>● {paradigm}</span> · {n_classes} classes"
+            f"<span style='color:{STATUS_SUCCESS}'>● {paradigm}</span> · {n_classes} classes"
         )
 
         # Stats as key-value rows
