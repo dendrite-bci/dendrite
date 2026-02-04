@@ -16,6 +16,14 @@ from dendrite.utils.logger_central import get_logger
 
 logger = get_logger(__name__)
 
+DEFAULT_PREPROC_LOWCUT = 0.5
+DEFAULT_PREPROC_HIGHCUT = 50.0
+
+
+def _format_preproc(lowcut: float, highcut: float, car: bool = False) -> str:
+    car_str = " + CAR" if car else ""
+    return f"Preprocessing: {lowcut}-{highcut} Hz{car_str}"
+
 
 class DatasetInfoPanel(QtWidgets.QWidget):
     """Panel showing dataset details and configuration."""
@@ -166,7 +174,9 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         self._info_container.setVisible(True)
         self._subject_row.setVisible(True)
         self._edit_btn.setVisible(False)
-        self._preproc_label.setText("Preprocessing: 0.5-50 Hz (default)")
+        self._preproc_label.setText(
+            _format_preproc(DEFAULT_PREPROC_LOWCUT, DEFAULT_PREPROC_HIGHCUT) + " (default)"
+        )
 
         self._name_label.setText(config.name)
 
@@ -269,11 +279,10 @@ class DatasetInfoPanel(QtWidgets.QWidget):
 
         self._set_classes(events)
 
-        lowcut = dataset.get("preproc_lowcut", 0.5)
-        highcut = dataset.get("preproc_highcut", 50.0)
-        car = dataset.get("preproc_rereference", 0)
-        car_str = " + CAR" if car else ""
-        self._preproc_label.setText(f"Preprocessing: {lowcut}-{highcut} Hz{car_str}")
+        lowcut = dataset.get("preproc_lowcut", DEFAULT_PREPROC_LOWCUT)
+        highcut = dataset.get("preproc_highcut", DEFAULT_PREPROC_HIGHCUT)
+        car = bool(dataset.get("preproc_rereference", 0))
+        self._preproc_label.setText(_format_preproc(lowcut, highcut, car))
 
     def clear(self):
         self._current_data = None
@@ -293,10 +302,10 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         return default
 
     def get_preproc_lowcut(self) -> float:
-        return self._get_dataset_field("preproc_lowcut", 0.5)
+        return self._get_dataset_field("preproc_lowcut", DEFAULT_PREPROC_LOWCUT)
 
     def get_preproc_highcut(self) -> float:
-        return self._get_dataset_field("preproc_highcut", 50.0)
+        return self._get_dataset_field("preproc_highcut", DEFAULT_PREPROC_HIGHCUT)
 
     def get_preproc_rereference(self) -> bool:
         return bool(self._get_dataset_field("preproc_rereference", 0))

@@ -80,19 +80,38 @@ ITEM_TYPE_STUDY = 1
 _TREE_STYLE = WidgetStyles.tree_widget()
 
 
-class MOABBTreeWidget(QtWidgets.QTreeWidget):
-    """Tree widget for MOABB datasets (flat list, no categories)."""
+class _DatasetTreeWidget(QtWidgets.QTreeWidget):
+    """Base tree widget for dataset lists."""
 
-    dataset_selected = QtCore.pyqtSignal(object)  # DatasetConfig
+    dataset_selected = QtCore.pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._configs: dict[str, DatasetConfig] = {}
-
+        self._items: dict[str, any] = {}
         self.setHeaderHidden(True)
         self.setIndentation(0)
         self.setStyleSheet(_TREE_STYLE)
         self.itemClicked.connect(self._on_item_clicked)
+
+    def _on_item_clicked(self, item: QtWidgets.QTreeWidgetItem, column: int):
+        name = item.data(0, QtCore.Qt.ItemDataRole.UserRole)
+        if name and name in self._items:
+            self.dataset_selected.emit(self._get_selection_data(name))
+
+    def _get_selection_data(self, name: str):
+        """Override to customize emitted data."""
+        return self._items[name]
+
+    def clear_all(self):
+        self.clear()
+        self._items.clear()
+
+    def count(self) -> int:
+        return self.topLevelItemCount()
+
+
+class MOABBTreeWidget(_DatasetTreeWidget):
+    """Tree widget for MOABB datasets (flat list, no categories)."""
 
     def add_study(self, config: DatasetConfig):
         """Add a MOABB dataset to the tree."""
@@ -103,39 +122,14 @@ class MOABBTreeWidget(QtWidgets.QTreeWidget):
         text = f"{config.name} [{paradigm}] {n_subjects} subjects"
 
         item.setText(0, text)
-        item.setData(0, QtCore.Qt.ItemDataRole.UserRole, ITEM_TYPE_STUDY)
-        item.setData(0, QtCore.Qt.ItemDataRole.UserRole + 1, config.name)
+        item.setData(0, QtCore.Qt.ItemDataRole.UserRole, config.name)
         item.setForeground(0, QtGui.QColor(STATUS_SUCCESS))
 
-        self._configs[config.name] = config
-
-    def _on_item_clicked(self, item: QtWidgets.QTreeWidgetItem, column: int):
-        name = item.data(0, QtCore.Qt.ItemDataRole.UserRole + 1)
-        if name and name in self._configs:
-            self.dataset_selected.emit(self._configs[name])
-
-    def clear_all(self):
-        """Clear all items."""
-        self.clear()
-        self._configs.clear()
-
-    def count(self) -> int:
-        return self.topLevelItemCount()
+        self._items[config.name] = config
 
 
-class InternalTreeWidget(QtWidgets.QTreeWidget):
+class InternalTreeWidget(_DatasetTreeWidget):
     """Tree widget for datasets (flat list)."""
-
-    dataset_selected = QtCore.pyqtSignal(object)  # dict
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._datasets: dict[str, dict] = {}
-
-        self.setHeaderHidden(True)
-        self.setIndentation(0)
-        self.setStyleSheet(_TREE_STYLE)
-        self.itemClicked.connect(self._on_item_clicked)
 
     def add_dataset(self, dataset: dict):
         """Add a dataset to the list."""
@@ -143,27 +137,15 @@ class InternalTreeWidget(QtWidgets.QTreeWidget):
         study_name = dataset.get("study_name")
 
         item = QtWidgets.QTreeWidgetItem(self)
-        if study_name:
-            item.setText(0, f"{name} [{study_name}]")
-        else:
-            item.setText(0, name)
+        suffix = f" [{study_name}]" if study_name else ""
+        item.setText(0, f"{name}{suffix}")
         item.setData(0, QtCore.Qt.ItemDataRole.UserRole, name)
         item.setForeground(0, QtGui.QColor(STATUS_SUCCESS))
 
-        self._datasets[name] = dataset
+        self._items[name] = dataset
 
-    def _on_item_clicked(self, item: QtWidgets.QTreeWidgetItem, column: int):
-        name = item.data(0, QtCore.Qt.ItemDataRole.UserRole)
-        if name and name in self._datasets:
-            self.dataset_selected.emit({"type": "dataset", "data": self._datasets[name]})
-
-    def clear_all(self):
-        """Clear all items."""
-        self.clear()
-        self._datasets.clear()
-
-    def count(self) -> int:
-        return self.topLevelItemCount()
+    def _get_selection_data(self, name: str):
+        return {"type": "dataset", "data": self._items[name]}
 
 
 class DataTab(QtWidgets.QWidget):
@@ -313,10 +295,8 @@ class DataTab(QtWidgets.QWidget):
             self._info_panel.show_dataset(dataset)
             name = dataset.get("name", "Unknown")
             study_name = dataset.get("study_name")
-            if study_name:
-                self._status_label.setText(f"Selected: {name} [{study_name}]")
-            else:
-                self._status_label.setText(f"Selected: {name}")
+            suffix = f" [{study_name}]" if study_name else ""
+            self._status_label.setText(f"Selected: {name}{suffix}")
 
         self._emit_current_dataset()
 

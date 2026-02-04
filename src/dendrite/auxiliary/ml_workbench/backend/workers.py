@@ -54,41 +54,23 @@ class DataLoaderWorker(QtCore.QObject):
         self._stopped = True
 
     def _build_split_description(self, split_infos: list[dict]) -> str | None:
-        """Build a human-readable description of the split method.
-
-        Args:
-            split_infos: List of split_info dicts from load_data_split calls
-
-        Returns:
-            Description string or None if no split info available
-        """
+        """Build a human-readable description of the split method."""
         if not split_infos:
             return None
 
-        # For single subject, show detailed info
-        if len(split_infos) == 1:
-            info = split_infos[0]
-            method = info.get("method", "unknown")
-            if method == "session":
-                return f"session split ({info.get('train')} / {info.get('eval')})"
-            elif method == "run":
-                return "run split"
-            else:
-                return f"temporal split ({int(self.holdout_pct)}%)"
-
-        # For multiple subjects, summarize by method
         methods = {info.get("method", "unknown") for info in split_infos}
-        if len(methods) == 1:
-            method = methods.pop()
-            if method == "session":
-                return "session split"
-            elif method == "run":
-                return "run split"
-            else:
-                return f"temporal split ({int(self.holdout_pct)}%)"
+        if len(methods) > 1:
+            return "mixed split methods"
 
-        # Mixed methods
-        return "mixed split methods"
+        method = methods.pop()
+        if method == "session":
+            if len(split_infos) == 1:
+                info = split_infos[0]
+                return f"session split ({info.get('train')} / {info.get('eval')})"
+            return "session split"
+        if method == "run":
+            return "run split"
+        return f"temporal split ({int(self.holdout_pct)}%)"
 
     @QtCore.pyqtSlot()
     def run(self):
