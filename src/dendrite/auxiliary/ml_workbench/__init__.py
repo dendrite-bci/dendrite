@@ -5,7 +5,6 @@ For internal modules, import directly:
 - `from dendrite.auxiliary.ml_workbench.backend.eval_types import EvalResult`
 """
 
-from .app import TrainerApp, main
 from .backend import (
     DecoderStorage,
     EpochEvaluator,
@@ -17,8 +16,6 @@ from .backend import (
 )
 
 __all__ = [
-    "TrainerApp",
-    "main",
     "TrainResult",
     "OfflineTrainer",
     "EpochEvaluator",
