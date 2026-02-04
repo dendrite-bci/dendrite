@@ -131,10 +131,14 @@ def extract_event_mapping(instance_config: dict[str, Any]) -> dict[int, str]:
 
 def extract_event_code(sample: dict) -> int:
     """Extract event code from sample dict, or -1 if no valid marker."""
-    event_code = sample.get("markers", -1)
+    event_code = sample.get("markers")
+    if event_code is None:
+        return -1
     try:
+        if isinstance(event_code, np.ndarray):
+            return int(event_code.flat[0])
         return int(event_code)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, IndexError):
         return -1
 
 
