@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.7.0">
 <title data-rh="true">Auxiliary Services Layer | Dendrite Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://dendrite-bci.github.io/dendrite/docs/conceptual/architecture/auxiliary-layer"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Auxiliary Services Layer | Dendrite Documentation"><meta data-rh="true" name="description" content="Tools for development, testing, and offline analysis: Dashboard, Stream Manager, ML Workbench, Database Explorer."><meta data-rh="true" property="og:description" content="Tools for development, testing, and offline analysis: Dashboard, Stream Manager, ML Workbench, Database Explorer."><link data-rh="true" rel="canonical" href="https://dendrite-bci.github.io/dendrite/docs/conceptual/architecture/auxiliary-layer"><link data-rh="true" rel="alternate" href="https://dendrite-bci.github.io/dendrite/docs/conceptual/architecture/auxiliary-layer" hreflang="en"><link data-rh="true" rel="alternate" href="https://dendrite-bci.github.io/dendrite/docs/conceptual/architecture/auxiliary-layer" hreflang="x-default"><link rel="stylesheet" href="/dendrite/assets/css/styles.316a8727.css">
-<script src="/dendrite/assets/js/runtime~main.e0fd023b.js" defer="defer"></script>
+<script src="/dendrite/assets/js/runtime~main.6de4ff3b.js" defer="defer"></script>
 <script src="/dendrite/assets/js/main.25ef23c5.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -12,7 +12,7 @@
 <p>Tools for development, testing, and offline analysis: Dashboard, Stream Manager, ML Workbench, Database Explorer.</p>
 <hr>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="visualization-dashboard">Visualization Dashboard<a href="#visualization-dashboard" class="hash-link" aria-label="Direct link to Visualization Dashboard" title="Direct link to Visualization Dashboard">​</a></h2>
-<p>Dashboard (<code>src/dendrite/auxiliary/dashboard/app.py</code>) provides real-time visualization of biosignal data and mode outputs via LSL stream subscription.</p>
+<p>Dashboard (<code>src/dendrite/auxiliary/dashboard/app.py</code>) provides real-time visualization of signal data and mode outputs via LSL stream subscription.</p>
 <p>Subscribes to LSL visualization streams via background thread, buffering in bounded queues. Plot managers render synchronized traces at 20 FPS.</p>
 <p>Mode-specific views: Synchronous shows ERP stacks and performance metrics. Asynchronous shows prediction traces. Neurofeedback shows band power panels.</p>
 <hr>
