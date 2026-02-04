@@ -12,7 +12,7 @@ Tools for development, testing, and offline analysis: Dashboard, Stream Manager,
 
 ## Visualization Dashboard
 
-Dashboard (`src/dendrite/auxiliary/dashboard/app.py`) provides real-time visualization of biosignal data and mode outputs via LSL stream subscription.
+Dashboard (`src/dendrite/auxiliary/dashboard/app.py`) provides real-time visualization of signal data and mode outputs via LSL stream subscription.
 
 Subscribes to LSL visualization streams via background thread, buffering in bounded queues. Plot managers render synchronized traces at 20 FPS.
 

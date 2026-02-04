@@ -4,7 +4,6 @@ from pathlib import Path
 
 from PyQt6 import QtCore, QtWidgets
 
-from dendrite.auxiliary.ml_workbench.datasets import discover_moabb_datasets
 from dendrite.gui.styles.design_tokens import (
     ACCENT,
     ACCENT_HOVER,
@@ -23,6 +22,22 @@ from dendrite.gui.styles.design_tokens import (
 from dendrite.gui.styles.widget_styles import WidgetStyles
 
 
+class MOAABDiscoveryWorker(QtCore.QThread):
+    """Background worker to discover MOABB datasets without blocking the UI."""
+
+    finished = QtCore.pyqtSignal(list)
+    error = QtCore.pyqtSignal(str)
+
+    def run(self):
+        try:
+            from dendrite.auxiliary.ml_workbench.datasets import discover_moabb_datasets
+
+            configs = discover_moabb_datasets()
+            self.finished.emit(configs)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class MOAABPresetPanel(QtWidgets.QWidget):
     """Sidebar listing available MOABB dataset presets."""
 
@@ -30,20 +45,48 @@ class MOAABPresetPanel(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._worker = None
         self.setup_ui()
         self.apply_styles()
+        self._start_discovery()
 
     def setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(SPACING["sm"], 0, SPACING["sm"], 0)
         layout.setSpacing(SPACING["sm"])
 
-        # Preset list
+        # Loading indicator (shown while discovering datasets)
+        self._loading_label = QtWidgets.QLabel("Loading MOABB datasets...")
+        self._loading_label.setStyleSheet(f"color: {TEXT_DISABLED}; font-size: {FONT_SIZE['md']}px;")
+        self._loading_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._loading_label)
+
+        # Preset list (hidden until loaded)
         self.preset_list = QtWidgets.QListWidget()
         self.preset_list.itemDoubleClicked.connect(self._on_item_clicked)
+        self.preset_list.hide()
+        layout.addWidget(self.preset_list)
 
-        # Populate with presets (discovered dynamically from MOABB)
-        for config in discover_moabb_datasets():
+        # Help text
+        self._help_label = QtWidgets.QLabel("Double-click to add stream")
+        self._help_label.setStyleSheet(f"color: {TEXT_DISABLED}; font-size: {FONT_SIZE['sm']}px;")
+        self._help_label.hide()
+        layout.addWidget(self._help_label)
+
+    def _start_discovery(self):
+        """Start background thread to discover MOABB datasets."""
+        self._worker = MOAABDiscoveryWorker()
+        self._worker.finished.connect(self._on_discovery_finished)
+        self._worker.error.connect(self._on_discovery_error)
+        self._worker.start()
+
+    def _on_discovery_finished(self, configs: list):
+        """Populate list when discovery completes."""
+        self._loading_label.hide()
+        self.preset_list.show()
+        self._help_label.show()
+
+        for config in configs:
             item = QtWidgets.QListWidgetItem()
             display_name = config.name.replace("_", " ")
             n_subjects = len(config.subjects) if config.subjects else "?"
@@ -52,12 +95,9 @@ class MOAABPresetPanel(QtWidgets.QWidget):
             item.setData(QtCore.Qt.ItemDataRole.UserRole, (config.name, config))
             self.preset_list.addItem(item)
 
-        layout.addWidget(self.preset_list)
-
-        # Help text
-        help_label = QtWidgets.QLabel("Double-click to add stream")
-        help_label.setStyleSheet(f"color: {TEXT_DISABLED}; font-size: {FONT_SIZE['sm']}px;")
-        layout.addWidget(help_label)
+    def _on_discovery_error(self, error_msg: str):
+        """Show error message if discovery fails."""
+        self._loading_label.setText(f"Failed to load: {error_msg}")
 
     def apply_styles(self):
         self.setStyleSheet(f"""

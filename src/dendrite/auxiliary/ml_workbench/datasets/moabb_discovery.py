@@ -149,41 +149,11 @@ def discover_moabb_datasets(
             return [c for c in configs if c.moabb_paradigm == _PARADIGM_MAP.get(paradigm_filter)]
         return configs
 
-    # Check for BIDS base class (these auto-download on instantiation)
-    try:
-        from moabb.datasets.base import BaseBIDSDataset
-
-        has_bids_base = True
-    except ImportError:
-        has_bids_base = False
-        BaseBIDSDataset = None
-
     configs = []
     for ds_class in dataset_utils.dataset_list:
         try:
-            # Check if it's a BIDS dataset (those download on init)
-            is_bids = has_bids_base and issubclass(ds_class, BaseBIDSDataset)
-
-            if is_bids:
-                # Don't instantiate BIDS datasets - they auto-download
-                paradigm = getattr(ds_class, "paradigm", "imagery")
-                subjects = []
-                events = {}
-                interval = None
-                description = f"MOABB {paradigm} dataset"
-            else:
-                # Safe to instantiate non-BIDS datasets
-                ds = ds_class()
-                paradigm = ds.paradigm
-                subjects = list(ds.subject_list) if hasattr(ds, "subject_list") else []
-                events = {}
-                if hasattr(ds, "event_id") and ds.event_id:
-                    if isinstance(ds.event_id, dict):
-                        events = dict(ds.event_id)
-                    elif isinstance(ds.event_id, (list, tuple)):
-                        events = {str(e): i for i, e in enumerate(ds.event_id)}
-                interval = getattr(ds, "interval", None)
-                description = f"MOABB {paradigm} dataset with {len(subjects)} subjects"
+            # Get paradigm from class attribute - no instantiation needed
+            paradigm = getattr(ds_class, "paradigm", "imagery")
 
             # Skip if filtering and doesn't match
             if paradigm_filter and paradigm != paradigm_filter:
@@ -192,12 +162,32 @@ def discover_moabb_datasets(
             # Map to our paradigm name
             paradigm_name = _PARADIGM_MAP.get(paradigm, "MotorImagery")
 
-            # Set epoch window from interval
+            # Try to get metadata from class attributes (no instantiation)
+            # If not available, will be loaded on click via load_moabb_dataset_details()
+            subjects = []
+            if hasattr(ds_class, "subject_list"):
+                try:
+                    subjects = list(ds_class.subject_list)
+                except (TypeError, AttributeError):
+                    pass
+
+            events = {}
+            if hasattr(ds_class, "event_id"):
+                try:
+                    event_id = ds_class.event_id
+                    if isinstance(event_id, dict):
+                        events = dict(event_id)
+                    elif isinstance(event_id, (list, tuple)):
+                        events = {str(e): i for i, e in enumerate(event_id)}
+                except (TypeError, AttributeError):
+                    pass
+
+            interval = getattr(ds_class, "interval", None)
             epoch_tmin = interval[0] if interval else 0.0
             epoch_tmax = interval[1] if interval else 4.0
 
-            # Get sampling rate from cache using MNE directly (runs during discovery)
-            sampling_rate = _get_cached_sampling_rate(ds.code) if not is_bids else 0
+            n_subjects = len(subjects) if subjects else "?"
+            description = f"MOABB {paradigm} dataset with {n_subjects} subjects"
 
             config = DatasetConfig(
                 name=ds_class.__name__,
@@ -209,7 +199,7 @@ def discover_moabb_datasets(
                 subjects=subjects,
                 epoch_tmin=epoch_tmin,
                 epoch_tmax=epoch_tmax,
-                sample_rate=sampling_rate,
+                sample_rate=0,
             )
             configs.append(config)
 
