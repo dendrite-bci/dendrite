@@ -305,11 +305,9 @@ class DatasetInfoPanel(QtWidgets.QWidget):
         self._edit_btn.setVisible(False)
 
     def get_selected_subject(self) -> int | None:
-        if self._current_data:
-            data_type = self._current_data.get("type")
-            if data_type == "moabb":
-                return self._subject_combo.currentData()
-        return None
+        if not self._current_data or self._current_data.get("type") != "moabb":
+            return None
+        return self._subject_combo.currentData()
 
     def get_preproc_lowcut(self) -> float:
         """Get lowcut from stored data or default."""

@@ -228,17 +228,12 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
 
     def _adapt_tensor_shape(self, X_tensor: torch.Tensor) -> torch.Tensor:
         """Adapt tensor shape based on model requirements."""
+        if len(X_tensor.shape) != 3:
+            return X_tensor
         if callable(getattr(self.model, "get_model_info", None)):
-            capabilities = self.model.get_model_info()
-            expected_format = capabilities.get("input_format", "3D")
-
-            if expected_format == "4D" and len(X_tensor.shape) == 3:
-                X_tensor = X_tensor.unsqueeze(1)
-        else:
-            if len(X_tensor.shape) == 3:
-                X_tensor = X_tensor.unsqueeze(1)
-
-        return X_tensor
+            if self.model.get_model_info().get("input_format", "3D") == "3D":
+                return X_tensor
+        return X_tensor.unsqueeze(1)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Make class predictions."""
