@@ -13,7 +13,9 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.preprocessing import LabelEncoder
 
-from .optuna_utils import suggest_params
+from dendrite.ml.search import OptunaConfig, suggest_params
+
+from .optuna_runner import OptunaRunner
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
 
     Example:
         >>> from dendrite.ml.decoders import create_decoder
-        >>> from dendrite.ml.search import OPTUNA_SEARCH_SPACE
+        >>> from dendrite.ml.search import BENCHMARK_SEARCH_SPACE
         >>>
         >>> def factory(n_classes, input_shape, **params):
         ...     return create_decoder(
@@ -56,7 +58,7 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
         >>>
         >>> search = OptunaSearchCV(
         ...     estimator_factory=factory,
-        ...     param_distributions=OPTUNA_SEARCH_SPACE,
+        ...     param_distributions=BENCHMARK_SEARCH_SPACE,
         ...     n_trials=10,
         ...     random_state=42,
         ... )
@@ -115,9 +117,9 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
         if y.dtype.kind in ("U", "S", "O"):
             self._label_encoder = LabelEncoder()
             y = self._label_encoder.fit_transform(y)
-            self.classes_ = self._label_encoder.classes_  # Original string classes
+            self.classes_ = self._label_encoder.classes_
         else:
-            self.classes_ = np.unique(y)  # sklearn compatibility
+            self.classes_ = np.unique(y)
 
         # Store data shape for estimator creation
         n_channels, n_times = X.shape[1], X.shape[2]
@@ -125,21 +127,16 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
         self._n_classes = n_classes
         self._input_shape = [n_channels, n_times]
 
-        # Suppress Optuna logging
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
-
         def objective(trial: optuna.Trial) -> float:
-            params = self._suggest_params(trial)
+            params = suggest_params(trial, self.param_distributions)
             all_params = {**self.base_params, **params, "epochs": self.epochs}
 
-            # Create estimator with suggested params
             estimator = self.estimator_factory(
                 n_classes=n_classes,
                 input_shape=[n_channels, n_times],
                 **all_params,
             )
 
-            # Inner cross-validation
             try:
                 scores = cross_val_score(
                     estimator,
@@ -158,15 +155,20 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
                 logger.warning(f"Trial {trial.number} failed: {type(e).__name__}: {e}")
                 return 0.0
 
-        # Create and run study
-        sampler = optuna.samplers.TPESampler(seed=self.random_state)
-        self.study_ = optuna.create_study(direction="maximize", sampler=sampler)
-        self.study_.optimize(
-            objective,
+        # Use OptunaRunner for optimization
+        config = OptunaConfig(
             n_trials=self.n_trials,
-            n_jobs=self.n_jobs,
-            show_progress_bar=False,
+            direction="maximize",
+            seed=self.random_state,
+            sampler_type="tpe",
+            pruner_type="none",  # No pruning for CV-based evaluation
+            verbose=False,
         )
+        runner = OptunaRunner(config)
+        runner.optimize(objective)
+
+        # Store study reference for compatibility
+        self.study_ = runner.study
 
         # Store best results
         self.best_params_ = self.study_.best_params
@@ -205,10 +207,6 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
         if hasattr(self.best_estimator_, "predict_proba"):
             return self.best_estimator_.predict_proba(X)
         raise AttributeError("Best estimator does not support predict_proba")
-
-    def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
-        """Suggest hyperparameters from search space."""
-        return suggest_params(trial, self.param_distributions)
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
         """Get parameters for sklearn compatibility."""

@@ -4,10 +4,12 @@ Optuna-based hyperparameter search utilities.
 Provides search space definitions and configuration generation for
 hyperparameter optimization across both real-time processing and
 offline training workflows.
+
+OptunaRunner and OptunaSearchCV have been moved to:
+    dendrite.auxiliary.ml_workbench.backend
 """
 
-from .optuna_runner import OptunaConfig, OptunaRunner
-from .optuna_search_cv import OptunaSearchCV
+from .config import OptunaConfig
 from .optuna_utils import (
     DEFAULT_SEARCH_SPACE,
     create_optuna_search_configs,
@@ -23,8 +25,6 @@ from .search_space import (
 
 __all__ = [
     "OptunaConfig",
-    "OptunaRunner",
-    "OptunaSearchCV",
     "create_optuna_search_configs",
     "suggest_params",
     "DEFAULT_SEARCH_SPACE",

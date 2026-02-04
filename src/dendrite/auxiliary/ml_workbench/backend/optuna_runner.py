@@ -1,12 +1,13 @@
 """
-Unified Optuna Hyperparameter Optimization Runner.
+Optuna Hyperparameter Optimization Runner.
 
-Provides a single, reusable Optuna integration for hyperparameter optimization
+Provides a reusable Optuna integration for hyperparameter optimization
 with proper pruning support. Accepts pluggable objective functions for different
 evaluation strategies (async ErrP, cross-validation, ITR, etc.).
 
 Usage:
-    from dendrite.ml.search import OptunaRunner, OptunaConfig
+    from dendrite.auxiliary.ml_workbench.backend import OptunaRunner
+    from dendrite.ml.search import OptunaConfig
 
     config = OptunaConfig(n_trials=20, pruner_type='median')
     runner = OptunaRunner(config)
@@ -22,7 +23,6 @@ Usage:
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,54 +30,14 @@ from typing import Any
 import optuna
 from optuna.trial import TrialState
 
+from dendrite.ml.search import OptunaConfig
 from dendrite.utils.logger_central import get_logger
 
 logger = get_logger(__name__)
 
 
-@dataclass
-class OptunaConfig:
-    """Configuration for Optuna optimization run."""
-
-    # Core settings
-    n_trials: int = 20
-    direction: str = "maximize"  # 'maximize' or 'minimize'
-    seed: int | None = None
-
-    # Sampler settings
-    sampler_type: str = "tpe"  # 'tpe', 'random', 'cmaes'
-    n_startup_trials: int = 5  # Random trials before TPE kicks in
-
-    # Pruner settings (key for speed!)
-    pruner_type: str = "median"  # 'median', 'percentile', 'none'
-    pruner_n_startup_trials: int = 3  # Trials before pruning starts
-    pruner_n_warmup_steps: int = 1  # Steps before pruning per trial
-    pruner_percentile: float = 25.0  # For percentile pruner
-
-    # Persistence (optional)
-    study_name: str | None = None
-    storage: str | None = None  # sqlite:///path/to/db
-    load_if_exists: bool = False
-    results_dir: str | None = None
-    verbose: bool = True
-
-    def validate(self) -> list[str]:
-        """Validate configuration, return list of issues."""
-        issues = []
-        if self.n_trials < 1:
-            issues.append("n_trials must be >= 1")
-        if self.direction not in ["maximize", "minimize"]:
-            issues.append(f"direction must be 'maximize' or 'minimize', got '{self.direction}'")
-        if self.sampler_type not in ["tpe", "random", "cmaes"]:
-            issues.append(f"Unknown sampler_type: {self.sampler_type}")
-        if self.pruner_type not in ["median", "percentile", "none"]:
-            issues.append(f"Unknown pruner_type: {self.pruner_type}")
-        return issues
-
-
 class OptunaRunner:
-    """
-    Run hyperparameter optimization using Optuna with pruning support.
+    """Run hyperparameter optimization using Optuna with pruning support.
 
     Key features:
     - Pluggable objective function pattern
@@ -102,8 +62,7 @@ class OptunaRunner:
         objective: Callable[[optuna.Trial], float],
         progress_callback: Callable[[int, str], None] | None = None,
     ) -> dict[str, Any]:
-        """
-        Run optimization with pluggable objective function.
+        """Run optimization with pluggable objective function.
 
         The objective function receives an Optuna trial and should:
         1. Use trial.suggest_* to sample hyperparameters
@@ -131,13 +90,11 @@ class OptunaRunner:
             direction=self.config.direction,
         )
 
-        # Suppress Optuna's verbose logging if not verbose
         if not self.config.verbose:
             optuna.logging.set_verbosity(optuna.logging.WARNING)
 
         self._report_progress(0, "Starting optimization...")
 
-        # Run optimization
         self.study.optimize(
             objective,
             n_trials=self.config.n_trials,
@@ -147,10 +104,8 @@ class OptunaRunner:
 
         self._report_progress(100, "Optimization complete")
 
-        # Build results
         results = self._build_results()
 
-        # Save if results_dir specified
         if self.config.results_dir:
             self._save_results(results)
 
@@ -158,9 +113,21 @@ class OptunaRunner:
 
     def _create_sampler(self) -> optuna.samplers.BaseSampler:
         """Create sampler based on config."""
-        return _create_sampler(
-            self.config.sampler_type, self.config.seed, self.config.n_startup_trials
-        )
+        sampler_type = self.config.sampler_type
+        seed = self.config.seed
+        n_startup_trials = self.config.n_startup_trials
+
+        if sampler_type == "tpe":
+            return optuna.samplers.TPESampler(seed=seed, n_startup_trials=n_startup_trials)
+        elif sampler_type == "random":
+            return optuna.samplers.RandomSampler(seed=seed)
+        elif sampler_type == "cmaes":
+            return optuna.samplers.CmaEsSampler(seed=seed)
+        elif sampler_type == "grid":
+            return optuna.samplers.GridSampler({})
+        else:
+            logger.warning(f"Unknown sampler '{sampler_type}', using TPE")
+            return optuna.samplers.TPESampler(seed=seed)
 
     def _create_pruner(self) -> optuna.pruners.BasePruner:
         """Create pruner based on config."""
@@ -209,7 +176,6 @@ class OptunaRunner:
         if not self.study:
             return {}
 
-        # Count trial states
         completed = len([t for t in self.study.trials if t.state == TrialState.COMPLETE])
         pruned = len([t for t in self.study.trials if t.state == TrialState.PRUNED])
         failed = len([t for t in self.study.trials if t.state == TrialState.FAIL])
@@ -229,7 +195,6 @@ class OptunaRunner:
             },
         }
 
-        # Add top trials summary
         completed_trials = [t for t in self.study.trials if t.state == TrialState.COMPLETE]
         if completed_trials:
             sorted_trials = sorted(
@@ -253,7 +218,6 @@ class OptunaRunner:
         filename = f"optuna_search_{timestamp}.json"
         filepath = results_dir / filename
 
-        # Make results JSON-serializable
         save_data = {"timestamp": datetime.now().isoformat(), **results}
 
         with open(filepath, "w") as f:
@@ -277,29 +241,3 @@ class OptunaRunner:
         except (RuntimeError, ValueError) as e:
             logger.warning(f"Could not compute param importances: {e}")
             return {}
-
-
-def _create_sampler(
-    sampler_type: str, seed: int | None = None, n_startup_trials: int = 10
-) -> optuna.samplers.BaseSampler:
-    """Create Optuna sampler based on type.
-
-    Args:
-        sampler_type: 'tpe', 'random', 'cmaes', or 'grid'
-        seed: Random seed for reproducibility
-        n_startup_trials: Random trials before TPE kicks in (TPE only)
-
-    Returns:
-        Optuna sampler instance
-    """
-    if sampler_type == "tpe":
-        return optuna.samplers.TPESampler(seed=seed, n_startup_trials=n_startup_trials)
-    elif sampler_type == "random":
-        return optuna.samplers.RandomSampler(seed=seed)
-    elif sampler_type == "cmaes":
-        return optuna.samplers.CmaEsSampler(seed=seed)
-    elif sampler_type == "grid":
-        return optuna.samplers.GridSampler({})
-    else:
-        logger.warning(f"Unknown sampler '{sampler_type}', using TPE")
-        return optuna.samplers.TPESampler(seed=seed)

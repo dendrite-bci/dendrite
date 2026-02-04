@@ -285,7 +285,9 @@ class OptunaTrainingWorker(QtCore.QObject):
 
             from dendrite.auxiliary.ml_workbench import OfflineTrainer
             from dendrite.ml.decoders.decoder_schemas import DecoderConfig
-            from dendrite.ml.search import OptunaRunner, suggest_params
+            from dendrite.ml.search import suggest_params
+
+            from .optuna_runner import OptunaRunner
 
             self.progress.emit("Starting Optuna search...")
             runner = OptunaRunner(self.optuna_config)

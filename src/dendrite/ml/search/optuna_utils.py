@@ -15,7 +15,6 @@ import optuna
 
 from dendrite.ml.models import get_available_models
 
-from .optuna_runner import _create_sampler
 from .search_space import (
     DEFAULT_MODELS,
     DERIVED_PARAMS,
@@ -216,6 +215,21 @@ def get_search_models(model_types: list[str] | None = None) -> list[str]:
 
 # Search space from search_space.py (training params, no model arch params)
 DEFAULT_SEARCH_SPACE = TRAINING
+
+
+def _create_sampler(
+    sampler_type: str, seed: int | None = None, n_startup_trials: int = 10
+) -> optuna.samplers.BaseSampler:
+    """Create Optuna sampler based on type."""
+    if sampler_type == "tpe":
+        return optuna.samplers.TPESampler(seed=seed, n_startup_trials=n_startup_trials)
+    elif sampler_type == "random":
+        return optuna.samplers.RandomSampler(seed=seed)
+    elif sampler_type == "cmaes":
+        return optuna.samplers.CmaEsSampler(seed=seed)
+    else:
+        logger.warning(f"Unknown sampler '{sampler_type}', using TPE")
+        return optuna.samplers.TPESampler(seed=seed)
 
 
 def create_optuna_search_configs(
