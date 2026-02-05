@@ -289,10 +289,12 @@ class FIFLoader(BaseLoader):
         raw_picked = raw.copy().pick(picks)
         data = raw_picked.get_data()
 
-        event_times = filtered[:, 0] if len(filtered) > 0 else np.array([])
-        event_labels = (
-            encode_labels(filtered[:, 2], self._event_mapping) if len(filtered) > 0 else np.array([])
-        )
+        if len(filtered) > 0:
+            event_times = filtered[:, 0]
+            event_labels = encode_labels(filtered[:, 2], self._event_mapping)
+        else:
+            event_times = np.array([])
+            event_labels = np.array([])
 
         if len(event_times) == 0:
             logger.warning(

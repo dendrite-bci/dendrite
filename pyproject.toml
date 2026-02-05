@@ -81,13 +81,13 @@ dev = [
 # For NVIDIA GPU support (Linux/Windows only):
 # After installing the package, reinstall PyTorch with CUDA support:
 #
-#   uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   uv pip install --reinstall torch --index-url https://download.pytorch.org/whl/cu124
 #
 # Or for CUDA 12.1:
-#   uv pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   uv pip install --reinstall torch --index-url https://download.pytorch.org/whl/cu121
 #
 # Or for CPU-only (explicit):
-#   uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   uv pip install --reinstall torch --index-url https://download.pytorch.org/whl/cpu
 #
 # See: https://pytorch.org/get-started/locally/
 # ============================================================================

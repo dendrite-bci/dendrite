@@ -6,6 +6,7 @@ Streamlined version that maintains functionality while removing bloat.
 
 import logging
 import time
+from collections import Counter
 from multiprocessing import Process
 from multiprocessing.queues import Queue
 
@@ -213,9 +214,7 @@ class OfflineDataStreamer(Process):
             has_markers_column = "MARKERS" in channel_types_upper
 
             # Log channel type summary
-            type_counts = {}
-            for ch_type in channel_types_upper:
-                type_counts[ch_type] = type_counts.get(ch_type, 0) + 1
+            type_counts = Counter(channel_types_upper)
             type_summary = ", ".join(f"{count} {t}" for t, count in type_counts.items())
             markers_info = "" if has_markers_column else " + markers"
             self.logger.info(f"Streaming {type_summary}{markers_info} @ {loaded.sample_rate} Hz")
@@ -353,23 +352,21 @@ class OfflineDataStreamer(Process):
             # Build reverse lookup: label -> event name
             label_to_name = {label: name for name, label in event_mapping.items()}
             if self.enable_event_stream and len(event_times) > 0:
-                # Use proper event names with +1 offset for marker codes (0 = no event)
-                stream_event_mapping = {name: label + 1 for name, label in event_mapping.items()}
-
+                # Use MOABB's native event codes directly (no offset needed)
                 stream_name = self._get_stream_name("MOABB_Events")
                 event_outlet = EventOutlet(
                     stream_name=stream_name,
-                    events=stream_event_mapping,
+                    events=event_mapping,
                     stream_id=f"moabb_events_{self.moabb_preset}",
                 )
-                self.logger.info(f"Event stream enabled: {stream_event_mapping}")
+                self.logger.info(f"Event stream enabled: {event_mapping}")
 
             # Create event lookup for fast access: sample_idx -> (marker_code, event_name)
-            # Offset event codes by +1 so that 0 = "no event"
+            # Use MOABB's native codes directly (already non-zero)
             event_dict = {}
             for evt_time, evt_label in zip(event_times, event_labels, strict=False):
                 event_name = label_to_name.get(evt_label, f"class_{evt_label}")
-                event_dict[int(evt_time)] = (int(evt_label) + 1, event_name)  # +1 offset
+                event_dict[int(evt_time)] = (int(evt_label), event_name)
 
             # Stream data with timing control
             start_time = time.perf_counter()

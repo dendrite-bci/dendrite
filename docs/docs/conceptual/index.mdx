@@ -10,7 +10,7 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 
 # System Overview
 
-Dendrite uses a multi-process architecture for real-time neural signal processing. Each component runs as an isolated process, enabling crash containment and true parallelism (bypassing Python's GIL).
+Dendrite uses a multi-process architecture for real-time signal processing. 
 
 **Data Acquisition** reads multi-rate LSL streams and forwards raw samples. **Data Processor** applies optional preprocessing and distributes samples to mode queues. **Mode Processes** perform classification or feature extraction. **Output Streamers** broadcast results to the **Task Application**, which sends events back to close the loop.
 

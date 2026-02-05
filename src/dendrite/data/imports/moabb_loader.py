@@ -199,14 +199,13 @@ class MOAABLoader:
         # Build reverse lookup: code -> event name
         code_to_name = {code: name for name, code in event_id.items()}
 
-        # If config.events is empty, auto-generate mapping from MNE event_id
-        # (matches _encode_labels behavior for consistency)
+        # Use config.events if set, otherwise use MNE's event_id directly
+        # (preserves MOABB's native codes instead of creating 0-indexed labels)
         if self.config.events:
             label_map = self.config.events
         else:
-            # Auto-generate: assign sequential integers to sorted event names
-            label_map = {name: i for i, name in enumerate(sorted(event_id.keys()))}
-            logger.info(f"Auto-generated event mapping for continuous data: {label_map}")
+            label_map = dict(event_id)
+            logger.info(f"Using MNE event_id as label map: {label_map}")
 
         event_times = []
         event_labels = []

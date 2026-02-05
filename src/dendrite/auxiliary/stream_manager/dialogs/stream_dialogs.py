@@ -109,15 +109,14 @@ class StreamDetailsDialog(QtWidgets.QDialog):
                         events_text = QtWidgets.QTextEdit()
                         events_text.setReadOnly(True)
                         events_text.setMaximumHeight(100)
-                        # Show +1 offset codes (0 = no event in marker channel)
+                        # Show actual marker codes (MOABB native codes)
                         events_text.setText(
                             "\n".join(
                                 [
-                                    f"  {name} -> {code + 1}"
+                                    f"  {name} -> {code}"
                                     for name, code in preset_config.events.items()
                                 ]
                             )
-                            + "\n  (0 = no event)"
                         )
                         layout.addWidget(events_text)
 

@@ -5,11 +5,20 @@ Loads data from Dendrite H5/HDF5 files with channel labels and events.
 
 import logging
 
+import h5py
 import numpy as np
 
 from ._types import LoadedData
 
 logger = logging.getLogger(__name__)
+
+# Columns to filter out from channel data
+_METADATA_COLUMNS = {"timestamp", "local_timestamp"}
+
+
+def _find_data_datasets(h5_file: h5py.File) -> list[str]:
+    """Find data datasets (not Event* datasets) in H5 file."""
+    return [k for k in h5_file.keys() if not k.startswith("Event") and isinstance(h5_file[k], h5py.Dataset)]
 
 
 class H5Loader:
@@ -23,15 +32,10 @@ class H5Loader:
     @staticmethod
     def load_file(file_path: str) -> LoadedData:
         """Load data from internal Dendrite H5 format."""
-        import h5py
-
         logger.info(f"Loading H5 file: {file_path}")
 
         with h5py.File(file_path, "r") as f:
-            # Find data datasets (EEG, EMG - skip Event* datasets)
-            data_datasets = [
-                k for k in f.keys() if not k.startswith("Event") and isinstance(f[k], h5py.Dataset)
-            ]
+            data_datasets = _find_data_datasets(f)
 
             if not data_datasets:
                 raise ValueError("No data datasets found in H5 file")
@@ -49,9 +53,7 @@ class H5Loader:
                 raise ValueError("Cannot determine channel labels")
 
             # Filter out metadata columns
-            data_labels = [
-                label for label in all_labels if label.lower() not in ["timestamp", "local_timestamp"]
-            ]
+            data_labels = [label for label in all_labels if label.lower() not in _METADATA_COLUMNS]
             has_markers = "Markers" in data_labels
 
             # Extract channel data
@@ -63,7 +65,7 @@ class H5Loader:
                     channel_names.append(label)
 
             data = np.column_stack(channel_data)
-            channel_types = [ds_name.lower() if l != "Markers" else "markers" for l in channel_names]
+            channel_types = [ds_name.lower() if name != "Markers" else "markers" for name in channel_names]
             sample_rate = float(ds.attrs.get("sampling_frequency", ds.attrs.get("sample_rate", 500.0)))
 
             # Extract events from Markers column
@@ -88,13 +90,8 @@ class H5Loader:
         Returns:
             Tuple of (duration_seconds, n_channels, channel_names)
         """
-        import h5py
-
         with h5py.File(file_path, "r") as f:
-            # Find main data dataset (not Event*)
-            data_datasets = [
-                k for k in f.keys() if not k.startswith("Event") and isinstance(f[k], h5py.Dataset)
-            ]
+            data_datasets = _find_data_datasets(f)
             if not data_datasets:
                 raise ValueError("No data datasets in H5 file")
 
@@ -108,13 +105,9 @@ class H5Loader:
             # Get channel names (case-insensitive filter for backward compat)
             if "channel_labels" in ds.attrs:
                 channel_names = H5Loader._decode_labels(ds.attrs["channel_labels"])
-                channel_names = [
-                    l for l in channel_names if l.lower() not in ["timestamp", "local_timestamp"]
-                ]
+                channel_names = [name for name in channel_names if name.lower() not in _METADATA_COLUMNS]
             elif ds.dtype.names:
-                channel_names = [
-                    n for n in ds.dtype.names if n.lower() not in ["timestamp", "local_timestamp"]
-                ]
+                channel_names = [name for name in ds.dtype.names if name.lower() not in _METADATA_COLUMNS]
             else:
                 channel_names = []
 

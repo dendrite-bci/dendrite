@@ -12,7 +12,7 @@ Dendrite is an open-source Python application for brain-computer interface R&D. 
 
 The offline workbench trains **neural networks** (EEGNet, Transformers, Conformers via [Braindecode](https://braindecode.org)) and **classical pipelines** (CSP+LDA) through the same interface. Import any of **36+ public datasets** from [MOABB](https://moabb.neurotechx.com) to benchmark your decoders, run **[Optuna](https://optuna.org) hyperparameter optimization**, then deploy trained models to real-time sessions in seconds. A SQLite backend tracks recordings, configurations, and decoder versions. Data processing builds on [MNE-Python](https://mne.tools) for EEG analysis.
 
-Three runtime modes cover the major BCI paradigms: **Synchronous** for trial-based decoding (P300, cued motor imagery), **Asynchronous** for continuous classification without event markers, and **Neurofeedback** for real-time band power feedback. Run multiple modes simultaneously for hybrid paradigms or online calibration. Stream predictions over LSL, ROS2, TCP, or ZeroMQ, and replay any recording as a live stream for hardware-free development.
+Three runtime modes cover the major BCI paradigms: **Synchronous** for trial-based training and decoding, **Asynchronous** for continuous decoding, and **Neurofeedback** for real-time band power feedback. Run multiple modes simultaneously for hybrid paradigms or online calibration. Stream predictions over LSL, ROS2, TCP, or ZeroMQ, and replay any recording as a live stream for hardware-free development.
 
 ---
 

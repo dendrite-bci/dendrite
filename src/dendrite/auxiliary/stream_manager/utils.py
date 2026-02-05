@@ -132,7 +132,7 @@ def get_file_info(file_path: str) -> tuple[float, Any, dict] | None:
 
         elif ext in H5Loader.EXTENSIONS:
             # H5 format - use lightweight metadata function
-            duration, n_channels, channel_names = H5Loader.get_file_info(file_path)
+            duration, _, _ = H5Loader.get_file_info(file_path)
             events = []
             event_ids = {}
         else:
