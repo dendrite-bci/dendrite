@@ -102,8 +102,8 @@ uv sync
 <summary>Alternative: pip/venv (requires Python 3.12)</summary>
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate  # Windows: .\.venv\Scripts\Activate
+python -m venv .venv
+source .venv/bin/activate  # Windows: .\.venv\Scripts\activate
 pip install -e .
 ```
 
@@ -112,7 +112,7 @@ pip install -e .
 ### 2) Launch
 
 ```bash
-uv run python main.py
+uv run main.py
 
 # Or with pip/venv:
 python main.py

@@ -28,7 +28,7 @@ class DatasetConfig:
 
     # Signal parameters
     sample_rate: float = 500.0
-    channels: list[str] | None = None  # None = all EEG channels
+    channels: str | None = None  # Channel type for MNE pick (e.g., "eeg", "emg")
 
     # Epoch parameters
     epoch_tmin: float = 0.0

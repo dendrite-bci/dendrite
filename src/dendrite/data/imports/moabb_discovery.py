@@ -11,6 +11,8 @@ from .config import DatasetConfig
 
 logger = logging.getLogger(__name__)
 
+# Module-level cache for discovered datasets
+_dataset_cache: list[DatasetConfig] | None = None
 
 # Map MOABB paradigm strings to our paradigm class names
 _PARADIGM_MAP = {
@@ -35,17 +37,18 @@ def discover_moabb_datasets(
     Returns:
         List of DatasetConfig objects for each MOABB dataset
     """
+    global _dataset_cache
+
     try:
         from moabb.datasets import utils as dataset_utils
     except ImportError:
         logger.warning("MOABB not installed, no datasets available")
         return []
 
-    if cache and hasattr(discover_moabb_datasets, "_cache"):
-        configs = discover_moabb_datasets._cache
+    if cache and _dataset_cache is not None:
         if paradigm_filter:
-            return [c for c in configs if c.moabb_paradigm == _PARADIGM_MAP.get(paradigm_filter)]
-        return configs
+            return [c for c in _dataset_cache if c.moabb_paradigm == _PARADIGM_MAP.get(paradigm_filter)]
+        return _dataset_cache
 
     configs = []
     for ds_class in dataset_utils.dataset_list:
@@ -106,7 +109,7 @@ def discover_moabb_datasets(
             continue
 
     if cache:
-        discover_moabb_datasets._cache = configs
+        _dataset_cache = configs
 
     logger.info(f"Discovered {len(configs)} MOABB datasets")
     return configs

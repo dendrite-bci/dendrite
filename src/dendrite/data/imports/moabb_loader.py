@@ -66,11 +66,7 @@ class MOAABLoader:
     """
 
     def __init__(self, config: DatasetConfig):
-        """Initialize loader with dataset config.
-
-        Args:
-            config: Dataset configuration with moabb_dataset and moabb_paradigm set
-        """
+        """Initialize loader with dataset config (requires moabb_dataset and moabb_paradigm)."""
         self.config = config
         self._validate_config()
 
@@ -136,30 +132,18 @@ class MOAABLoader:
         return 250.0
 
     def _get_channel_picks(self) -> str:
-        """Get channel pick string for data extraction.
-
-        Matches load_epochs behavior for consistent channel selection.
-        MOABB paradigms typically select EEG channels only.
-        """
+        """Get channel pick string (e.g., 'eeg') from config."""
         return self.config.channels if self.config.channels else "eeg"
 
     def _get_paradigm_filters(self) -> tuple[float, float] | None:
-        """Get bandpass filter settings from paradigm.
-
-        Returns:
-            Tuple of (low_freq, high_freq) or None if no filtering defined
-        """
+        """Get bandpass filter settings from paradigm, or None if not defined."""
         filters = getattr(self.paradigm, "filters", None)
         if filters and len(filters) > 0 and len(filters[0]) == 2:
             return tuple(filters[0])
         return None
 
     def _apply_paradigm_preprocessing(self, raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
-        """Apply same preprocessing as paradigm (channel picks + bandpass + scaling).
-
-        Ensures continuous data matches the filtered epochs from load_epochs().
-        MOABB paradigms convert V to μV internally, so we apply the same scaling.
-        """
+        """Apply paradigm preprocessing (channel picks, bandpass, V→μV scaling)."""
         raw = raw.copy()
         raw.pick(self._get_channel_picks())
 
@@ -178,20 +162,7 @@ class MOAABLoader:
         self,
         raw: mne.io.BaseRaw,
     ) -> tuple[list[int], list[int], dict[str, int]]:
-        """Extract event times, labels, and mapping from raw MNE object.
-
-        If config.events is specified, filters to those events. Otherwise,
-        auto-generates a mapping from all MNE event types (consistent with
-        _encode_labels behavior for epoch loading).
-
-        Args:
-            raw: MNE Raw object with annotations
-
-        Returns:
-            event_times: List of sample indices
-            event_labels: List of integer labels
-            label_map: Dict mapping event names to integer labels
-        """
+        """Extract event times, labels, and mapping from raw MNE annotations."""
         events_array, event_id = mne.events_from_annotations(raw, verbose=False)
         logger.debug(f"MNE event_id mapping: {event_id}")
         logger.debug(f"Config events filter: {self.config.events}")
@@ -226,19 +197,7 @@ class MOAABLoader:
         session: str | None = None,
         run: str | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Load epoched data for a subject.
-
-        Args:
-            subject_id: Subject ID (1-indexed typically)
-            block: Ignored for MOABB (sessions handled internally)
-            events: Ignored for MOABB (uses paradigm's event selection)
-            session: Filter to specific session (e.g., '0train')
-            run: Filter to specific run (e.g., '0')
-
-        Returns:
-            X: (n_epochs, n_channels, n_times) - epoched EEG data
-            y: (n_epochs,) - integer labels (0, 1, 2, ...)
-        """
+        """Load epoched data (n_epochs, n_channels, n_times) and labels for a subject."""
         # Check cache (only for unfiltered requests)
         cache_key = (subject_id, session, run)
         if cache_key in self._cache:
@@ -273,15 +232,7 @@ class MOAABLoader:
         return X, y
 
     def _encode_labels(self, y_str: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Convert string labels to integers, return validity mask.
-
-        Args:
-            y_str: Array of string labels from MOABB (e.g., 'left_hand', 'right_hand')
-
-        Returns:
-            y_int: Integer labels (-1 for unmapped labels)
-            valid_mask: Boolean mask of valid (mapped) labels
-        """
+        """Convert string labels to integers and return validity mask."""
         if not self.config.events:
             # No mapping specified - create automatic mapping (all labels valid)
             unique_labels = sorted(set(y_str))
@@ -306,27 +257,12 @@ class MOAABLoader:
         return y_int, valid_mask
 
     def get_sessions(self, subject_id: int) -> list[str]:
-        """Get available session names for a subject.
-
-        Args:
-            subject_id: Subject ID
-
-        Returns:
-            List of session names (e.g., ['0train', '1test'])
-        """
+        """Get available session names for a subject."""
         raw_data = self.dataset.get_data(subjects=[subject_id])
         return list(raw_data[subject_id].keys())
 
     def get_runs(self, subject_id: int, session: str) -> list[str]:
-        """Get available run names for a session.
-
-        Args:
-            subject_id: Subject ID
-            session: Session name
-
-        Returns:
-            List of run names (e.g., ['0', '1', '2'])
-        """
+        """Get available run names for a session."""
         raw_data = self.dataset.get_data(subjects=[subject_id])
         return list(raw_data[subject_id][session].keys())
 
@@ -336,16 +272,7 @@ class MOAABLoader:
         session: str | None = None,
         run: str | None = None,
     ) -> mne.io.BaseRaw:
-        """Load raw continuous MNE object for a subject.
-
-        Args:
-            subject_id: Subject ID
-            session: Session name (None = first available)
-            run: Run name (None = first available)
-
-        Returns:
-            MNE Raw object with continuous EEG data
-        """
+        """Load raw continuous MNE object for a subject (None = first available)."""
         raw_data = self.dataset.get_data(subjects=[subject_id])
         subj_data = raw_data[subject_id]
 
@@ -369,15 +296,7 @@ class MOAABLoader:
         subject_id: int,
         session: str | None = None,
     ) -> mne.io.BaseRaw:
-        """Load and concatenate all runs for a session.
-
-        Args:
-            subject_id: Subject ID
-            session: Session name (None = first available)
-
-        Returns:
-            Concatenated MNE Raw object
-        """
+        """Load and concatenate all runs for a session."""
         raw_data = self.dataset.get_data(subjects=[subject_id])
         subj_data = raw_data[subject_id]
 
@@ -403,22 +322,7 @@ class MOAABLoader:
         session: str | None = None,
         run: str | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
-        """Load continuous data with events for async evaluation.
-
-        Matches the DataLoader interface for continuous data access.
-
-        Args:
-            subject_id: Subject ID
-            block: Ignored (for API compatibility with DataLoader)
-            session: Session name (None = first available)
-            run: Run name (None = all runs in session)
-
-        Returns:
-            data: (n_channels, n_samples) - continuous EEG
-            event_times: (n_events,) - sample indices of events
-            event_labels: (n_events,) - integer labels
-            event_mapping: Dict mapping event names to integer labels
-        """
+        """Load continuous data (n_channels, n_samples), event times, labels, and mapping."""
         if run is not None:
             # Load specific run
             raw = self.load_raw(subject_id, session, run)
@@ -456,23 +360,7 @@ class MOAABLoader:
         tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]],
         dict[str, Any],
     ]:
-        """Split data using sessions/runs for train and eval.
-
-        Uses natural dataset structure for clean train/eval separation:
-        1. Multiple sessions (e.g., 'train'/'test') → first for train, second for eval
-        2. Single session with multiple runs → first runs for train, last for eval
-        3. Single run → temporal split (fallback)
-
-        Args:
-            subject_id: Subject ID
-            block: Ignored (for API compatibility)
-            val_ratio: Used for run-based split ratio (ignored if session split)
-
-        Returns:
-            train_data: (X_train, y_train) - epochs for training
-            val_data: (continuous, event_times, event_labels, event_mapping) - for async eval
-            split_info: Metadata about split method
-        """
+        """Split data into train epochs and validation continuous using sessions/runs."""
         sessions = self.get_sessions(subject_id)
 
         if len(sessions) >= 2:

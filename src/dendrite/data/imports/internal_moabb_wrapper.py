@@ -122,13 +122,5 @@ class InternalDatasetWrapper(BaseDataset):
         return {"0": {"0": raw}}
 
     def data_path(self, subject, path=None, force_update=False, update_path=None, verbose=None):
-        """Return paths to subject's data files.
-
-        Required by MOABB but we don't need download functionality
-        since data is already local.
-        """
-        try:
-            fif_path = self._loader.get_fif_path(subject)
-            return [str(fif_path)]
-        except FileNotFoundError:
-            return []
+        """Required by MOABB interface but unused - data is already local."""
+        return []

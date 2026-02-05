@@ -56,14 +56,7 @@ class FIFLoader(BaseLoader):
         event_mapping: dict[str, int] | None = None,
         preproc_overrides: dict | None = None,
     ):
-        """Initialize loader with configuration.
-
-        Args:
-            config: Dataset configuration
-            file_path: Path to the FIF file
-            event_mapping: Event name->code mapping
-            preproc_overrides: Optional preprocessing overrides
-        """
+        """Initialize loader with FIF file path and optional event mapping."""
         super().__init__(config)
         self._file_path = Path(file_path)
         self._event_mapping = event_mapping or {}
@@ -72,15 +65,7 @@ class FIFLoader(BaseLoader):
 
     @classmethod
     def from_dataset_info(cls, config: DatasetConfig, dataset_info: dict) -> "FIFLoader":
-        """Create loader from database dataset_info dict.
-
-        Args:
-            config: Dataset configuration
-            dataset_info: Dict from datasets table with file_path, events_json, etc.
-
-        Returns:
-            FIFLoader configured for the dataset
-        """
+        """Create loader from database dataset_info dict (file_path, events_json, etc.)."""
         file_path = dataset_info.get("file_path")
         if not file_path:
             raise ValueError("No file_path in dataset_info")
@@ -105,40 +90,21 @@ class FIFLoader(BaseLoader):
 
         return cls(config, file_path, event_mapping=event_mapping, preproc_overrides=preproc_overrides)
 
-    # Path resolution methods
-
     def get_fif_path(
         self,
         subject_id: int,
         session: str | None = None,
         run: str | None = None,
     ) -> Path:
-        """Return the single file path (ignores arguments).
-
-        Args:
-            subject_id: Ignored (single file)
-            session: Ignored (single file)
-            run: Ignored (single file)
-
-        Returns:
-            Path to FIF file
-        """
+        """Return the single file path (arguments ignored for single-file loader)."""
         return self._file_path
 
     def get_subject_list(self) -> list[int]:
-        """Single file is treated as subject 1.
-
-        Returns:
-            List containing only subject 1
-        """
+        """Single file is treated as subject 1."""
         return [1]
 
     def get_sample_rate(self) -> float:
-        """Get effective sample rate (target if resampled, else original).
-
-        Returns:
-            Sample rate in Hz
-        """
+        """Get effective sample rate (target if resampled, else original)."""
         target = self._preproc_overrides.get("target_sample_rate")
         if target:
             return float(target)
@@ -147,14 +113,8 @@ class FIFLoader(BaseLoader):
             return float(sampling_rate)
         return self.config.sample_rate
 
-    # Helper methods
-
     def _get_preproc_params(self) -> tuple[float | None, float | None, bool, float | None]:
-        """Get preprocessing parameters (with overrides applied).
-
-        Returns:
-            (lowcut, highcut, rereference, target_sample_rate)
-        """
+        """Get preprocessing parameters with overrides applied."""
         lowcut = self._preproc_overrides.get("lowcut") or self.config.preproc_lowcut
         highcut = self._preproc_overrides.get("highcut") or self.config.preproc_highcut
         rereference = self._preproc_overrides.get("rereference") or self.config.preproc_rereference
@@ -162,27 +122,17 @@ class FIFLoader(BaseLoader):
         return lowcut, highcut, rereference, target_sample_rate
 
     def _get_channel_picks(self) -> str:
-        """Get channel pick string for data extraction.
-
-        Returns:
-            Channel type string (e.g., 'eeg')
-        """
+        """Get channel pick string (e.g., 'eeg') from config or overrides."""
         modality = self._preproc_overrides.get("modality")
         if modality:
             return modality.lower()
         return self.config.channels if self.config.channels else "eeg"
 
     def _get_epoch_window(self) -> tuple[float, float]:
-        """Get epoch window (tmin, tmax) from config or overrides.
-
-        Returns:
-            (tmin, tmax) tuple
-        """
+        """Get epoch window (tmin, tmax) from config or overrides."""
         tmin = self._preproc_overrides.get("epoch_tmin") or self.config.epoch_tmin or -0.2
         tmax = self._preproc_overrides.get("epoch_tmax") or self.config.epoch_tmax or 0.8
         return tmin, tmax
-
-    # Data loading methods
 
     def load_raw(
         self,
@@ -191,17 +141,7 @@ class FIFLoader(BaseLoader):
         session: str | None = None,
         run: str | None = None,
     ) -> mne.io.Raw:
-        """Load raw data with optional preprocessing.
-
-        Args:
-            subject_id: Ignored (single file = single subject)
-            preprocess: Apply bandpass filtering if configured
-            session: Ignored (single file)
-            run: Ignored (single file)
-
-        Returns:
-            Raw MNE object
-        """
+        """Load raw data with optional preprocessing."""
         cache_key = (subject_id, preprocess)
         if cache_key in self._raw_cache:
             return self._raw_cache[cache_key]
@@ -223,18 +163,7 @@ class FIFLoader(BaseLoader):
         session: str | None = None,
         run: str | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Load epoched data from FIF file.
-
-        Args:
-            subject_id: Ignored (single file = single subject)
-            block: Ignored (single file uses event_mapping directly)
-            session: Ignored (single file)
-            run: Ignored (single file)
-
-        Returns:
-            X: (n_epochs, n_channels, n_times) - epoched data
-            y: (n_epochs,) - integer labels
-        """
+        """Load epoched data (n_epochs, n_channels, n_times) and labels from FIF file."""
         logger.info(f"Loading custom FIF: {self._file_path}")
 
         raw = self.load_raw(subject_id, preprocess=True)
@@ -271,20 +200,7 @@ class FIFLoader(BaseLoader):
         session: str | None = None,
         run: str | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
-        """Load continuous data for sliding window evaluation.
-
-        Args:
-            subject_id: Ignored (single file = single subject)
-            block: Ignored (single file uses event_mapping directly)
-            session: Ignored (single file)
-            run: Ignored (single file)
-
-        Returns:
-            data: (n_channels, n_samples) - continuous EEG
-            event_times: (n_events,) - sample indices of events
-            event_labels: (n_events,) - integer labels
-            event_mapping: Dict mapping event names to integer labels
-        """
+        """Load continuous data (n_channels, n_samples), event times, labels, and mapping."""
         raw = self.load_raw(subject_id, preprocess=True)
         mne_events, _ = mne.events_from_annotations(raw, verbose=False)
 
@@ -319,18 +235,7 @@ class FIFLoader(BaseLoader):
         tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]],
         dict[str, Any],
     ]:
-        """Load data split into train epochs and validation continuous.
-
-        Args:
-            subject_id: Ignored (single file = single subject)
-            block: Ignored (single file uses event_mapping directly)
-            val_ratio: Fraction of events for validation (default 0.3)
-
-        Returns:
-            train_data: (X_train, y_train) - epochs for training
-            val_data: (continuous, event_times, event_labels, event_mapping) - for async eval
-            split_info: Metadata about split method
-        """
+        """Load train epochs and validation continuous data with split metadata."""
         raw = self.load_raw(subject_id, preprocess=True)
         mne_events, _ = mne.events_from_annotations(raw, verbose=False)
 
@@ -376,14 +281,6 @@ class FIFLoader(BaseLoader):
         return (X_train, y_train), (val_continuous, val_times, val_labels, self._event_mapping), split_info
 
     def get_n_times(self, subject_id: int = 1) -> int:
-        """Get number of time samples per epoch.
-
-        Args:
-            subject_id: Ignored (single file)
-
-        Returns:
-            Number of time samples
-        """
-        # Load epochs to get actual shape
+        """Get number of time samples per epoch."""
         X, _ = self.load_epochs(subject_id)
         return X.shape[2]
