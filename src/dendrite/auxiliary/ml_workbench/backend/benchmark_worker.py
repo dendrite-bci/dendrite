@@ -8,7 +8,7 @@ from PyQt6 import QtCore
 
 from dendrite.ml.search import BENCHMARK_SEARCH_SPACE
 
-from .optuna_search_cv import OptunaSearchCV
+from .optuna import OptunaSearchCV
 from dendrite.utils.logger_central import get_logger
 
 logger = get_logger(__name__)

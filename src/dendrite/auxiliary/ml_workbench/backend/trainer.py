@@ -3,7 +3,6 @@
 Ported from v1 trainer/backend.py with simplified API.
 """
 
-import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -13,10 +12,11 @@ from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import cross_val_score
 
 from dendrite.ml.decoders.decoder_schemas import DecoderConfig
+from dendrite.utils.logger_central import get_logger
 
-from .config import TrainResult
+from .types import TrainResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class OfflineTrainer:

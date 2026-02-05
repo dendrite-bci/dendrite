@@ -2,12 +2,11 @@
 
 For internal modules, import directly:
 - `from dendrite.ml.search import MODEL_SPACES`
-- `from dendrite.auxiliary.ml_workbench.backend.eval_types import EvalResult`
+- `from dendrite.auxiliary.ml_workbench.backend.types import EvalResult`
 """
 
 from .backend import (
-    DecoderStorage,
-    EpochEvaluator,
+    EvalResult,
     OfflineAsyncRunner,
     OfflineTrainer,
     OptunaConfig,
@@ -16,11 +15,10 @@ from .backend import (
 )
 
 __all__ = [
-    "TrainResult",
-    "OfflineTrainer",
-    "EpochEvaluator",
+    "EvalResult",
     "OfflineAsyncRunner",
-    "OptunaRunner",
+    "OfflineTrainer",
     "OptunaConfig",
-    "DecoderStorage",
+    "OptunaRunner",
+    "TrainResult",
 ]
