@@ -65,12 +65,13 @@ class OfflineAsyncRunner:
         # Build event lookup for fast marker injection
         event_lookup = {int(t): int(l) for t, l in zip(event_times, event_labels, strict=False)}
 
-        # Create event_mapping dict {event_id: event_label}
+        # Create event_mapping dict {class_index: class_name}
+        # Use 0-indexed keys since metrics use 0-indexed class indices
         unique_labels = sorted(set(int(l) for l in event_labels if l >= 0))
         if class_names:
-            event_mapping = {idx: class_names.get(idx, str(idx)) for idx in unique_labels}
+            event_mapping = {i: class_names.get(i, str(i)) for i in range(len(unique_labels))}
         else:
-            event_mapping = {l: str(l) for l in unique_labels}
+            event_mapping = {i: str(i) for i in range(len(unique_labels))}
 
         # Create queues for mode communication
         data_queue = Queue()

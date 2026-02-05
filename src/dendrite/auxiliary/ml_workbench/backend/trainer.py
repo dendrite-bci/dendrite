@@ -147,12 +147,7 @@ class OfflineTrainer:
         config.input_shapes = {modality: (n_channels, n_times)}
         config.num_classes = num_classes
 
-        decoder = Decoder(config)
-
-        if decoder is None:
-            raise RuntimeError(f"Failed to create decoder: {config.model_type}")
-
-        return decoder
+        return Decoder(config)
 
     def _train_simple(
         self,
@@ -254,7 +249,7 @@ class OfflineTrainer:
             if hasattr(decoder, "predict"):
                 y_pred = decoder.predict(X)
                 return confusion_matrix(y, y_pred)
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             logger.warning(f"Could not compute confusion matrix: {e}")
 
         # Return empty matrix

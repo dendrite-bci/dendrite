@@ -7,9 +7,9 @@ import torch
 from PyQt6 import QtCore
 
 from dendrite.ml.search import BENCHMARK_SEARCH_SPACE
+from dendrite.utils.logger_central import get_logger
 
 from .optuna import OptunaSearchCV
-from dendrite.utils.logger_central import get_logger
 
 logger = get_logger(__name__)
 
