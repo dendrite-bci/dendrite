@@ -24,15 +24,8 @@ Install LSL native binaries for your platform before setting up Python.
 <Tabs>
   <TabItem value="win-lsl" label="Windows" default>
 
-**Option 1: Download installer (recommended)**
 1. Download the latest `liblsl` release: [LSL Releases](https://github.com/sccn/liblsl/releases)
 2. Extract the `.dll` files to a system directory (e.g., `C:\Windows\System32`)
-
-**Option 2: Add to PATH**
-```powershell
-# Download and extract liblsl to a local folder
-# Add the folder to your PATH environment variable
-```
 
   </TabItem>
   <TabItem value="mac-lsl" label="macOS">
@@ -65,14 +58,6 @@ sudo apt-get update
 sudo apt-get install -y libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 \
                         libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
                         libxcb-render-util0 libxcb-shape0
-```
-
-**Alternative: Build from source**
-
-```bash title="Build LSL from source"
-git clone https://github.com/sccn/liblsl.git
-cd liblsl && mkdir build && cd build
-cmake .. && make && sudo make install
 ```
 
   </TabItem>
@@ -154,36 +139,19 @@ By default, `uv sync` installs CPU-only PyTorch which works on all platforms. Fo
   <TabItem value="gpu-linux-win" label="NVIDIA GPU (Linux/Windows)" default>
 
 ```bash
-# After uv sync, upgrade to CUDA PyTorch (ONE-TIME)
-uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+# After uv sync, reinstall with CUDA support
+uv pip install --reinstall torch --index-url https://download.pytorch.org/whl/cu124
 
 # Verify CUDA is available
 uv run python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
 ```
 
-:::tip
-The CUDA version persists - you don't need to reinstall after subsequent `uv sync` commands.
-:::
-
   </TabItem>
   <TabItem value="mac" label="macOS (Apple Silicon)">
 
 ```bash
-# No extra steps needed - MPS GPU support included by default
-# (Metal Performance Shaders for Apple Silicon GPU acceleration)
-
-# Verify MPS is available
+# No extra steps needed - MPS acceleration works automatically on Apple Silicon
 uv run python -c "import torch; print(f'MPS available: {torch.backends.mps.is_available()}')"
-```
-
-  </TabItem>
-  <TabItem value="cpu" label="CPU-only (All Platforms)">
-
-```bash
-# No extra steps needed - CPU PyTorch installed by default
-
-# Verify installation
-uv run python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
 ```
 
   </TabItem>

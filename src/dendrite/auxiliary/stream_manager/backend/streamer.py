@@ -241,6 +241,8 @@ class OfflineDataStreamer(Process):
 
             event_dict = {sample_idx: code for sample_idx, code in loaded.events}
 
+            if loaded.sample_rate <= 0:
+                raise ValueError(f"Invalid sample rate: {loaded.sample_rate}. Must be positive.")
             total_duration = n_samples / loaded.sample_rate
             if self.info_queue:
                 self.info_queue.put({"type": "duration", "value": total_duration})
@@ -318,7 +320,7 @@ class OfflineDataStreamer(Process):
 
             # Load continuous data (returns 4 values including event_mapping)
             data, event_times, event_labels, event_mapping = loader.load_continuous(
-                self.moabb_subject, self.moabb_session
+                self.moabb_subject, session=self.moabb_session
             )
 
             # Get channel info from MNE
@@ -364,7 +366,7 @@ class OfflineDataStreamer(Process):
             # Create event lookup for fast access: sample_idx -> (marker_code, event_name)
             # Use MOABB's native codes directly (already non-zero)
             event_dict = {}
-            for evt_time, evt_label in zip(event_times, event_labels, strict=False):
+            for evt_time, evt_label in zip(event_times, event_labels, strict=True):
                 event_name = label_to_name.get(evt_label, f"class_{evt_label}")
                 event_dict[int(evt_time)] = (int(evt_label), event_name)
 

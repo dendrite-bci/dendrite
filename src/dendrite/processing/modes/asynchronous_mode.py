@@ -101,6 +101,7 @@ class AsynchronousMode(BaseMode):
         self._current_label = -1
         self._active_label = -1
         self._labeling_samples_remaining = 0
+        self.effective_sample_rate: float | None = None
 
     def _validate_configuration(self) -> bool:
         """Validate asynchronous mode configuration."""

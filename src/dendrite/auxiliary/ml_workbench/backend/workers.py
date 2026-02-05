@@ -90,12 +90,24 @@ class DataLoaderWorker(QtCore.QObject):
 
                 try:
                     # Use holdout split if enabled and loader supports it
+                    if self.holdout_pct > 0 and not hasattr(self.loader, "load_data_split"):
+                        logger.warning(
+                            f"Holdout requested ({self.holdout_pct}%) but loader "
+                            f"{type(self.loader).__name__} does not support load_data_split. "
+                            "Holdout will be skipped."
+                        )
                     if self.holdout_pct > 0 and hasattr(self.loader, "load_data_split"):
                         self.progress.emit(f"Loading with {self.holdout_pct}% holdout...")
                         val_ratio = self.holdout_pct / 100.0
-                        (X, y), val_data, split_info = self.loader.load_data_split(
-                            subj, block=1, val_ratio=val_ratio
-                        )
+                        try:
+                            (X, y), val_data, split_info = self.loader.load_data_split(
+                                subj, block=1, val_ratio=val_ratio
+                            )
+                        except (TypeError, ValueError) as e:
+                            raise ValueError(
+                                f"load_data_split returned unexpected structure for subject {subj}. "
+                                f"Expected ((X, y), val_data, split_info). Error: {e}"
+                            ) from e
                         logger.info(f"Split info for subject {subj}: {split_info}")
                         if split_info:
                             split_infos.append(split_info)

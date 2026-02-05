@@ -240,6 +240,12 @@ class FIFLoader(BaseLoader):
         raw = self.load_raw(subject_id, preprocess=True)
         mne_events, mne_event_id = mne.events_from_annotations(raw)
 
+        if not self._event_mapping:
+            raise ValueError(
+                "event_mapping is empty. Provide an event_mapping dict to specify which events to load. "
+                f"File contains events: {list(mne_event_id.keys())}"
+            )
+
         selected_codes = set(self._event_mapping.values())
         filtered_events = filter_events_by_codes(mne_events, selected_codes)
 

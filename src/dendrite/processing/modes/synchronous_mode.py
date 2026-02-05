@@ -136,6 +136,7 @@ class SynchronousMode(BaseMode):
         self._training_queue = None
         self._training_thread = None
         self._stop_training = None
+        self.effective_sample_rate: float | None = None
 
     def _validate_configuration(self) -> bool:
         """Validate synchronous mode configuration."""
