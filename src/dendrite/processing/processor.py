@@ -5,7 +5,7 @@ import multiprocessing
 import queue
 import time
 from collections import Counter, deque
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 
@@ -16,19 +16,10 @@ from dendrite.constants import (
     PLOT_DECIMATION_FACTOR,
 )
 from dendrite.data.quality import ChannelQualityDetector
+from dendrite.data.stream_schemas import StreamMetadata
 from dendrite.processing.preprocessing.preprocessor import OnlinePreprocessor
 from dendrite.utils.logger_central import get_logger, setup_logger
 from dendrite.utils.state_keys import channel_quality_key
-
-if TYPE_CHECKING:
-    from dendrite.data.stream_schemas import StreamMetadata
-
-
-def _get_stream_attr(stream: Any, attr: str, default: Any = None) -> Any:
-    """Get attribute from stream config, supporting both dict and object access."""
-    if isinstance(stream, dict):
-        return stream.get(attr, default)
-    return getattr(stream, attr, default)
 
 
 class DataProcessor:
@@ -40,7 +31,7 @@ class DataProcessor:
         plot_queue: Any,
         stop_event: Any,
         mode_configs: dict[str, dict[str, Any]] | None = None,
-        stream_configs: list["StreamMetadata"] | None = None,
+        stream_configs: list[StreamMetadata] | None = None,
         preprocessing_config: dict[str, Any] | None = None,
         mode_queue_size: int = 1000,
         shared_state=None,
@@ -194,8 +185,8 @@ class DataProcessor:
     def _get_eeg_channel_count(self) -> int:
         """Get EEG channel count from stream_configs."""
         for stream in self.stream_configs:
-            if _get_stream_attr(stream, "type", "").upper() == "EEG":
-                return _get_stream_attr(stream, "channel_count", 0)
+            if stream.type.upper() == "EEG":
+                return stream.channel_count
         return 0
 
     def _run_calibration(self, duration_sec: float = 3.0) -> list[int]:
@@ -259,9 +250,9 @@ class DataProcessor:
         if event_id is not None:
             # Get all data stream names (exclude Events stream)
             data_streams = {
-                _get_stream_attr(s, "name")
+                s.name
                 for s in self.stream_configs
-                if _get_stream_attr(s, "type", "").upper() != "EVENTS"
+                if s.type.upper() != "EVENTS"
             }
             self.pending_markers.append((event_id, lsl_timestamp, data_streams.copy()))
             self.logger.debug(f"Event queued: ID={event_id}, pending_streams={data_streams}")
@@ -471,8 +462,8 @@ class DataProcessor:
 
         # Create per-stream preprocessors (stream_configs always provided by GUI)
         for stream in self.stream_configs:
-            stream_name = _get_stream_attr(stream, "name")
-            stream_type = _get_stream_attr(stream, "type")
+            stream_name = stream.name
+            stream_type = stream.type
 
             if stream_type.upper() == "EVENTS":
                 continue  # Events don't need preprocessing
@@ -493,19 +484,19 @@ class DataProcessor:
         self._effective_viz_rate = effective_rate // PLOT_DECIMATION_FACTOR
         self.logger.info(f"Visualization rate: {effective_rate}Hz -> {self._effective_viz_rate}Hz")
 
-    def _build_modality_preprocessing_from_stream(self, stream: Any) -> dict[str, dict[str, Any]]:
+    def _build_modality_preprocessing_from_stream(self, stream: StreamMetadata) -> dict[str, dict[str, Any]]:
         """Build modality preprocessing configs from stream config for preprocessor creation.
 
         Args:
-            stream: Stream config (StreamMetadata object or dict)
+            stream: Stream config (StreamMetadata object)
 
         Returns:
             Dict mapping modality names to their preprocessing config dicts
         """
-        stream_name = _get_stream_attr(stream, "name")
-        sample_rate = _get_stream_attr(stream, "sample_rate")
-        channel_count = _get_stream_attr(stream, "channel_count")
-        channel_types = _get_stream_attr(stream, "channel_types", [])
+        stream_name = stream.name
+        sample_rate = stream.sample_rate
+        channel_count = stream.channel_count
+        channel_types = stream.channel_types
 
         base_config = self.preprocessing_config.get("modality_preprocessing", {})
 
@@ -513,7 +504,7 @@ class DataProcessor:
         if channel_types:
             modality_channel_counts = Counter(ch.lower() for ch in channel_types)
         else:
-            modality_channel_counts = {_get_stream_attr(stream, "type").lower(): channel_count}
+            modality_channel_counts = {stream.type.lower(): channel_count}
 
         for modality, ch_count in modality_channel_counts.items():
             if modality in ("markers", "events"):

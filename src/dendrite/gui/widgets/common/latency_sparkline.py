@@ -2,7 +2,6 @@
 Latency Sparkline Widget
 
 Minimal sparkline chart for visualizing latency over time.
-Near-zero overhead, QPainter-based rendering.
 """
 
 from collections import deque

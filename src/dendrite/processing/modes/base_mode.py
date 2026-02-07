@@ -25,6 +25,9 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
 
+from dendrite.processing.queue_utils import FanOutQueue
+from dendrite.utils.shared_state import SharedState
+
 
 @dataclass
 class ModeOutputPacket:
@@ -60,13 +63,13 @@ class BaseMode(multiprocessing.Process, ABC):
 
     def __init__(
         self,
-        data_queue,
-        output_queue,
-        stop_event,
+        data_queue: "multiprocessing.Queue",
+        output_queue: "FanOutQueue",
+        stop_event: "multiprocessing.Event",
         instance_config: dict[str, Any],
         sample_rate: float,
-        prediction_queue=None,
-        shared_state=None,
+        prediction_queue: "multiprocessing.Queue | None" = None,
+        shared_state: "SharedState | None" = None,
     ):
         """Initialize the base mode with core infrastructure."""
         super().__init__()

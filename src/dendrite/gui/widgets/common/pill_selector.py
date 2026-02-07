@@ -2,8 +2,6 @@
 Pill Selector Widget
 
 Segmented pill-style button selector with exclusive selection.
-Similar to iOS segmented controls - buttons are joined together
-with rounded corners on the ends.
 """
 
 from PyQt6 import QtCore, QtWidgets

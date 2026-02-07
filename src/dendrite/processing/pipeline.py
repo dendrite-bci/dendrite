@@ -26,6 +26,7 @@ from dendrite.data.acquisition import DataAcquisition, DataRecord
 from dendrite.data.storage.data_saver import DataSaver
 from dendrite.data.storage.metrics_saver import MetricsSaver
 from dendrite.processing.modes import create_mode
+from dendrite.processing.pipeline_config import PipelineConfig
 from dendrite.processing.processor import DataProcessor
 from dendrite.utils.logger_central import get_logger, setup_logger
 
@@ -44,7 +45,7 @@ def _cleanup_processes(processes: dict, logger) -> None:
                 process.join(timeout=1)
 
 
-def run_pipeline(config: dict) -> None:
+def run_pipeline(config: PipelineConfig) -> None:
     """
     Start the Dendrite processing pipeline in a separate process.
 
@@ -55,7 +56,7 @@ def run_pipeline(config: dict) -> None:
     logger.info("Pipeline starting")
 
     # Get stop_event early for signal handlers
-    stop_event = config["stop_event"]
+    stop_event = config.stop_event
 
     # Set up signal handlers for clean shutdown on SIGTERM/SIGINT
     def _signal_handler(signum, frame):
@@ -70,30 +71,30 @@ def run_pipeline(config: dict) -> None:
     signal.signal(signal.SIGINT, _signal_handler)
 
     try:
-        sample_rate = config["sample_rate"]
-        mode_instance_configs = config["mode_instances"]
-        file_identifier = config["file_identifier"]
-        data_queue = config["data_queue"]
-        save_queue = config["save_queue"]
-        plot_queue = config["plot_queue"]
-        prediction_queue = config["prediction_queue"]
-        mode_output_queues = config["mode_output_queues"]
-        pid_queue = config.get("pid_queue")
-        shared_state = config.get("shared_state")
+        sample_rate = config.sample_rate
+        mode_instance_configs = config.mode_instances
+        file_identifier = config.file_identifier
+        data_queue = config.data_queue
+        save_queue = config.save_queue
+        plot_queue = config.plot_queue
+        prediction_queue = config.prediction_queue
+        mode_output_queues = config.mode_output_queues
+        pid_queue = config.pid_queue
+        shared_state = config.shared_state
 
-        preprocess_data = config["preprocess_data"]
+        preprocess_data = config.preprocess_data
         preprocessing_config = (
             {
-                "preprocess_data": config["preprocess_data"],
-                "modality_preprocessing": config.get("modality_preprocessing", {}),
-                "quality_control": config.get("quality_control", {}),
+                "preprocess_data": config.preprocess_data,
+                "modality_preprocessing": config.modality_preprocessing,
+                "quality_control": config.quality_control,
             }
             if preprocess_data
             else {}
         )
 
         # Prepare directories
-        study_name = config.get("study_name", DEFAULT_STUDY_NAME)
+        study_name = config.study_name
         paths = get_study_paths(study_name)
         paths["raw"].mkdir(parents=True, exist_ok=True)
         paths["metrics"].mkdir(parents=True, exist_ok=True)
@@ -113,7 +114,7 @@ def run_pipeline(config: dict) -> None:
         logger.info(f"Preprocessing: {modality_count} modalities configured")
 
         # Spawn DataAcquisition & DataSaver
-        stream_configs = config.get("stream_configs", [])
+        stream_configs = config.stream_configs
         logger.debug(f"Using stream configurations: {stream_configs}")
 
         data_acquisition = DataAcquisition(
@@ -136,12 +137,12 @@ def run_pipeline(config: dict) -> None:
         global_metadata = {
             "version": VERSION,
             "sample_rate": sample_rate,
-            "study_name": config.get("study_name", DEFAULT_STUDY_NAME),
-            "recording_name": config.get("recording_name", DEFAULT_RECORDING_NAME),
-            "subject_id": config.get("subject_id", ""),
-            "session_id": config.get("session_id", ""),
-            "run_number": config.get("run_number", 1),
-            "experiment_description": config.get("experiment_description", ""),
+            "study_name": config.study_name,
+            "recording_name": config.recording_name,
+            "subject_id": config.subject_id,
+            "session_id": config.session_id,
+            "run_number": config.run_number,
+            "experiment_description": config.experiment_description,
         }
         now = time.time()
         metadata_record = DataRecord(
@@ -192,14 +193,14 @@ def run_pipeline(config: dict) -> None:
                 enhanced_config.update(
                     {
                         "file_identifier": file_identifier,
-                        "study_name": config.get("study_name", DEFAULT_STUDY_NAME),
+                        "study_name": config.study_name,
                         "preprocessing_config": preprocessing_config if preprocess_data else None,
                     }
                 )
 
                 # Add sync-to-async sharing for synchronous modes
                 if mode.lower() == "synchronous":
-                    linked_async_modes = config.get("sync_to_async_sharing", {}).get(
+                    linked_async_modes = config.sync_to_async_sharing.get(
                         instance_name, []
                     )
                     enhanced_config["linked_async_modes"] = linked_async_modes

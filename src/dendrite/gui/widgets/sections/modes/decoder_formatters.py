@@ -12,19 +12,26 @@ from dendrite.gui.styles.design_tokens import (
 )
 from dendrite.gui.styles.widget_styles import FONTS, LAYOUT
 
+_TIMESTAMP_FORMATS = ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S")
+
+
+def _parse_timestamp(ts: str) -> datetime | None:
+    """Parse a timestamp string trying multiple known formats."""
+    for fmt in _TIMESTAMP_FORMATS:
+        try:
+            return datetime.strptime(str(ts).split(".")[0], fmt)
+        except ValueError:
+            continue
+    return None
+
 
 def relative_timestamp(ts: str) -> str:
     """Convert timestamp to relative format like '2 days ago'."""
     if not ts:
         return ""
     try:
-        for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-            try:
-                dt = datetime.strptime(str(ts).split(".")[0], fmt)
-                break
-            except ValueError:
-                continue
-        else:
+        dt = _parse_timestamp(ts)
+        if dt is None:
             return str(ts)
 
         now = datetime.now()
@@ -60,13 +67,10 @@ def format_timestamp(ts: str) -> str:
     if not ts:
         return "-"
     try:
-        for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-            try:
-                dt = datetime.strptime(str(ts).split(".")[0], fmt)
-                return dt.strftime("%b %d, %Y %I:%M %p")
-            except ValueError:
-                continue
-        return str(ts)
+        dt = _parse_timestamp(ts)
+        if dt is None:
+            return str(ts)
+        return dt.strftime("%b %d, %Y %I:%M %p")
     except (ValueError, TypeError):
         return str(ts)
 

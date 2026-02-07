@@ -1,30 +1,20 @@
 """
-Provides the main graphical interface for Dendrite using modular components from dendrite/gui/. 
+Provides the main graphical interface for Dendrite using modular components from dendrite/gui/.
 """
 
 import signal
 import sys
 import logging
 import multiprocessing
-import threading
-import time
-from typing import List, Dict, Optional, Any
-import queue
-import copy
 
 from PyQt6 import QtCore, QtWidgets
 
-from dendrite.gui.config.stream_config_manager import initialize_stream_config_manager, get_stream_config_manager
-from dendrite.gui.config.mode_config_manager import initialize_mode_config_manager, get_mode_config_manager
-from dendrite.data.streaming import (
-    VisualizationStreamer, LSLStreamer, SocketStreamer, ZMQStreamer, ROS2Streamer
-)
+from dendrite.gui.config.stream_config_manager import initialize_stream_config_manager
+from dendrite.gui.config.mode_config_manager import initialize_mode_config_manager
 from dendrite.constants import (
-    VERSION, APP_NAME, PREDICTION_STREAM_INFO, VISUALIZATION_STREAM_INFO,
+    VERSION, APP_NAME,
     DEFAULT_WINDOW_SIZE, DEFAULT_WINDOW_POSITION, APPLICATION_TITLE,
-    DEFAULT_RECORDING_NAME, DEFAULT_STUDY_NAME
 )
-from dendrite.processing.queue_utils import FanOutQueue
 from dendrite.gui.widgets import (
     ControlButtonsWidget, TopNavigationBar,
     GeneralParametersWidget, StreamConfigurationWidget,
@@ -34,34 +24,26 @@ from dendrite.gui.widgets import (
 )
 from dendrite.gui.styles.widget_styles import WidgetStyles, apply_app_styles
 from dendrite.gui.styles.design_tokens import BG_MAIN, BG_PANEL, SEPARATOR_SUBTLE
-from dendrite.gui.workers import SessionIOWorker
+from dendrite.gui.pipeline_controller import PipelineController
 from dendrite.ml.decoders import get_available_decoders
 from dendrite.gui.config import SystemConfigurationManager
-from dendrite.utils.logger_central import setup_logger, get_logger
+from dendrite.utils.logger_central import setup_logger
 from dendrite.data.storage.database import Database
-from dendrite.processing.pipeline import run_pipeline
-
-QUEUE_SIZE_LARGE = 1000
-TIMEOUT_MAIN_PROCESS = 10
-TIMEOUT_STREAMER_DEFAULT = 2
-TIMEOUT_VISUALIZATION = 3
-PID_COLLECTION_INTERVAL_MS = 500
-PREDICTION_FANOUT_TIMEOUT = 0.1
-SUPPORTED_PROTOCOLS = ['lsl', 'socket', 'zmq', 'ros2']
 
 class MainWindow(QtWidgets.QMainWindow):
     """
-    Main BMI application window managing GUI and process coordination.
+    Main BMI application window — pure UI shell.
 
     Manages:
     - UI layout and navigation (control/display panels)
-    - Multi-process pipeline coordination (acquisition, processing, modes)
-    - Data streaming (visualization, LSL, ROS2, socket, ZMQ)
     - Configuration persistence and session management
+    - User interactions (dialogs, badge management)
+
+    Pipeline lifecycle (processes, queues, IPC) is delegated to PipelineController.
     """
 
     def __init__(self):
-        super(MainWindow, self).__init__()
+        super().__init__()
 
         self.setup_variables()
         self.config_manager = SystemConfigurationManager(self)
@@ -77,41 +59,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.logger = setup_logger("GUI", level=logging.INFO)
         self.logger.info(f"{APPLICATION_TITLE} v{VERSION} starting up")
         self.available_decoders = get_available_decoders()
+
+        # Pipeline controller — owns all process/queue/IPC lifecycle
+        self.pipeline_controller = PipelineController(parent=self)
+        self.pipeline_controller.recording_started.connect(self._on_recording_started)
+        self.pipeline_controller.recording_stopped.connect(self._on_recording_stopped)
+        self.pipeline_controller.start_failed.connect(self._on_start_failed)
+        self.pipeline_controller.pids_updated.connect(self._on_pids_updated)
+        self.pipeline_controller.log_file_ready.connect(self._on_log_file_ready)
+
         self.init_ui()
 
     def setup_variables(self):
         """Initialize all instance variables."""
-        self.processing_process = None
-        self.stop_event = multiprocessing.Event()
-        self.stop_process_event = multiprocessing.Event()
-
-        self.data_queue = None
-        self.save_queue = None
-        self.visualization_data_queue = None
-        self.prediction_queue = None
-        self.visualization_queue = None
-        self.mode_output_queues = {}
-
-        # Shared state for cross-process communication (created fresh per recording session)
-        self.shared_state = None
-
-        self.visualization_streamer = None
-        self.lsl_stop_event = None
-        self.output_streamers = {}
-        self.protocol_queues = {}
-        self.prediction_fanout_thread = None
-
-        # Process tracking for resource monitoring
-        self.mode_pids = {}
-        self.system_processes = {}
-        self.pid_queue = None
-        self.pid_collection_timer = None
-
-        # Session I/O thread (for async startup)
-        self._io_thread = None
-        self._io_worker = None
-        self._session_config = None
-
         # UI components (will be initialized in init_ui)
         self.output_widget = None
         self.log_display_widget = None
@@ -123,7 +83,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def is_recording(self) -> bool:
         """Check if a recording is currently active."""
-        return self.processing_process is not None and self.processing_process.is_alive()
+        return self.pipeline_controller.is_recording()
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -166,7 +126,6 @@ class MainWindow(QtWidgets.QMainWindow):
         content_layout.addWidget(separator)
 
         self.setup_display_panel(content_layout)
-        self.set_all_badge_statuses('ready') 
 
     def setup_control_panel(self, parent_layout: QtWidgets.QHBoxLayout):
         """Set up the control panel with all sections."""
@@ -270,7 +229,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Set up the output section content."""
         self.output_widget = OutputWidget(self)
         layout.addWidget(self.output_widget)
-        layout.addStretch() 
+        layout.addStretch()
 
     def setup_display_panel(self, parent_layout: QtWidgets.QHBoxLayout):
         """Set up the display panel with log and telemetry views."""
@@ -289,6 +248,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.display_stack.addWidget(self.telemetry_widget)
         self.display_stack.setCurrentIndex(1)
         self.display_layout.addWidget(self.display_stack)
+
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
 
     def on_navigation_changed(self, section: str):
         """Handle navigation section change."""
@@ -319,7 +282,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.logger.debug(f"Stream configuration updated: {stream_count} streams, "
                    f"{eeg_count} EEG channels, {sample_rate} Hz")
 
-    def add_mode_instance_badge(self, mode_instance_config: Optional[dict] = None) -> Optional[ModeInstanceBadge]:
+    # ------------------------------------------------------------------
+    # Mode instance badges
+    # ------------------------------------------------------------------
+
+    def add_mode_instance_badge(self, mode_instance_config: dict | None = None) -> ModeInstanceBadge | None:
         """
         Add a new mode instance.
 
@@ -354,7 +321,7 @@ class MainWindow(QtWidgets.QMainWindow):
             instance_name = badge.instance_name
             if instance_name:
                 self.mode_config_manager.remove_instance(instance_name)
-    
+
     def _on_instance_added(self, instance_name: str, config: dict):
         """Create badge when instance added to manager."""
         if any(b.instance_name == instance_name for b in self.mode_instance_badges):
@@ -461,6 +428,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 if hasattr(widget, 'refresh_sync_mode_options'):
                     widget.refresh_sync_mode_options()
 
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
+
     def load_configuration(self):
         """Load configuration from a JSON file."""
         self.config_manager.load_configuration()
@@ -469,102 +440,90 @@ class MainWindow(QtWidgets.QMainWindow):
         """Retrieve all configuration parameters from the GUI."""
         return self.config_manager.build_configuration()
 
-    def start_processing(self):
-        """
-        Start the BMI processing pipeline (non-blocking).
+    # ------------------------------------------------------------------
+    # Pipeline start / stop (delegates to PipelineController)
+    # ------------------------------------------------------------------
 
-        Uses 3-phase async startup:
-        - Phase 1 (GUI thread): Validate, collect config, create queues
-        - Phase 2 (Background thread): DB queries, file I/O
-        - Phase 3 (GUI thread): Attach queues, start processes
-        """
+    def start_processing(self):
+        """Start the BMI processing pipeline."""
         if not self._validate_start_configuration():
             return
 
         self._set_starting_state()
-
-        # Phase 1: GUI thread - collect config, create queues
         config = self.retrieve_parameters()
-        self._initialize_queues(config['mode_instances'])
 
-        # Extract primitive data for background thread (no widget references)
-        subject_id = config.get('subject_id', '')
-        session_id = config.get('session_id', '')
-        recording_name = config.get('recording_name', DEFAULT_RECORDING_NAME)
-        study_name = config.get('study_name', DEFAULT_STUDY_NAME)
+        def _on_protocol_status(protocol, connected):
+            if self.output_widget:
+                self.output_widget.set_protocol_connected(protocol, connected)
 
-        # Store config for phase 3 (will be updated with I/O results)
-        self._session_config = config
+        self.pipeline_controller.start(config, status_callback=_on_protocol_status)
 
-        # Phase 2: Background thread - I/O operations
-        self._io_thread = QtCore.QThread()
-        self._io_worker = SessionIOWorker(
-            subject_id, session_id, recording_name, study_name, config.copy())
-        self._io_worker.moveToThread(self._io_thread)
-        self._io_worker.finished.connect(self._on_session_io_complete)
-        self._io_worker.error.connect(self._on_session_io_error)
-        self._io_thread.started.connect(self._io_worker.run)
-        self._io_thread.start()
+    def confirm_stop_processing(self):
+        """Show confirmation dialog before stopping processing."""
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Stop Recording",
+            "This will end the current recording session.",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No
+        )
+
+        if reply == QtWidgets.QMessageBox.StandardButton.Yes:
+            self.stop_processing()
+
+    def stop_processing(self, blocking: bool = False):
+        """Stop the BMI processing pipeline."""
+        self.pipeline_controller.stop(blocking=blocking)
+
+    # ------------------------------------------------------------------
+    # Pipeline controller signal handlers
+    # ------------------------------------------------------------------
+
+    def _on_recording_started(self):
+        """Handle successful pipeline start."""
+        if self.telemetry_widget:
+            self.telemetry_widget.on_recording_started()
+        self.set_all_badge_statuses('running')
+
+    def _on_recording_stopped(self):
+        """Handle pipeline stop completion."""
+        self._clear_display_layout()
+        self.control_buttons_widget.set_running_state(False)
+        self.stream_config_widget.set_recording_state(False)
+        if self.telemetry_widget:
+            self.telemetry_widget.on_recording_stopped()
+        self.set_all_badge_statuses('ready')
+
+    def _on_start_failed(self, error_msg: str):
+        """Handle pipeline start failure."""
+        self.logger.error(f"Session start failed: {error_msg}")
+        QtWidgets.QMessageBox.critical(
+            self,
+            "Session Start Failed",
+            error_msg,
+            QtWidgets.QMessageBox.StandardButton.Ok
+        )
+        self._revert_start_state()
+
+    def _on_pids_updated(self, mode_pids: dict, system_pids: dict):
+        """Handle PID updates from pipeline controller."""
+        if self.telemetry_widget:
+            self.telemetry_widget.set_mode_pids(mode_pids)
+            self.telemetry_widget.set_system_pids(system_pids)
+
+    def _on_log_file_ready(self, log_file: str):
+        """Handle log file path from pipeline controller."""
+        if self.log_display_widget:
+            self.log_display_widget.set_log_file(log_file)
+
+    # ------------------------------------------------------------------
+    # GUI state helpers
+    # ------------------------------------------------------------------
 
     def _set_starting_state(self):
         """Set GUI to starting state."""
         self.control_buttons_widget.set_running_state(True)
         self.stream_config_widget.set_recording_state(True)
-
-    def _cleanup_io_thread(self):
-        """Clean up session I/O thread and worker."""
-        if self._io_thread:
-            self._io_thread.quit()
-            self._io_thread.wait()
-        self._io_thread = None
-        self._io_worker = None
-
-    def _on_session_io_complete(self, result: dict):
-        """Handle completion of session I/O (Phase 3 - GUI thread)."""
-        self._cleanup_io_thread()
-
-        config = self._session_config
-        config['run_number'] = result['run_number']
-        config['file_identifier'] = result['file_identifier']
-
-        if self.log_display_widget and result.get('log_file'):
-            self.log_display_widget.set_log_file(result['log_file'])
-
-        # SharedState was created in background thread to avoid blocking GUI
-        self.shared_state = result['shared_state']
-
-        config['stop_event'] = self.stop_process_event
-        config['data_queue'] = self.data_queue
-        config['save_queue'] = self.save_queue
-        config['plot_queue'] = self.visualization_data_queue
-        config['prediction_queue'] = self.prediction_queue
-        config['mode_output_queues'] = self.mode_output_queues
-        config['pid_queue'] = self.pid_queue
-        config['shared_state'] = self.shared_state
-
-        try:
-            self._start_processing_pipeline(config)
-            self._initialize_streamers(config)
-            self._finalize_recording_state()
-        except Exception as e:
-            self.logger.error(f"Failed to start processing: {e}")
-            self._revert_start_state()
-
-        self._session_config = None
-
-    def _on_session_io_error(self, error_msg: str):
-        """Handle session I/O error."""
-        self._cleanup_io_thread()
-
-        self.logger.error(f"Session I/O failed: {error_msg}")
-        QtWidgets.QMessageBox.critical(
-            self,
-            "Session Start Failed",
-            f"Failed to initialize session:\n{error_msg}",
-            QtWidgets.QMessageBox.StandardButton.Ok
-        )
-        self._revert_start_state()
-        self._session_config = None
 
     def _revert_start_state(self):
         """Revert GUI state if startup fails."""
@@ -578,7 +537,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self,
                 "Missing Required Field",
-                f"{error_msg}",
+                error_msg,
                 QtWidgets.QMessageBox.StandardButton.Ok
             )
             return False
@@ -601,215 +560,13 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self,
                 "Invalid Preprocessing",
-                f"{error_msg}",
+                error_msg,
                 QtWidgets.QMessageBox.StandardButton.Ok
             )
             return False
 
         self.logger.info("Preprocessing validation passed")
         return True
-
-    def _initialize_queues(self, mode_instances: dict):
-        """Initialize all processing queues for the session."""
-        self.stop_event.clear()
-        self.stop_process_event.clear()
-
-        self.data_queue = multiprocessing.Queue()
-        self.save_queue = multiprocessing.Queue()
-        self.visualization_data_queue = multiprocessing.Queue()
-        self.prediction_queue = multiprocessing.Queue()
-        self.pid_queue = multiprocessing.Queue()
-
-        # Single shared queue for visualization (all modes push to same queue)
-        self.visualization_queue = multiprocessing.Queue(maxsize=QUEUE_SIZE_LARGE)
-
-        self.mode_output_queues = {}
-        for instance_name in mode_instances.keys():
-            self.mode_output_queues[instance_name] = FanOutQueue(
-                primary_queue=multiprocessing.Queue(maxsize=QUEUE_SIZE_LARGE),
-                secondary_queue=self.visualization_queue  # All modes share this queue
-            )
-
-    def _start_processing_pipeline(self, config: dict):
-        """Start the main processing pipeline process."""
-        self.processing_process = multiprocessing.Process(
-            target=run_pipeline,
-            args=(config,)
-        )
-        self.processing_process.start()
-        self.system_processes['Processor'] = self.processing_process
-
-    def _initialize_streamers(self, config: dict):
-        """Initialize visualization and output protocol streamers."""
-        self.initialize_visualization_streamer(config)
-
-        self.lsl_stop_event = multiprocessing.Event()
-        self.initialize_output_protocols(config)
-
-    def _finalize_recording_state(self):
-        """Finalize UI after processes started."""
-        if self.telemetry_widget:
-            self.telemetry_widget.on_recording_started()
-
-        self._start_pid_collection()
-        self.set_all_badge_statuses('running')
-
-    def _get_system_pids(self) -> dict:
-        """Get PIDs of all alive system processes."""
-        return {
-            name: proc.pid
-            for name, proc in self.system_processes.items()
-            if proc and proc.is_alive()
-        }
-
-    def _start_pid_collection(self):
-        """Start collecting mode process PIDs from the PID queue."""
-        self.mode_pids = {}  # Reset PID dict
-
-        def collect_pids():
-            """Poll PID queue for mode process PIDs."""
-            try:
-                while not self.pid_queue.empty():
-                    pid_info = self.pid_queue.get_nowait()
-                    mode_name = pid_info['mode_name']
-                    pid = pid_info['pid']
-
-                    # Log only first time for each mode
-                    if mode_name not in self.mode_pids:
-                        self.logger.info(f"Collected PID {pid} for mode {mode_name}")
-
-                    self.mode_pids[mode_name] = pid
-
-                if self.telemetry_widget:
-                    self.telemetry_widget.set_mode_pids(self.mode_pids)
-                    self.telemetry_widget.set_system_pids(self._get_system_pids())
-            except queue.Empty:
-                pass  # Expected - queue polling
-            except KeyError as e:
-                self.logger.debug(f"PID collection key error: {e}")
-
-        self.pid_collection_timer = QtCore.QTimer()
-        self.pid_collection_timer.timeout.connect(collect_pids)
-        self.pid_collection_timer.start(PID_COLLECTION_INTERVAL_MS)  # Poll regularly
-
-    def confirm_stop_processing(self):
-        """Show confirmation dialog before stopping processing."""
-        reply = QtWidgets.QMessageBox.question(
-            self,
-            "Stop Recording",
-            "This will end the current recording session.",
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
-            QtWidgets.QMessageBox.StandardButton.No
-        )
-        
-        if reply == QtWidgets.QMessageBox.StandardButton.Yes:
-            self.stop_processing()
-
-    def stop_processing(self, blocking: bool = False):
-        """Stop the BMI processing pipeline (non-blocking by default).
-
-        Args:
-            blocking: If True, wait for all processes to stop before returning.
-                     Used during application shutdown.
-        """
-        self.logger.info("Stopping BMI processing pipeline...")
-
-        self.stop_event.set()
-        self.stop_process_event.set()
-        if self.lsl_stop_event:
-            self.lsl_stop_event.set()
-
-        self._stop_targets = []
-        if self.prediction_fanout_thread and self.prediction_fanout_thread.is_alive():
-            self._stop_targets.append(('Fan-out', self.prediction_fanout_thread, 2))
-        for protocol, streamer in (self.output_streamers or {}).items():
-            if streamer and streamer.is_alive():
-                self._stop_targets.append((protocol, streamer, TIMEOUT_STREAMER_DEFAULT))
-        if self.visualization_streamer and self.visualization_streamer.is_alive():
-            self._stop_targets.append(('Visualization', self.visualization_streamer, TIMEOUT_VISUALIZATION))
-        if self.processing_process and self.processing_process.is_alive():
-            self._stop_targets.append(('Processor', self.processing_process, TIMEOUT_MAIN_PROCESS))
-
-        self._stop_index = 0
-        self._stop_start_time = None
-
-        if blocking:
-            self._stop_blocking()
-        else:
-            self._stop_poll_timer = QtCore.QTimer()
-            self._stop_poll_timer.timeout.connect(self._poll_stop_progress)
-            self._poll_stop_progress()
-
-    def _stop_blocking(self):
-        """Stop all targets, blocking but processing Qt events."""
-        for name, target, timeout in self._stop_targets:
-            self.logger.info(f"Stopping {name}...")
-            start = time.time()
-            while target.is_alive() and (time.time() - start) < timeout:
-                QtWidgets.QApplication.processEvents()
-                time.sleep(0.05)
-            if target.is_alive():
-                self.logger.warning(f"Force terminating {name}")
-                if hasattr(target, 'terminate'):
-                    target.terminate()
-        self._finalize_stop()
-
-    def _poll_stop_progress(self):
-        """Poll current target, advance when done or timed out."""
-        if self._stop_index >= len(self._stop_targets):
-            self._stop_poll_timer.stop()
-            self._finalize_stop()
-            return
-
-        name, target, timeout = self._stop_targets[self._stop_index]
-
-        if self._stop_start_time is None:
-            self._stop_start_time = time.time()
-            self.logger.info(f"Stopping {name}...")
-            self._stop_poll_timer.start(50)
-            return
-
-        if not target.is_alive():
-            self._stop_start_time = None
-            self._stop_index += 1
-            self._poll_stop_progress()
-            return
-
-        if time.time() - self._stop_start_time > timeout:
-            self.logger.warning(f"Force terminating {name}")
-            if hasattr(target, 'terminate'):
-                target.terminate()
-            self._stop_start_time = None
-            self._stop_index += 1
-            self._poll_stop_progress()
-
-    def _finalize_stop(self):
-        """Complete shutdown after all processes stopped."""
-        self.processing_process = None
-        self.visualization_streamer = None
-        self.output_streamers = {}
-
-        self.clear_queues()
-        self._clear_display_layout()
-        self.control_buttons_widget.set_running_state(False)
-        self.stream_config_widget.set_recording_state(False)
-
-        if self.pid_collection_timer:
-            self.pid_collection_timer.stop()
-            self.pid_collection_timer = None
-
-        self.mode_pids = {}
-        self.system_processes = {}
-
-        if self.telemetry_widget:
-            self.telemetry_widget.on_recording_stopped()
-
-        if self.shared_state:
-            self.shared_state.cleanup()
-            self.shared_state = None
-
-        self.set_all_badge_statuses('ready')
-        self._update_protocol_status(False, all_protocols=True)
 
     def _clear_display_layout(self):
         """Clear plot layout except display stack."""
@@ -827,187 +584,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.display_layout.removeWidget(widget)
                 widget.deleteLater()
 
-    def clear_queues(self):
-        """Close all queues on session end."""
-        for q in [self.data_queue, self.save_queue, self.visualization_data_queue,
-                  self.prediction_queue, self.pid_queue, self.visualization_queue]:
-            if q:
-                q.close()
-                q.cancel_join_thread()
-
-        if self.mode_output_queues:
-            for fanout_queue in self.mode_output_queues.values():
-                if fanout_queue.primary_queue:
-                    fanout_queue.primary_queue.close()
-                    fanout_queue.primary_queue.cancel_join_thread()
-                # secondary_queue is shared (visualization_queue) - already closed above
-
-    def initialize_visualization_streamer(self, config: dict):
-        """Initialize the visualization streamer and dashboard metadata outlet."""
-        self.logger.debug("Initializing visualization streamer...")
-
-        try:
-            # Use modality_data from config (already computed in build_configuration)
-            modality_data = config.get('modality_data', {})
-            channel_labels = {m: d['channel_labels'] for m, d in modality_data.items()}
-
-            self.visualization_streamer = VisualizationStreamer(
-                plot_queue=self.visualization_data_queue,
-                stream_info=VISUALIZATION_STREAM_INFO,
-                stop_event=self.stop_event,
-                output_queue=self.visualization_queue,
-                history_length=1000,
-                shared_state=self.shared_state,
-                channel_labels=channel_labels,
-            )
-            self.visualization_streamer.daemon = True
-            self.visualization_streamer.start()
-            self.system_processes['Viz'] = self.visualization_streamer
-            self.logger.info("Visualization streamer started successfully")
-            QtCore.QTimer.singleShot(500, self._check_visualization_streamer)
-
-        except Exception as e:
-            self.logger.error(f"Failed to create/start visualization streamer: {e}")
-            self.logger.error("Continuing without visualization output")
-            self.visualization_streamer = None
-
-    def _check_visualization_streamer(self):
-        """Check if visualization streamer started successfully (called via QTimer)."""
-        if self.visualization_streamer and not self.visualization_streamer.is_alive():
-            self.logger.error("Visualization streamer process failed to start")
-            self.visualization_streamer = None
-
-    def initialize_output_protocols(self, config: dict):
-        """Initialize all output protocols based on configuration."""
-        output_config = config.get('output', {}).get('protocols', {})
-
-        self.logger.debug(f"Output configuration: {output_config}")
-
-        enabled_protocols = self._setup_protocol_queues(output_config)
-
-        if not enabled_protocols:
-            self.logger.warning("No output protocols enabled - predictions will not be streamed")
-            return
-
-        self.logger.info(f"Initializing output protocols: {enabled_protocols}")
-        self.start_prediction_fanout_thread()
-
-        for protocol in enabled_protocols:
-            self._init_streamer_with_config(protocol, output_config.get(protocol, {}), config)
-    
-    def _setup_protocol_queues(self, output_config: dict) -> List[str]:
-        """Set up queues for enabled protocols and return list of enabled protocols."""
-        self.protocol_queues = {}
-        enabled_protocols = []
-
-        for protocol in SUPPORTED_PROTOCOLS:
-            protocol_config = output_config.get(protocol, {})
-            is_enabled = protocol_config.get('enabled', False)
-
-            self.logger.debug(f"Protocol {protocol}: enabled={is_enabled}, config={protocol_config}")
-
-            if is_enabled:
-                enabled_protocols.append(protocol)
-                self.protocol_queues[protocol] = multiprocessing.Queue()
-
-        if not output_config and not enabled_protocols:
-            self.logger.info("No output configuration found, defaulting to LSL")
-            enabled_protocols = ['lsl']
-            self.protocol_queues['lsl'] = multiprocessing.Queue()
-            output_config['lsl'] = {'enabled': True, 'config': {}}
-
-        return enabled_protocols
-    
-    def _get_streamer_config(self, protocol: str, protocol_config: dict, full_config: dict):
-        """Get streamer class and initialization kwargs for a protocol."""
-        base_kwargs = {
-            'input_queue': self.protocol_queues[protocol],
-            'stop_event': self.lsl_stop_event,
-            'shared_state': self.shared_state
-        }
-
-        protocol_map = {
-            'lsl': (LSLStreamer, {
-                **base_kwargs,
-                'stream_info': copy.deepcopy(PREDICTION_STREAM_INFO),
-                'lsl_config': protocol_config.get('config', {})
-            }),
-            'socket': (SocketStreamer, {
-                **base_kwargs,
-                'socket_config': protocol_config.get('config', {})
-            }),
-            'zmq': (ZMQStreamer, {
-                **base_kwargs,
-                'zmq_config': protocol_config.get('config', {})
-            }),
-            'ros2': (ROS2Streamer, {
-                **base_kwargs,
-                'ros2_config': protocol_config.get('config', {}),
-                'stream_name': "BMI_Predictions",
-                'classifier_names': list(full_config.get('mode_instances', {}).keys())
-            })
-        }
-
-        if protocol not in protocol_map:
-            raise ValueError(f"Unknown protocol: {protocol}")
-        return protocol_map[protocol]
-    
-    def _init_streamer_with_config(self, protocol: str, protocol_config: dict, full_config: dict):
-        """Initialize a single output streamer."""
-        try:
-            streamer_class, streamer_kwargs = self._get_streamer_config(
-                protocol, protocol_config, full_config
-            )
-            streamer = streamer_class(**streamer_kwargs)
-            streamer.daemon = True
-            streamer.start()
-            self.output_streamers[protocol] = streamer
-            self.system_processes[protocol.upper()] = streamer
-            self._update_protocol_status(True, protocol=protocol)
-            self.logger.info(f"{protocol.upper()} streamer started")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize {protocol} streamer: {e}")
-            self._update_protocol_status(False, protocol=protocol)
-    
-    def _update_protocol_status(self, connected: bool, protocol: str = None, all_protocols: bool = False):
-        """Update UI status indicators for output protocol connections."""
-        if self.output_widget:
-            if all_protocols:
-                for p in SUPPORTED_PROTOCOLS:
-                    self.output_widget.set_protocol_connected(p, connected)
-            elif protocol:
-                self.output_widget.set_protocol_connected(protocol, connected)
-                    
-    def start_prediction_fanout_thread(self):
-        """Start thread to distribute predictions to all protocol queues."""
-        def fanout_predictions():
-            logger = get_logger("PredictionFanOut")
-            logger.info(f"Fan-out thread started for: {list(self.protocol_queues.keys())}")
-            
-            while not (self.stop_event and self.stop_event.is_set()):
-                try:
-                    prediction_data = self.prediction_queue.get(timeout=PREDICTION_FANOUT_TIMEOUT)
-                    
-                    for protocol, protocol_queue in self.protocol_queues.items():
-                        try:
-                            protocol_queue.put(prediction_data, block=False)
-                        except queue.Full:
-                            logger.warning(f"{protocol} queue full, dropping prediction")
-                            
-                except queue.Empty:
-                    continue
-                except Exception as e:
-                    logger.error(f"Fan-out error: {e}")
-                    break
-                    
-            logger.info("Fan-out thread stopped")
-        
-        self.prediction_fanout_thread = threading.Thread(target=fanout_predictions, daemon=True, name="PredictionFanOut")
-        self.prediction_fanout_thread.start()
+    # ------------------------------------------------------------------
+    # Application lifecycle
+    # ------------------------------------------------------------------
 
     def closeEvent(self, event) -> None:
         """Handle application close event."""
-        if self.processing_process and self.processing_process.is_alive():
+        if self.pipeline_controller.is_recording():
             reply = QtWidgets.QMessageBox.warning(
                 self,
                 "Recording Active",
@@ -1015,13 +598,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
                 QtWidgets.QMessageBox.StandardButton.No
             )
-            
+
             if reply == QtWidgets.QMessageBox.StandardButton.No:
                 event.ignore()
                 return
 
             self.logger.warning("User confirmed closing application during active recording")
-            self.stop_processing(blocking=True)
+            self.pipeline_controller.stop(blocking=True)
 
         if self.log_display_widget:
             self.log_display_widget.stop_monitoring()
@@ -1029,9 +612,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.telemetry_widget:
             self.telemetry_widget.cleanup()
 
-        if self.shared_state:
-            self.shared_state.cleanup()
-            self.shared_state = None
+        self.pipeline_controller.cleanup()
 
         self.logger.info("Application shutting down")
 
@@ -1049,14 +630,13 @@ def main():
     print("Application starting")
 
     try:
-        print("Initializing database...")
         db = Database()
         db.init_db()
-        print("Database initialized successfully.")
     except Exception as e:
-        print(f"Failed to initialize database: {e}")
-        import traceback
-        traceback.print_exc()
+        # App can still function without DB (recording works); decoder history
+        # and study management will be unavailable.
+        logging.warning(f"Database initialization failed: {e}. "
+                        "Decoder history and study management will be unavailable.")
 
     app = QtWidgets.QApplication(sys.argv)
     apply_app_styles(app)
@@ -1078,4 +658,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

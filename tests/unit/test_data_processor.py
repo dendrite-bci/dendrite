@@ -29,6 +29,7 @@ from typing import Dict, Any, List
 # Add the project root to the path so BMI can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
+from dendrite.data.stream_schemas import StreamConfig
 from dendrite.processing.processor import DataProcessor
 
 
@@ -442,7 +443,7 @@ class TestEventHandling:
         """Test that _handle_event queues event as pending marker."""
         processor = processor_with_pending_marker
         # Configure stream so event handling works
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         event_payload = {
             'event': {
@@ -466,7 +467,7 @@ class TestEventHandling:
         """Test that pending marker is attached to EEG sample."""
         processor = processor_with_pending_marker
         # Configure stream for marker distribution
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # Queue a pending marker
         processor.pending_markers.append((42.0, 12345.67, {'EEG_Stream'}))
@@ -495,7 +496,7 @@ class TestEventHandling:
     def test_handle_data_sample_no_pending_marker(self, processor_with_pending_marker):
         """Test that samples without pending markers have original marker value."""
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # No pending markers (empty deque)
         assert len(processor.pending_markers) == 0
@@ -520,7 +521,7 @@ class TestEventHandling:
     def test_process_next_sample_event_payload(self, processor_with_pending_marker):
         """Test that event payloads are routed to _handle_event."""
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         event_payload = {
             'event': {
@@ -543,7 +544,7 @@ class TestEventHandling:
     def test_process_next_sample_data_payload(self, processor_with_pending_marker):
         """Test that data payloads are routed to _handle_data_sample."""
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         data_payload = {
             'data': {
@@ -566,8 +567,8 @@ class TestEventHandling:
 
         # Configure two data streams
         processor.stream_configs = [
-            {'name': 'EEG_Stream', 'type': 'EEG'},
-            {'name': 'EMG_Stream', 'type': 'EMG'},
+            StreamConfig(name='EEG_Stream', type='EEG', channel_count=4, sample_rate=500),
+            StreamConfig(name='EMG_Stream', type='EMG', channel_count=2, sample_rate=500),
         ]
 
         # Queue an event (simulates _handle_event with stream tracking)
@@ -604,7 +605,7 @@ class TestEventHandling:
         processor = processor_with_pending_marker
 
         # Configure single EEG stream (new architecture)
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # Event arrives
         event_payload = {
@@ -637,7 +638,7 @@ class TestEventHandling:
     def test_marker_single_stream_consumed_immediately(self, processor_with_pending_marker):
         """Test marker distribution with single stream is consumed immediately."""
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # Queue marker
         processor.pending_markers.append((42.0, 12345.67, {'EEG_Stream'}))
@@ -661,7 +662,7 @@ class TestEventHandling:
         survive these skipped samples and are attached to the next non-empty sample.
         """
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # Queue a pending marker
         processor.pending_markers.append((42.0, 12345.67, {'EEG_Stream'}))
@@ -702,7 +703,7 @@ class TestEventHandling:
             stop_event=Mock(),
             shared_state=Mock(),
             mode_configs={'emg_mode': {'required_modalities': ['emg']}},
-            stream_configs=[{'name': 'EMG_Stream', 'type': 'EMG'}],
+            stream_configs=[StreamConfig(name='EMG_Stream', type='EMG', channel_count=8, sample_rate=500)],
             preprocessing_config={}
         )
         processor.mode_queues['emg_mode'] = Mock()
@@ -741,7 +742,7 @@ class TestEventHandling:
         at least one modality has data.
         """
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # Queue a pending marker
         processor.pending_markers.append((42.0, 12345.67, {'EEG_Stream'}))
@@ -764,7 +765,7 @@ class TestEventHandling:
     def test_multiple_events_before_sample_all_preserved(self, processor_with_pending_marker):
         """Test that multiple events are queued, not overwritten."""
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # Send two events before any EEG sample
         event1 = {'event': {'event_id': 1.0}, 'lsl_timestamp': 100.0}
@@ -799,7 +800,7 @@ class TestEventHandling:
     def test_event_queue_fifo_order(self, processor_with_pending_marker):
         """Test that events are consumed in FIFO order."""
         processor = processor_with_pending_marker
-        processor.stream_configs = [{'name': 'EEG_Stream', 'type': 'EEG'}]
+        processor.stream_configs = [StreamConfig(name='EEG_Stream', type='EEG', channel_count=1, sample_rate=500)]
 
         # Queue 3 events
         for i in range(1, 4):
@@ -866,10 +867,10 @@ class TestPreprocessingIntegration:
         """Test preprocessor creation with stream_configs (new mode)."""
         processor = processor_with_eog
 
-        # Add stream_configs (using dicts to simulate StreamMetadata)
+        # Add stream_configs
         processor.stream_configs = [
-            {'name': 'BioSemi', 'type': 'EEG', 'sample_rate': 512, 'channel_count': 8, 'channel_types': []},
-            {'name': 'Trigno', 'type': 'EMG', 'sample_rate': 2000, 'channel_count': 4, 'channel_types': []},
+            StreamConfig(name='BioSemi', type='EEG', sample_rate=512, channel_count=8, channel_types=[]),
+            StreamConfig(name='Trigno', type='EMG', sample_rate=2000, channel_count=4, channel_types=[]),
         ]
 
         with patch('dendrite.processing.processor.OnlinePreprocessor') as mock_preprocessor:
@@ -1044,13 +1045,10 @@ class TestChannelTypesFlow:
         )
 
         # Stream with mixed channel types
-        stream_config = {
-            'name': 'BioSemi',
-            'type': 'EEG',
-            'channel_count': 5,
-            'sample_rate': 512.0,
-            'channel_types': ['eeg', 'eeg', 'eeg', 'eog', 'eog']
-        }
+        stream_config = StreamConfig(
+            name='BioSemi', type='EEG', channel_count=5,
+            sample_rate=512.0, channel_types=['eeg', 'eeg', 'eeg', 'eog', 'eog']
+        )
 
         modality_preprocessing = processor._build_modality_preprocessing_from_stream(stream_config)
 
@@ -1078,13 +1076,10 @@ class TestChannelTypesFlow:
         )
 
         # Stream with markers channel
-        stream_config = {
-            'name': 'EEG_with_markers',
-            'type': 'EEG',
-            'channel_count': 4,
-            'sample_rate': 512.0,
-            'channel_types': ['eeg', 'eeg', 'eeg', 'markers']
-        }
+        stream_config = StreamConfig(
+            name='EEG_with_markers', type='EEG', channel_count=4,
+            sample_rate=512.0, channel_types=['eeg', 'eeg', 'eeg', 'markers']
+        )
 
         modality_preprocessing = processor._build_modality_preprocessing_from_stream(stream_config)
 
@@ -1105,13 +1100,10 @@ class TestChannelTypesFlow:
         )
 
         # Mixed case channel types
-        stream_config = {
-            'name': 'BioSemi',
-            'type': 'EEG',
-            'channel_count': 4,
-            'sample_rate': 512.0,
-            'channel_types': ['EEG', 'Eeg', 'eeg', 'EOG']
-        }
+        stream_config = StreamConfig(
+            name='BioSemi', type='EEG', channel_count=4,
+            sample_rate=512.0, channel_types=['EEG', 'Eeg', 'eeg', 'EOG']
+        )
 
         modality_preprocessing = processor._build_modality_preprocessing_from_stream(stream_config)
 
@@ -1133,13 +1125,10 @@ class TestChannelTypesFlow:
         )
 
         # Custom modality type (e.g., ECG)
-        stream_config = {
-            'name': 'Custom',
-            'type': 'Other',
-            'channel_count': 2,
-            'sample_rate': 256.0,
-            'channel_types': ['ecg', 'ecg']
-        }
+        stream_config = StreamConfig(
+            name='Custom', type='Other', channel_count=2,
+            sample_rate=256.0, channel_types=['ecg', 'ecg']
+        )
 
         modality_preprocessing = processor._build_modality_preprocessing_from_stream(stream_config)
 

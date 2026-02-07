@@ -39,10 +39,10 @@ class SystemConfigurationManager:
             True if configuration loaded successfully, False otherwise.
         """
         if not file_path:
-            try:
+            if hasattr(self.main_window, 'general_params_widget'):
                 general_config = self.main_window.general_params_widget.get_general_config()
                 study_name = general_config.get("study_name", DEFAULT_STUDY_NAME)
-            except AttributeError:
+            else:
                 study_name = DEFAULT_STUDY_NAME
 
             default_dir = str(get_study_paths(study_name)["config"])
@@ -62,17 +62,15 @@ class SystemConfigurationManager:
                 cfg = json.load(f)
 
             # Apply to widgets (optional widgets may not exist)
-            try:
+            if hasattr(self.main_window, 'general_params_widget'):
                 if general := {
                     k: cfg[k]
                     for k in ["study_name", "subject_id", "session_id", "recording_name"]
                     if k in cfg
                 }:
                     self.main_window.general_params_widget.set_general_config(general)
-            except AttributeError:
-                pass
 
-            try:
+            if hasattr(self.main_window, 'preprocessing_widget'):
                 if preprocessing := {
                     k: cfg[k]
                     for k in [
@@ -83,8 +81,6 @@ class SystemConfigurationManager:
                     if k in cfg
                 }:
                     self.main_window.preprocessing_widget.set_preprocessing_config(preprocessing)
-            except AttributeError:
-                pass
 
             if "output" in cfg:
                 self.main_window.output_widget.load_output_configuration(cfg["output"])
@@ -130,13 +126,13 @@ class SystemConfigurationManager:
         # General settings (sample_rate may be None if no EEG streams configured)
         config["sample_rate"] = sm.get_system_sample_rate() if sm.has_streams() else None
 
-        try:
+        if hasattr(mw, 'general_params_widget'):
             general = mw.general_params_widget.get_general_config()
             config["study_name"] = general.get("study_name", DEFAULT_STUDY_NAME)
             config["subject_id"] = general.get("subject_id", "")
             config["session_id"] = general.get("session_id", "")
             config["recording_name"] = general.get("recording_name", DEFAULT_RECORDING_NAME)
-        except AttributeError:
+        else:
             config["study_name"] = DEFAULT_STUDY_NAME
             config["subject_id"] = ""
             config["session_id"] = ""
@@ -150,12 +146,12 @@ class SystemConfigurationManager:
         config["modality_data"] = modality_data  # Used by GUI for channel selection
 
         # Preprocessing settings
-        try:
+        if hasattr(mw, 'preprocessing_widget'):
             preprocessing = mw.preprocessing_widget.get_preprocessing_config()
             config["preprocess_data"] = preprocessing.get("preprocess_data", False)
             config["modality_preprocessing"] = preprocessing.get("modality_preprocessing", {})
             config["quality_control"] = preprocessing.get("quality_control", {"enabled": False})
-        except AttributeError:
+        else:
             config["preprocess_data"] = False
             config["modality_preprocessing"] = {}
             config["quality_control"] = {"enabled": False}

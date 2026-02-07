@@ -28,12 +28,18 @@ TIMEOUT_DATA_SAVER = 5
 TIMEOUT_DATA_PROCESSOR = 3
 TIMEOUT_MODE_PROCESS = 2
 TIMEOUT_METRICS_SAVER = 2
+TIMEOUT_MAIN_PROCESS = 10  # Main processing process shutdown
+TIMEOUT_VISUALIZATION = 3  # Visualization streamer shutdown
 MODE_GPU_EMIT_INTERVAL = 2.0  # Seconds between GPU telemetry emits
 MODE_THREAD_JOIN_TIMEOUT = 2.0  # Mode thread cleanup
 
 # --- Buffer Sizes ---
 LSL_BUFFER_SIZE_SECONDS = 1  # LSL inlet buffer duration
 DEFAULT_BUFFER_SIZE = 5000  # Dashboard visualization buffer (samples)
+QUEUE_SIZE_LARGE = 1000  # Large multiprocessing queue capacity
+
+# --- GUI Timers ---
+PID_COLLECTION_INTERVAL_MS = 500  # PID polling interval
 
 # --- Data Processing ---
 PLOT_DECIMATION_FACTOR = 5  # 500Hz -> 100Hz for visualization
