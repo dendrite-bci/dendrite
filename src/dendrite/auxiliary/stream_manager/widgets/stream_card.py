@@ -49,10 +49,6 @@ class StreamCard(QtWidgets.QFrame):
         self.setToolTip(self._build_tooltip())
         self.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
 
-        # Timer for updating progress
-        self.progress_timer = QtCore.QTimer()
-        self.progress_timer.timeout.connect(self._update_progress)
-
     def _build_tooltip(self) -> str:
         """Build rich tooltip with stream metadata."""
         source_display = get_source_display(self.config)
@@ -217,12 +213,6 @@ class StreamCard(QtWidgets.QFrame):
         total_str = format_seconds(total)
         return f"{current_str} / {total_str}"
 
-    def _update_progress(self):
-        """Update progress display (called by timer as fallback)."""
-        # Progress is now primarily driven by set_progress() from backend
-        # This timer is kept as a fallback for edge cases
-        pass
-
     def set_progress(self, progress_pct: float):
         """Update progress bar from backend progress report.
 
@@ -245,7 +235,6 @@ class StreamCard(QtWidgets.QFrame):
 
         # Auto-stop stream when file playback completes
         if progress_pct >= 1.0:
-            self.progress_timer.stop()
             source_type = self.config.get("source_type")
             if source_type in ("file", "moabb") and self.is_running:
                 from ..utils import logger
@@ -279,7 +268,6 @@ class StreamCard(QtWidgets.QFrame):
             }}
         """)
 
-        # Apply button styling using V2 builders
         self.start_btn.setStyleSheet(WidgetStyles.button())
         self.stop_btn.setStyleSheet(WidgetStyles.button(text_color=STATUS_ERROR, severity="error"))
         self.remove_btn.setStyleSheet(WidgetStyles.button(variant="secondary", size="small"))
@@ -325,14 +313,12 @@ class StreamCard(QtWidgets.QFrame):
                     self.progress_bar.setValue(0)
                     if hasattr(self, "time_label"):
                         self.time_label.setText(self._format_time_display(0, self.total_duration))
-                    self.progress_timer.start(1000)
                 elif source_type == "moabb":
                     # MOABB: indeterminate animation until duration received
                     self.progress_bar.setRange(0, 0)  # Looping animation
                     if hasattr(self, "time_label"):
                         self.time_label.setText("Loading...")
             else:
-                self.progress_timer.stop()
                 self.start_time = None
                 # Reset progress bar to static empty state
                 self.progress_bar.setRange(0, 100)
@@ -349,5 +335,3 @@ class StreamCard(QtWidgets.QFrame):
         if hasattr(self, "time_label"):
             self.time_label.setText(self._format_time_display(0, duration))
         self.start_btn.setText("Running")
-        if self.is_running:
-            self.progress_timer.start(1000)

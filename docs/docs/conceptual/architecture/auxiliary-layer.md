@@ -23,7 +23,7 @@ Mode-specific views: Synchronous shows ERP stacks and performance metrics. Async
 
 ## Offline Stream Manager
 
-OfflineDataStreamer (`src/dendrite/auxiliary/stream_manager/backend/streamer.py`) launches reproducible LSL streams from files or synthetic generators. Supports .set, .fif, and .h5 formats via MNE. Enables development, demos, and testing without hardware.
+OfflineDataStreamer (`src/dendrite/auxiliary/stream_manager/backend/streamer.py`) launches reproducible LSL streams from files or synthetic generators. Supports .fif and .h5 formats via MNE. Enables development, demos, and testing without hardware.
 
 **File Streaming:** Extracts metadata from MNE-compatible formats and streams sample-by-sample to LSL outlet at original sample rate.
 
@@ -43,7 +43,7 @@ The ML Workbench is under active development. Features and interfaces may change
 
 ML Workbench (`src/dendrite/auxiliary/ml_workbench/app.py`) provides offline model development, validation, and optimization separate from real-time sessions.
 
-Loads datasets from Dendrite HDF5, FIF, SET, and MOABB. Configure epoching and preprocessing, then review epochs before training.
+Loads datasets from Dendrite HDF5, FIF, and MOABB. Configure epoching and preprocessing, then review epochs before training.
 
 Uses the same Decoder infrastructure as real-time modes for preprocessing parity. Runs k-fold cross-validation, hyperparameter search, and augmentation. Trained decoders are registered in the database with complete lineage.
 
@@ -58,7 +58,7 @@ Database (`src/dendrite/data/storage/database.py`) implements repository pattern
 **Schema:** Four tables with foreign key relationships:
 - **studies** - Master table for organizing experiments (name, description, config)
 - **recordings** - Raw EEG session metadata with BIDS fields (subject, session, run) and file paths
-- **datasets** - Imported FIF/SET files for offline training with epoching parameters
+- **datasets** - Imported FIF files for offline training with epoching parameters
 - **decoders** - Trained model metadata (architecture, accuracy, channels)
 
 Recordings and decoders cascade-delete with their parent study. Datasets can be unassociated or linked to a study.

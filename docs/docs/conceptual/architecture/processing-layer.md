@@ -141,7 +141,7 @@ FanOutQueue uses `put_nowait()` for real-time operation (outputs are dropped rat
 
 SynchronousMode (`src/dendrite/processing/modes/synchronous_mode.py`) collects event-locked epochs from experimental trials and trains classification models online.
 
-The mode monitors event markers to extract time-locked windows around triggers, typically -200ms to +1000ms around stimulus onset. Labeled epochs accumulate in a dataset, and the decoder retrains at configurable intervals (e.g., every 20 epochs). Optional features include background class sampling for idle-state detection, quality checking to reject noisy epochs, and hyperparameter search across model architectures.
+The mode monitors event markers to extract time-locked windows around triggers (default 0.0s to 2.0s after stimulus onset, configurable via `start_offset` and `end_offset`). Labeled epochs accumulate in a dataset, and the decoder retrains at configurable intervals (e.g., every 20 epochs). Optional features include background class sampling for idle-state detection, quality checking to reject noisy epochs, and hyperparameter search across model architectures.
 
 **Output:** Predictions with confidence scores, performance metrics (accuracy, Cohen's kappa), and averaged ERP waveforms per event type.
 
@@ -151,7 +151,7 @@ The mode monitors event markers to extract time-locked windows around triggers, 
 
 AsynchronousMode (`src/dendrite/processing/modes/asynchronous_mode.py`) applies pre-trained decoders continuously for real-time BCI control.
 
-The mode processes sliding windows at regular intervals, streaming predictions with confidence scores. It supports decoder hot-swapping from linked SynchronousMode or disk-based loading. Models update automatically when SynchronousMode saves to the shared directory (`data/models/{study_name}/shared/`). When ground truth events are available, temporal evaluation calculates accuracy with separate background handling for idle periods.
+The mode processes sliding windows at regular intervals, streaming predictions with confidence scores. It supports decoder hot-swapping from linked SynchronousMode or disk-based loading. Models update automatically when SynchronousMode saves to the shared directory (`data/studies/{study_name}/decoders/shared/`). When ground truth events are available, temporal evaluation calculates accuracy with separate background handling for idle periods.
 
 **Output:** Predictions with confidence, and accuracy metrics when ground truth available.
 

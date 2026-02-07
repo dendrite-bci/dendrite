@@ -25,7 +25,7 @@ Trained models save every 30 seconds. Asynchronous modes configured with `decode
 
 ## Output
 
-Each event triggers epoch extraction and prediction. The mode outputs per-trial classification with confidence and tracks accuracy, kappa, and F1. ERP visualization shows averaged waveforms per event type.
+Each event triggers epoch extraction and prediction. The mode outputs per-trial classification with confidence and tracks accuracy and kappa. ERP visualization shows averaged waveforms per event type.
 
 ```json
 {

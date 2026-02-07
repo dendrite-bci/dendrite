@@ -99,7 +99,7 @@ Stream configurations use `StreamMetadata` Pydantic schemas (`src/dendrite/data/
 ```python
 @dataclass
 class DataRecord:
-    """Raw data record for storage preserving native sampling rates."""
+    """Data structure for holding samples and metadata."""
     modality: str          # Stream type: 'EEG', 'EMG', 'Event', 'String'
     sample: Any            # Timeseries: np.ndarray; Events: [json_string]; Strings: [str]
     timestamp: float       # LSL synchronized timestamp (from inlet.pull_sample())
@@ -167,7 +167,7 @@ The database uses a repository pattern with four tables: `studies` (master organ
 
 **Usage:** The Main Window registers new sessions via `add_recording()`, the ML Workbench registers trained models via `add_decoder()`, and the DB Explorer provides a GUI for browsing the database.
 
-See **[Auxiliary Layer](auxiliary-layer.md#database-management)** for complete schema documentation.
+See **[Auxiliary Layer](auxiliary-layer.md#database-explorer)** for complete schema documentation.
 
 
 

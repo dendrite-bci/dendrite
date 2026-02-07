@@ -175,8 +175,9 @@ class MOAABLoader:
         if self.config.events:
             label_map = self.config.events
         else:
-            label_map = dict(event_id)
-            logger.info(f"Using MNE event_id as label map: {label_map}")
+            sorted_names = sorted(event_id.keys())
+            label_map = {name: i for i, name in enumerate(sorted_names)}
+            logger.info(f"Auto-generated 0-indexed label map: {label_map}")
 
         event_times = []
         event_labels = []

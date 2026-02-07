@@ -44,8 +44,8 @@ Initialize decoder with configuration.
 
   config = DecoderConfig(
   model_type='EEGNet',
-  num_classes=3,
-  input_shape=(32, 250),  # (channels, times)
+  num_classes=2,
+  input_shapes={'eeg': [32, 250]},  # {modality: [channels, times]}
   epochs=200,
 - `event_mapping=\{1` - 'left', 2: 'right'\},
 - `label_mapping=\{'left'` - 0, 'right': 1\}

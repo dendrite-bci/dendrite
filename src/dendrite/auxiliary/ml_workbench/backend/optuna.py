@@ -140,7 +140,7 @@ class OptunaRunner:
         percent = int(100 * self._trial_count / self.config.n_trials)
 
         if trial.state == TrialState.COMPLETE:
-            value_str = f"{trial.value:.3f}" if trial.value else "N/A"
+            value_str = f"{trial.value:.3f}" if trial.value is not None else "N/A"
             msg = f"Trial {self._trial_count}/{self.config.n_trials}: {value_str}"
         elif trial.state == TrialState.PRUNED:
             msg = f"Trial {self._trial_count}/{self.config.n_trials}: PRUNED"
@@ -293,7 +293,7 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
 
     def __init__(
         self,
-        estimator_factory: callable,
+        estimator_factory: Callable,
         param_distributions: dict[str, dict[str, Any]],
         n_trials: int = 20,
         cv: int = 3,
@@ -337,8 +337,6 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
         # Store data shape for estimator creation
         n_channels, n_times = X.shape[1], X.shape[2]
         n_classes = len(np.unique(y))
-        self._n_classes = n_classes
-        self._input_shape = [n_channels, n_times]
 
         def objective(trial: optuna.Trial) -> float:
             params = suggest_params(trial, self.param_distributions)
@@ -366,7 +364,7 @@ class OptunaSearchCV(BaseEstimator, ClassifierMixin):
                 return float(np.mean(scores))
             except (ValueError, RuntimeError, AttributeError) as e:
                 logger.warning(f"Trial {trial.number} failed: {type(e).__name__}: {e}")
-                return 0.0
+                raise optuna.TrialPruned(f"Trial failed: {e}")
 
         # Use OptunaRunner for optimization
         config = OptunaConfig(

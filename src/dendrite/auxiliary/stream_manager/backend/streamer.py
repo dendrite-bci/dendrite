@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Offline Data Streamer V2
-Streamlined version that maintains functionality while removing bloat.
-"""
+"""Offline Data Streamer for file, MOABB, and synthetic sources."""
 
 import logging
 import time
@@ -20,15 +17,8 @@ from dendrite.data.stream_schemas import StreamConfig
 
 
 class OfflineDataStreamer(Process):
-    """
-    Streamlined data streamer that supports multi-modal data files (EEG, EMG, ECG, EOG, etc.),
-    synthetic data generation, and multiple data types with significantly reduced complexity
-    compared to the original.
-
-    Key improvements:
-    - Detects and streams ALL channel types present in files (not just EEG)
-    - Maintains proper channel labels and types for multi-modal data
-    - Supports both single-modal and multi-modal streaming
+    """Data streamer supporting multi-modal data files (EEG, EMG, ECG, EOG, etc.),
+    MOABB datasets, and synthetic data generation.
     """
 
     def __init__(
@@ -249,7 +239,7 @@ class OfflineDataStreamer(Process):
 
             start_time = time.perf_counter()
             sample_interval = 1.0 / loaded.sample_rate
-            progress_interval = int(loaded.sample_rate // 2)
+            progress_interval = max(1, int(loaded.sample_rate // 2))
 
             for sample_idx in range(n_samples):
                 if self.stop_event.is_set():
@@ -364,7 +354,6 @@ class OfflineDataStreamer(Process):
                 self.logger.info(f"Event stream enabled: {event_mapping}")
 
             # Create event lookup for fast access: sample_idx -> (marker_code, event_name)
-            # Use MOABB's native codes directly (already non-zero)
             event_dict = {}
             for evt_time, evt_label in zip(event_times, event_labels, strict=True):
                 event_name = label_to_name.get(evt_label, f"class_{evt_label}")
@@ -373,7 +362,7 @@ class OfflineDataStreamer(Process):
             # Stream data with timing control
             start_time = time.perf_counter()
             sample_interval = 1.0 / sample_rate
-            progress_interval = int(sample_rate // 2)  # Report progress every 0.5s
+            progress_interval = max(1, int(sample_rate // 2))
 
             for sample_idx in range(n_samples):
                 if self.stop_event.is_set():

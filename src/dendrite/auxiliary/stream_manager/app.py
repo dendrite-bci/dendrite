@@ -246,7 +246,7 @@ class StreamManager(QtWidgets.QMainWindow):
             else:
                 # File path handling
                 stream_name_prefix = None
-                data_file_path = None
+                data_file_path = ""
 
                 if config.get("source_type") == "file" and config.get("file_path"):
                     clean_name = self._extract_clean_filename(config["file_path"])
@@ -398,17 +398,12 @@ class StreamManager(QtWidgets.QMainWindow):
                     if not card:
                         continue
 
-                    # Handle dict messages (new format)
-                    if isinstance(msg, dict):
-                        msg_type = msg.get("type")
-                        value = msg.get("value")
-                        if msg_type == "duration":
-                            card.set_duration(value)
-                        elif msg_type == "progress":
-                            card.set_progress(value)
-                    else:
-                        # Legacy: plain float = duration
-                        card.set_duration(msg)
+                    msg_type = msg.get("type")
+                    value = msg.get("value")
+                    if msg_type == "duration":
+                        card.set_duration(value)
+                    elif msg_type == "progress":
+                        card.set_progress(value)
             except (AttributeError, TypeError, KeyError):
                 pass
 
