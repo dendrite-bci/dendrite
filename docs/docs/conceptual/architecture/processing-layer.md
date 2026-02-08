@@ -125,7 +125,7 @@ The buffer maintains separate deques per modality plus timestamps for latency tr
 
 **Output Routing**
 
-Modes emit `ModeOutputPacket` (see **Data Contracts** above) through `OutputQueueManager`. **FanOutQueue** routes outputs to multiple destinations without blocking:
+Modes emit `ModeOutputPacket` (see **Data Contracts** above) through `FanOutQueue`. **FanOutQueue** routes outputs to multiple destinations without blocking:
 
 | Queue | Priority | Purpose | On Full |
 |-------|----------|---------|---------|

@@ -99,6 +99,12 @@ std::string event = R"({"event_id": 10, "event_type": "trial_start"})";
 outlet.push_sample(&event);
 ```
 
+## Best Practices
+
+### Timing
+
+Send events immediately when they occur. LSL timestamps the packet on push, so delays in your code become timestamp errors. For stimulus-locked analysis, call `send_event()` before or immediately after rendering.
+
 ## Loading Events
 
 Use `load_events()` to load stored events as a pandas DataFrame:

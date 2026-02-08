@@ -12,41 +12,9 @@ Task applications communicate with Dendrite via LSL. They send events to mark ex
 
 ## Sending Events
 
-Events mark trial boundaries, stimulus onsets, and experimental conditions. Dendrite captures these for epoch extraction and offline analysis.
+Events mark trial boundaries, stimulus onsets, and experimental conditions. Dendrite captures these for epoch extraction and offline analysis. Task applications send events as JSON strings over an LSL stream of type `Events`.
 
-### Stream Configuration
-
-| Property | Value |
-|----------|-------|
-| Type | `Events` |
-| Channel format | `string` |
-| Channel count | `1` |
-| Sample rate | `0` (irregular) |
-
-### Event Payload
-
-Events are JSON strings with two required fields:
-
-```json
-{
-  "event_id": 20,
-  "event_type": "cue_onset",
-  "trial_number": 5,
-  "condition": "left"
-}
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `event_id` | Yes | Integer for real-time filtering |
-| `event_type` | Yes | Human-readable name |
-| `*` | No | Application-defined metadata |
-
-Define your own event ID scheme. Group related events (stimuli 20-29, feedback 60-69, etc.) for easier filtering.
-
-### Timing
-
-Send events immediately when they occur. LSL timestamps the packet on push, so delays in your code become timestamp errors. For stimulus-locked analysis, call send before or immediately after rendering.
+For stream configuration, event format, code examples, and best practices, see the **[Send Events Guide](../../guides/send-events.md)**.
 
 ---
 

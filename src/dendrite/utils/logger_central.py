@@ -114,21 +114,14 @@ def setup_logger(process_name: str | None = None, level: int = INFO) -> logging.
         multiprocessing.current_process().name = process_name
 
     parent_log_file = os.environ.get(ENV_LOG_FILE)
+    log_file = parent_log_file if (parent_log_file and os.path.exists(parent_log_file)) else None
 
-    if parent_log_file and os.path.exists(parent_log_file):
-        logging.basicConfig(
-            level=level,
-            format="%(asctime)s - %(levelname)s - %(processName)s - %(message)s",
-            handlers=_create_handlers(parent_log_file),
-            force=True,
-        )
-    else:
-        logging.basicConfig(
-            level=level,
-            format="%(asctime)s - %(levelname)s - %(processName)s - %(message)s",
-            handlers=_create_handlers(),
-            force=True,
-        )
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(levelname)s - %(processName)s - %(message)s",
+        handlers=_create_handlers(log_file),
+        force=True,
+    )
 
     logger = get_logger(process_name)
     logger.info(f"Logger configured for {process_name or 'unnamed process'}")

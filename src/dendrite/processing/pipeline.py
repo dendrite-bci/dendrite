@@ -245,9 +245,7 @@ def run_pipeline(config: PipelineConfig) -> None:
                 logger.error(error_msg, exc_info=True)
 
         # Metrics data saver
-        metrics_queues = {}
-        for instance_name, fanout_queue in mode_output_queues.items():
-            metrics_queues[instance_name] = fanout_queue.primary_queue
+        metrics_queues = {name: fq.primary_queue for name, fq in mode_output_queues.items()}
 
         metrics_saver = MetricsSaver(
             filename=metrics_filename,

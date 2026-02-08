@@ -231,26 +231,31 @@ class PipelineController(QtCore.QObject):
         # Single shared queue for visualization (all modes push to same queue)
         self._visualization_queue = multiprocessing.Queue(maxsize=QUEUE_SIZE_LARGE)
 
-        self._mode_output_queues = {}
-        for instance_name in mode_instances:
-            self._mode_output_queues[instance_name] = FanOutQueue(
+        self._mode_output_queues = {
+            name: FanOutQueue(
                 primary_queue=multiprocessing.Queue(maxsize=QUEUE_SIZE_LARGE),
-                secondary_queue=self._visualization_queue
+                secondary_queue=self._visualization_queue,
             )
+            for name in mode_instances
+        }
 
     def _clear_queues(self):
         """Close all queues on session end."""
-        for q in [self._data_queue, self._save_queue, self._visualization_data_queue,
-                  self._prediction_queue, self._pid_queue, self._visualization_queue]:
+        plain_queues = [
+            self._data_queue, self._save_queue, self._visualization_data_queue,
+            self._prediction_queue, self._pid_queue, self._visualization_queue,
+        ]
+        if self._mode_output_queues:
+            plain_queues.extend(
+                fq.primary_queue for fq in self._mode_output_queues.values()
+                if fq.primary_queue
+            )
+            self._mode_output_queues = {}
+
+        for q in plain_queues:
             if q:
                 q.close()
                 q.cancel_join_thread()
-
-        if self._mode_output_queues:
-            for fanout_queue in self._mode_output_queues.values():
-                if fanout_queue.primary_queue:
-                    fanout_queue.primary_queue.close()
-                    fanout_queue.primary_queue.cancel_join_thread()
 
     # ------------------------------------------------------------------
     # Process spawning

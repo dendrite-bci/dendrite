@@ -90,7 +90,6 @@ class OutputProtocolManager:
             self.logger.info("No output configuration found, defaulting to LSL")
             enabled_protocols = ["lsl"]
             self.protocol_queues["lsl"] = multiprocessing.Queue()
-            output_config["lsl"] = {"enabled": True, "config": {}}
 
         return enabled_protocols
 
@@ -163,7 +162,7 @@ class OutputProtocolManager:
             logger = get_logger("PredictionFanOut")
             logger.info(f"Fan-out thread started for: {list(self.protocol_queues.keys())}")
 
-            while not (self.stop_event and self.stop_event.is_set()):
+            while not self.stop_event.is_set():
                 try:
                     prediction_data = self.prediction_queue.get(timeout=PREDICTION_FANOUT_TIMEOUT)
 
