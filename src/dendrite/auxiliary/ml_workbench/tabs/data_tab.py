@@ -162,22 +162,27 @@ class DataTab(QtWidgets.QWidget):
         self._scan_datasets()
 
     def _setup_ui(self):
-        # Main horizontal layout (with margins like other tabs)
         main_layout = QtWidgets.QHBoxLayout(self)
         main_layout.setContentsMargins(
             LAYOUT["spacing_lg"], LAYOUT["spacing_lg"], LAYOUT["spacing_lg"], LAYOUT["spacing_lg"]
         )
         main_layout.setSpacing(LAYOUT["spacing_lg"])
 
-        left_panel = QtWidgets.QWidget()
-        left_panel.setFixedWidth(560)
-        left_layout = QtWidgets.QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(
+        main_layout.addWidget(self._create_browser_panel())
+
+        self._info_panel = DatasetInfoPanel()
+        self._info_panel.selection_changed.connect(self._emit_current_dataset)
+        main_layout.addWidget(self._info_panel, stretch=1)
+
+    def _create_browser_panel(self) -> QtWidgets.QWidget:
+        panel = QtWidgets.QWidget()
+        panel.setFixedWidth(560)
+        layout = QtWidgets.QVBoxLayout(panel)
+        layout.setContentsMargins(
             LAYOUT["spacing_md"], LAYOUT["spacing_md"], LAYOUT["spacing_md"], LAYOUT["spacing_md"]
         )
-        left_layout.setSpacing(LAYOUT["spacing_md"])
+        layout.setSpacing(LAYOUT["spacing_md"])
 
-        # PillNavigation for MOABB / Internal (highlight matches trainer bg = invisible)
         self._source_nav = PillNavigation(
             tabs=[("moabb", "MOABB"), ("internal", "Internal")], size="medium"
         )
@@ -185,9 +190,8 @@ class DataTab(QtWidgets.QWidget):
             f"background-color: {BG_ELEVATED}; border-radius: {LAYOUT['radius']}px;"
         )
         self._source_nav.section_changed.connect(self._on_source_changed)
-        left_layout.addWidget(self._source_nav)
+        layout.addWidget(self._source_nav)
 
-        # Stacked widget for tree panels
         self._panel_stack = QtWidgets.QStackedWidget()
 
         self._moabb_tree = MOABBTreeWidget()
@@ -198,14 +202,12 @@ class DataTab(QtWidgets.QWidget):
         self._internal_tree.dataset_selected.connect(self._on_dataset_selected)
         self._panel_stack.addWidget(self._internal_tree)
 
-        left_layout.addWidget(self._panel_stack, 1)
+        layout.addWidget(self._panel_stack, 1)
 
-        # Status label
         self._status_label = QtWidgets.QLabel("")
         self._status_label.setStyleSheet(WidgetStyles.label("small", color=TEXT_DISABLED))
-        left_layout.addWidget(self._status_label)
+        layout.addWidget(self._status_label)
 
-        # Action buttons
         btn_layout = QtWidgets.QHBoxLayout()
         btn_layout.setSpacing(LAYOUT["spacing_sm"])
 
@@ -220,13 +222,9 @@ class DataTab(QtWidgets.QWidget):
         btn_layout.addWidget(self._refresh_btn)
 
         btn_layout.addStretch()
-        left_layout.addLayout(btn_layout)
+        layout.addLayout(btn_layout)
 
-        main_layout.addWidget(left_panel)
-
-        self._info_panel = DatasetInfoPanel()
-        self._info_panel.selection_changed.connect(self._emit_current_dataset)
-        main_layout.addWidget(self._info_panel, stretch=1)
+        return panel
 
     def _on_source_changed(self, source: str):
         """Handle dataset source tab change."""

@@ -81,6 +81,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # View state (must be set before signals connect in __init__)
         self._compact_mode = False
 
+    @property
+    def shared_state(self):
+        """Expose shared state for telemetry widget."""
+        return self.pipeline_controller.shared_state
+
     def is_recording(self) -> bool:
         """Check if a recording is currently active."""
         return self.pipeline_controller.is_recording()

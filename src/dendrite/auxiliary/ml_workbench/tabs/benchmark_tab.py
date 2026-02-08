@@ -1,12 +1,14 @@
 """Benchmark tab for model comparison and evaluation."""
 
-import csv
-import json
 from typing import Any
 
 from PyQt6 import QtCore, QtWidgets
 
-from dendrite.auxiliary.ml_workbench.backend import BENCHMARK_SEED, BenchmarkWorker
+from dendrite.auxiliary.ml_workbench.backend import (
+    BenchmarkRow,
+    BenchmarkWorker,
+    export_benchmark_results,
+)
 from dendrite.auxiliary.ml_workbench.dialogs import TrainingConfigDialog
 from dendrite.auxiliary.ml_workbench.utils import is_model_compatible
 from dendrite.auxiliary.ml_workbench.widgets import (
@@ -38,6 +40,13 @@ class BenchmarkTab(QtWidgets.QWidget):
         self._app_state = app_state
         self._study_data: dict[str, Any] | None = None
         self._running = False
+        self._training_config = {
+            "epochs": 100,
+            "batch_size": 32,
+            "learning_rate": 0.001,
+        }
+        self._optuna_config = OptunaConfig(n_trials=10)
+        self._n_folds = 5
         self._setup_ui()
 
         if self._app_state:
@@ -48,6 +57,8 @@ class BenchmarkTab(QtWidgets.QWidget):
         self._app_state.study_changed.connect(self._on_study_changed)
         self._update_data_status()
 
+    # -- UI Setup --
+
     def _setup_ui(self):
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(
@@ -55,22 +66,31 @@ class BenchmarkTab(QtWidgets.QWidget):
         )
         layout.setSpacing(LAYOUT["spacing_lg"])
 
-        # Left panel (scrollable)
         left_panel, left_layout, left_footer = create_scrollable_panel(560)
+        left_layout.addWidget(self._create_data_source_section())
+        left_layout.addWidget(self._create_decoders_section())
+        left_layout.addWidget(self._create_eval_strategy_section())
+        left_layout.addWidget(self._create_training_config_section())
+        left_layout.addStretch()
+        self._create_footer(left_footer)
 
-        # Data Source section
-        data_section, data_layout = create_section("Data Source")
+        layout.addWidget(left_panel)
+        layout.addWidget(self._create_results_panel(), 1)
+        self._update_data_status()
+        self._update_config_summary()
+
+    def _create_data_source_section(self) -> QtWidgets.QWidget:
+        section, section_layout = create_section("Data Source")
         self._data_label = QtWidgets.QLabel("No study loaded")
         self._data_label.setStyleSheet(WidgetStyles.inline_label(color=STATUS_WARN))
         self._data_label.setWordWrap(True)
-        data_layout.addWidget(self._data_label)
-        left_layout.addWidget(data_section)
+        section_layout.addWidget(self._data_label)
+        return section
 
-        # Decoders section
-        decoder_section, decoder_layout = create_section("Decoders")
+    def _create_decoders_section(self) -> QtWidgets.QWidget:
+        section, section_layout = create_section("Decoders")
 
         self._model_checkboxes: dict[str, QtWidgets.QCheckBox] = {}
-        decoder_names = get_available_decoders()
 
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
@@ -84,7 +104,7 @@ class BenchmarkTab(QtWidgets.QWidget):
         )
         scroll_layout.setSpacing(LAYOUT["spacing_xs"])
 
-        for decoder_name in decoder_names:
+        for decoder_name in get_available_decoders():
             cb = QtWidgets.QCheckBox(decoder_name)
             if decoder_name in ["EEGNet", "CSP+LDA"]:
                 cb.setChecked(True)
@@ -93,7 +113,7 @@ class BenchmarkTab(QtWidgets.QWidget):
 
         scroll_layout.addStretch()
         scroll.setWidget(scroll_widget)
-        decoder_layout.addWidget(scroll)
+        section_layout.addWidget(scroll)
 
         btn_row = QtWidgets.QHBoxLayout()
         select_all = QtWidgets.QPushButton("All")
@@ -105,41 +125,41 @@ class BenchmarkTab(QtWidgets.QWidget):
         btn_row.addWidget(select_all)
         btn_row.addWidget(select_none)
         btn_row.addStretch()
-        decoder_layout.addLayout(btn_row)
-        left_layout.addWidget(decoder_section)
+        section_layout.addLayout(btn_row)
 
-        # Evaluation Strategy section
-        eval_section, eval_layout_v = create_section("Evaluation Strategy")
+        return section
 
-        eval_form = create_form_layout()
-        eval_form.setSpacing(LAYOUT["spacing_md"])
+    def _create_eval_strategy_section(self) -> QtWidgets.QWidget:
+        section, section_layout = create_section("Evaluation Strategy")
+        self._eval_group = section
+
+        form = create_form_layout()
+        form.setSpacing(LAYOUT["spacing_md"])
 
         self._eval_type_combo = QtWidgets.QComboBox()
         self._eval_type_combo.setStyleSheet(WidgetStyles.combobox())
         self._eval_type_combo.addItem("Within Session (k-fold CV)", "within_session")
         self._eval_type_combo.addItem("Cross Session", "cross_session")
         self._eval_type_combo.addItem("Cross Subject (LOSO)", "cross_subject")
-        eval_form.addRow("Type:", self._eval_type_combo)
+        form.addRow("Type:", self._eval_type_combo)
 
         self._eval_info_label = QtWidgets.QLabel("")
         self._eval_info_label.setStyleSheet(WidgetStyles.inline_label(color=TEXT_DISABLED, size=11))
         self._eval_info_label.setWordWrap(True)
-        eval_form.addRow("", self._eval_info_label)
+        form.addRow("", self._eval_info_label)
 
-        eval_layout_v.addLayout(eval_form)
-        left_layout.addWidget(eval_section)
-        self._eval_group = eval_section
+        section_layout.addLayout(form)
+        return section
 
-        # Training Configuration section (collapsible, collapsed by default)
-        self._config_section = CollapsibleSection("Training Configuration", start_expanded=False)
-        config_layout = self._config_section.content_layout()
+    def _create_training_config_section(self) -> QtWidgets.QWidget:
+        section = CollapsibleSection("Training Configuration", start_expanded=False)
+        config_layout = section.content_layout()
 
-        self._config_summary = QtWidgets.QLabel("Epochs: 100, Batch: 32, LR: 0.001")
+        self._config_summary = QtWidgets.QLabel("")
         self._config_summary.setStyleSheet(WidgetStyles.inline_label(color=TEXT_DISABLED))
         self._config_summary.setWordWrap(True)
         config_layout.addWidget(self._config_summary)
 
-        # Optuna toggle
         optuna_row = QtWidgets.QHBoxLayout()
         optuna_row.addWidget(QtWidgets.QLabel("Optuna Search"))
         self._optuna_check = TogglePillWidget(initial_state=True)
@@ -157,46 +177,33 @@ class BenchmarkTab(QtWidgets.QWidget):
         self._config_btn.clicked.connect(self._on_configure_clicked)
         config_layout.addWidget(self._config_btn)
 
-        left_layout.addWidget(self._config_section)
-        left_layout.addStretch()
+        return section
 
-        # Store training config
-        self._training_config = {
-            "epochs": 100,
-            "batch_size": 32,
-            "learning_rate": 0.001,
-        }
-        self._optuna_config = OptunaConfig(n_trials=10)
-        self._n_folds = 5
-        self._update_config_summary()
-
-        # Footer: action buttons pinned below scroll area
+    def _create_footer(self, footer_layout: QtWidgets.QVBoxLayout):
         self._run_btn = QtWidgets.QPushButton("Run Benchmark")
         self._run_btn.setMinimumHeight(40)
         self._run_btn.setStyleSheet(WidgetStyles.button(padding="8px 12px"))
         self._run_btn.clicked.connect(self._on_run)
         self._run_btn.setEnabled(False)
-        left_footer.addWidget(self._run_btn)
+        footer_layout.addWidget(self._run_btn)
 
         self._progress = QtWidgets.QProgressBar()
         self._progress.setRange(0, 100)
         self._progress.setMaximumHeight(16)
         self._progress.setStyleSheet(WidgetStyles.progress_bar())
         self._progress.setVisible(False)
-        left_footer.addWidget(self._progress)
+        footer_layout.addWidget(self._progress)
 
         self._progress_label = QtWidgets.QLabel("Ready")
         self._progress_label.setWordWrap(True)
         self._progress_label.setStyleSheet(WidgetStyles.inline_label(color=TEXT_DISABLED))
-        left_footer.addWidget(self._progress_label)
+        footer_layout.addWidget(self._progress_label)
 
-        layout.addWidget(left_panel)
-
-        # Right panel - Results
-        right_panel = QtWidgets.QWidget()
-        right_layout = QtWidgets.QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(LAYOUT["spacing_md"])
+    def _create_results_panel(self) -> QtWidgets.QWidget:
+        panel = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(LAYOUT["spacing_md"])
 
         results_group = QtWidgets.QGroupBox("Results")
         results_layout = QtWidgets.QVBoxLayout(results_group)
@@ -214,17 +221,16 @@ class BenchmarkTab(QtWidgets.QWidget):
 
         export_row = QtWidgets.QHBoxLayout()
         export_row.addStretch()
-
         self._export_btn = QtWidgets.QPushButton("Export Results...")
         self._export_btn.setEnabled(False)
         self._export_btn.clicked.connect(self._on_export)
         export_row.addWidget(self._export_btn)
         results_layout.addLayout(export_row)
 
-        right_layout.addWidget(results_group)
+        layout.addWidget(results_group)
+        return panel
 
-        layout.addWidget(right_panel, 1)
-        self._update_data_status()
+    # -- Config & State --
 
     def _select_models(self, select: bool):
         for cb in self._model_checkboxes.values():
@@ -271,19 +277,16 @@ class BenchmarkTab(QtWidgets.QWidget):
             config = self._study_data["config"]
             is_moabb = config.source_type == "moabb"
             selected_subject = self._study_data.get("selected_subject")
-
-            # Count available subjects
             n_subjects = 1 if selected_subject is not None else len(config.subjects)
 
             source_str = "[MOABB]" if is_moabb else ""
             self._data_label.setText(
-                f"<b>{config.name}</b> {source_str}<br>" f"Subjects: {n_subjects}"
+                f"<b>{config.name}</b> {source_str}<br>Subjects: {n_subjects}"
             )
             self._data_label.setStyleSheet(WidgetStyles.inline_label(color=STATUS_SUCCESS))
             self._run_btn.setEnabled(True)
             self._on_modality_changed("EEG")
 
-            # Show evaluation options for all datasets (unified MOABB eval)
             self._eval_group.setVisible(True)
             self._update_eval_options(n_subjects, is_moabb)
         else:
@@ -295,17 +298,12 @@ class BenchmarkTab(QtWidgets.QWidget):
     def _update_eval_options(self, n_subjects: int, is_moabb: bool = True):
         """Update eval type options based on dataset capabilities."""
         cross_subject_ok = n_subjects >= 2
-        # Internal datasets typically have 1 session per subject
-        cross_session_ok = is_moabb  # Only MOABB datasets may have multiple sessions
+        cross_session_ok = is_moabb
 
-        # Update combo items (disable unavailable options)
         model = self._eval_type_combo.model()
-        # Cross Session - only for MOABB (internal typically single session)
         model.item(1).setEnabled(cross_session_ok)
-        # Cross Subject - disabled if < 2 subjects
         model.item(2).setEnabled(cross_subject_ok)
 
-        # Update info label
         info_parts = []
         if not cross_session_ok:
             info_parts.append("Cross Session: MOABB only")
@@ -313,7 +311,6 @@ class BenchmarkTab(QtWidgets.QWidget):
             info_parts.append("Cross Subject: needs 2+ subjects")
         self._eval_info_label.setText(" | ".join(info_parts))
 
-        # Reset if selected option not valid
         current_idx = self._eval_type_combo.currentIndex()
         if (current_idx == 1 and not cross_session_ok) or (
             current_idx == 2 and not cross_subject_ok
@@ -329,6 +326,8 @@ class BenchmarkTab(QtWidgets.QWidget):
 
     def _get_selected_models(self) -> list[str]:
         return [name for name, cb in self._model_checkboxes.items() if cb.isChecked()]
+
+    # -- Benchmark Run --
 
     def _on_run(self):
         if not self._study_data:
@@ -346,36 +345,16 @@ class BenchmarkTab(QtWidgets.QWidget):
         self._export_btn.setEnabled(False)
         self._progress.setVisible(True)
         self._progress.setValue(0)
-        self._progress_label.setStyleSheet(
-            WidgetStyles.inline_label(color=TEXT_DISABLED)
-        )  # Reset from error style
+        self._progress_label.setStyleSheet(WidgetStyles.inline_label(color=TEXT_DISABLED))
         self._progress_label.setText("Starting benchmark...")
         self._running = True
         self._run_btn.setEnabled(False)
 
-        # Always use MOABB evaluation (unified path for all datasets)
         config = self._study_data["config"]
         eval_type = self._eval_type_combo.currentData()
 
-        # Validate cross_session at run time (avoids data download on selection)
-        if eval_type == "cross_session" and config.source_type == "moabb":
-            loader = self._study_data.get("loader")
-            if loader and hasattr(loader, "get_sessions"):
-                try:
-                    first_subj = config.subjects[0] if config.subjects else 1
-                    n_sessions = len(loader.get_sessions(first_subj))
-                    if n_sessions < 2:
-                        QtWidgets.QMessageBox.warning(
-                            self,
-                            "Invalid Evaluation",
-                            f"Cross Session requires 2+ sessions, but dataset has {n_sessions}.",
-                        )
-                        self._running = False
-                        self._progress.setVisible(False)
-                        self._run_btn.setEnabled(True)
-                        return
-                except Exception as e:
-                    logger.warning(f"Could not check sessions: {e}")
+        if not self._validate_cross_session(config, eval_type):
+            return
 
         self._worker = BenchmarkWorker(
             study_data=self._study_data,
@@ -393,6 +372,33 @@ class BenchmarkTab(QtWidgets.QWidget):
         self._worker.error.connect(self._on_benchmark_error)
         self._worker.start()
 
+    def _validate_cross_session(self, config, eval_type: str) -> bool:
+        """Validate cross_session at run time. Returns False if invalid."""
+        if eval_type != "cross_session" or config.source_type != "moabb":
+            return True
+
+        loader = self._study_data.get("loader")
+        if not loader or not hasattr(loader, "get_sessions"):
+            return True
+
+        try:
+            first_subj = config.subjects[0] if config.subjects else 1
+            n_sessions = len(loader.get_sessions(first_subj))
+            if n_sessions < 2:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid Evaluation",
+                    f"Cross Session requires 2+ sessions, but dataset has {n_sessions}.",
+                )
+                self._running = False
+                self._progress.setVisible(False)
+                self._run_btn.setEnabled(True)
+                return False
+        except Exception as e:
+            logger.warning(f"Could not check sessions: {e}")
+
+        return True
+
     def _on_progress(self, percent: int, message: str):
         self._progress.setValue(percent)
         self._progress_label.setText(message)
@@ -401,20 +407,16 @@ class BenchmarkTab(QtWidgets.QWidget):
         row = self._results_table.rowCount()
         self._results_table.insertRow(row)
 
-        # Col 0: Model name
         self._results_table.setItem(row, 0, QtWidgets.QTableWidgetItem(model_name))
 
-        # Col 1: Accuracy with std
         acc_text = f"{metrics.get('accuracy', 0) * 100:.1f}%"
         if metrics.get("accuracy_std", 0) > 0:
             acc_text += f" ±{metrics['accuracy_std'] * 100:.1f}"
         self._results_table.setItem(row, 1, QtWidgets.QTableWidgetItem(acc_text))
 
-        # Col 2: Time (train_time for holdout eval, eval_time for MOABB eval)
         time_val = metrics.get("eval_time", metrics.get("train_time", 0))
         self._results_table.setItem(row, 2, QtWidgets.QTableWidgetItem(f"{time_val:.1f}s"))
 
-        # Col 3: Number of subjects (store metadata for export)
         n_subjects = metrics.get("n_subjects", 1)
         subjects_item = QtWidgets.QTableWidgetItem(str(n_subjects))
         subjects_item.setData(
@@ -427,7 +429,6 @@ class BenchmarkTab(QtWidgets.QWidget):
         )
         self._results_table.setItem(row, 3, subjects_item)
 
-        # Store Optuna results if available
         best_params = metrics.get("best_params", {})
         if self._app_state and best_params:
             self._app_state.set_benchmark_result(model_name, best_params)
@@ -448,6 +449,8 @@ class BenchmarkTab(QtWidgets.QWidget):
         self._run_btn.setEnabled(True)
         QtWidgets.QMessageBox.critical(self, "Benchmark Error", error_msg)
 
+    # -- Export --
+
     def _on_export(self):
         filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
@@ -460,83 +463,24 @@ class BenchmarkTab(QtWidgets.QWidget):
 
     def _export_results(self, filepath: str):
         rows = []
-        all_per_subject = []
-
-        for row in range(self._results_table.rowCount()):
-            model_name = self._results_table.item(row, 0).text()
-            # Metadata stored in Subjects column (col 3)
+        for row_idx in range(self._results_table.rowCount()):
             stored_data = (
-                self._results_table.item(row, 3).data(QtCore.Qt.ItemDataRole.UserRole) or {}
+                self._results_table.item(row_idx, 3).data(QtCore.Qt.ItemDataRole.UserRole) or {}
             )
-            best_params = stored_data.get("best_params", {})
-            per_subject = stored_data.get("per_subject", [])
-
             rows.append(
-                {
-                    "model": model_name,
-                    "accuracy": self._results_table.item(row, 1).text(),
-                    "time": self._results_table.item(row, 2).text(),
-                    "n_subjects": stored_data.get("n_subjects", 1),
-                    "best_params": best_params,
-                }
+                BenchmarkRow(
+                    model=self._results_table.item(row_idx, 0).text(),
+                    accuracy=self._results_table.item(row_idx, 1).text(),
+                    time=self._results_table.item(row_idx, 2).text(),
+                    n_subjects=stored_data.get("n_subjects", 1),
+                    best_params=stored_data.get("best_params", {}),
+                    per_subject=stored_data.get("per_subject", []),
+                )
             )
 
-            # Collect per-subject data for detailed export
-            for subj_data in per_subject:
-                all_per_subject.append(
-                    {
-                        "model": model_name,
-                        "subject": subj_data.get("subject", ""),
-                        "accuracy": subj_data.get("accuracy", ""),
-                        "kappa": subj_data.get("kappa", ""),
-                        "f1": subj_data.get("f1", ""),
-                        "balanced_accuracy": subj_data.get("balanced_accuracy", ""),
-                    }
-                )
+        per_subj_path = export_benchmark_results(filepath, rows)
 
-        if filepath.endswith(".json"):
-            # JSON includes full per-subject breakdown
-            export_data = {
-                "summary": rows,
-                "per_subject": all_per_subject,
-                "seed": BENCHMARK_SEED,
-            }
-            with open(filepath, "w") as f:
-                json.dump(export_data, f, indent=2)
+        if per_subj_path:
+            self._progress_label.setText(f"Results exported to {filepath} and {per_subj_path}")
         else:
-            # CSV exports summary (per-subject available in JSON)
-            # Serialize best_params dict to JSON string for CSV
-            csv_rows = []
-            for row in rows:
-                csv_row = row.copy()
-                csv_row["best_params"] = json.dumps(row.get("best_params", {}))
-                csv_rows.append(csv_row)
-
-            with open(filepath, "w", newline="") as f:
-                writer = csv.DictWriter(
-                    f, fieldnames=["model", "accuracy", "time", "n_subjects", "best_params"]
-                )
-                writer.writeheader()
-                writer.writerows(csv_rows)
-
-            # Also export per-subject CSV if data available
-            if all_per_subject:
-                per_subj_path = filepath.replace(".csv", "_per_subject.csv")
-                with open(per_subj_path, "w", newline="") as f:
-                    writer = csv.DictWriter(
-                        f,
-                        fieldnames=[
-                            "model",
-                            "subject",
-                            "accuracy",
-                            "kappa",
-                            "f1",
-                            "balanced_accuracy",
-                        ],
-                    )
-                    writer.writeheader()
-                    writer.writerows(all_per_subject)
-                self._progress_label.setText(f"Results exported to {filepath} and {per_subj_path}")
-                return
-
-        self._progress_label.setText(f"Results exported to {filepath}")
+            self._progress_label.setText(f"Results exported to {filepath}")

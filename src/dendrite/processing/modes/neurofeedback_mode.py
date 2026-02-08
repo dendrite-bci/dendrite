@@ -215,7 +215,9 @@ class NeurofeedbackMode(BaseMode):
                 self.selected_channel_indices[ch_idx] if self.selected_channel_indices else ch_idx
             )
             channel_label = (
-                self.channel_labels[original_idx] if self.channel_labels else f"ch{original_idx}"
+                self.channel_labels[original_idx]
+                if self.channel_labels and original_idx < len(self.channel_labels)
+                else f"ch{original_idx}"
             )
             band_powers = {}
 

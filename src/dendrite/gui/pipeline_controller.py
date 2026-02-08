@@ -142,6 +142,11 @@ class PipelineController(QtCore.QObject):
         self._shutdown_sequencer.finished.connect(self._finalize_stop)
         self._shutdown_sequencer.stop(stop_targets, blocking=blocking)
 
+    @property
+    def shared_state(self):
+        """Expose shared state for telemetry and other consumers."""
+        return self._shared_state
+
     def is_recording(self) -> bool:
         """Check if a recording is currently active."""
         return self._processing_process is not None and self._processing_process.is_alive()
