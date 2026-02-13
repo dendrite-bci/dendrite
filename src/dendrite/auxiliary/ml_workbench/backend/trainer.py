@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 from sklearn.metrics import confusion_matrix
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_predict, cross_val_score
 
 from dendrite.ml.decoders.decoder_schemas import DecoderConfig
 from dendrite.utils.logger_central import get_logger
@@ -164,7 +164,12 @@ class OfflineTrainer:
 
         history = self._get_history(decoder)
         accuracy, val_accuracy = self._get_accuracies(decoder)
-        conf_matrix = self._compute_confusion_matrix(decoder, X, y)
+
+        # Compute confusion matrix on validation set (same split as NeuralNetClassifier)
+        val_indices = self._get_validation_indices(X, config)
+        X_eval = X[val_indices] if val_indices is not None else X
+        y_eval = y[val_indices] if val_indices is not None else y
+        conf_matrix = self._compute_confusion_matrix(decoder, X_eval, y_eval)
 
         emit(f"Accuracy: {accuracy:.3f}, Val: {val_accuracy:.3f}")
 
@@ -192,6 +197,10 @@ class OfflineTrainer:
         emit(f"Running {n_folds}-fold cross-validation...")
         cv_scores = cross_val_score(decoder, X, y, cv=n_folds, scoring="accuracy")
 
+        # Get out-of-fold predictions for confusion matrix
+        y_pred_oof = cross_val_predict(decoder, X, y, cv=n_folds)
+        conf_matrix = confusion_matrix(y, y_pred_oof)
+
         cv_results = {
             "n_folds": n_folds,
             "fold_scores": cv_scores.tolist(),
@@ -208,7 +217,6 @@ class OfflineTrainer:
         # Get metrics from final model
         history = self._get_history(decoder)
         accuracy, val_accuracy = self._get_accuracies(decoder)
-        conf_matrix = self._compute_confusion_matrix(decoder, X, y)
 
         return TrainResult(
             decoder=decoder,
@@ -243,8 +251,28 @@ class OfflineTrainer:
 
         return accuracy, val_accuracy
 
+    def _get_validation_indices(self, X: np.ndarray, config: DecoderConfig) -> np.ndarray | None:
+        """Get validation split indices matching NeuralNetClassifier._split_data.
+
+        Uses the same seed and split logic so the confusion matrix is computed
+        on the exact samples the model never trained on.
+
+        Mirrors NeuralNetClassifier._split_data — keep in sync if split logic changes.
+        """
+        if config.validation_split <= 0.0:
+            return None
+
+        n_samples = len(X)
+        n_val = int(n_samples * config.validation_split)
+        if n_val == 0:
+            return None
+
+        rng = np.random.RandomState(config.seed)
+        indices = rng.permutation(n_samples)
+        return indices[:n_val]
+
     def _compute_confusion_matrix(self, decoder: Any, X: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """Compute confusion matrix on training data."""
+        """Compute confusion matrix on the provided data subset."""
         try:
             if hasattr(decoder, "predict"):
                 y_pred = decoder.predict(X)

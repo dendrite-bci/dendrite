@@ -483,7 +483,7 @@ class TestDecoderCompatibility:
         )
         assert len(issues) == 1
         assert 'label mismatch' in issues[0].lower()
-        assert 'index 0' in issues[0]
+        assert 'idx 0' in issues[0]
 
     def test_check_compatibility_labels_match(self, decoder_config):
         """No issues when labels match exactly."""
@@ -578,3 +578,51 @@ class TestDecoderCompatibility:
             system_sample_rate=500.0,
         )
         assert any('sample rate' in issue.lower() for issue in issues)
+
+    def test_check_compatibility_multiple_label_mismatches_all_reported(self):
+        """All channel label mismatches should be reported, not just the first."""
+        config = DecoderConfig(
+            model_type='EEGNet',
+            num_classes=2,
+            input_shapes={'eeg': [4, 250]},
+            channel_labels={'eeg': ['Fp1', 'Fp2', 'F3', 'F4']},
+        )
+        # All 4 labels differ
+        system_labels = ['C3', 'C4', 'P3', 'P4']
+
+        issues = config.check_compatibility(
+            system_shapes={'eeg': [4, 250]},
+            system_labels={'eeg': system_labels},
+        )
+
+        label_issues = [i for i in issues if 'label mismatch' in i.lower()]
+        assert len(label_issues) == 1  # Single summary message
+
+        # Message should mention the count of mismatches
+        assert '4' in label_issues[0], (
+            f"Expected mismatch count in message, got: {label_issues[0]}"
+        )
+
+    def test_check_compatibility_two_label_mismatches_both_shown(self):
+        """Two mismatched labels should both appear in the message."""
+        config = DecoderConfig(
+            model_type='EEGNet',
+            num_classes=2,
+            input_shapes={'eeg': [4, 250]},
+            channel_labels={'eeg': ['Fp1', 'Fp2', 'F3', 'F4']},
+        )
+        # First and third labels differ
+        system_labels = ['C3', 'Fp2', 'P3', 'F4']
+
+        issues = config.check_compatibility(
+            system_shapes={'eeg': [4, 250]},
+            system_labels={'eeg': system_labels},
+        )
+
+        label_issues = [i for i in issues if 'label mismatch' in i.lower()]
+        assert len(label_issues) == 1
+
+        # Both mismatched channels should be mentioned
+        msg = label_issues[0]
+        assert 'Fp1' in msg or 'C3' in msg, f"First mismatch not in message: {msg}"
+        assert 'F3' in msg or 'P3' in msg, f"Second mismatch not in message: {msg}"

@@ -47,7 +47,7 @@ class TestLoadContinuous:
         # Return events that trigger the "else" branch (non-empty events)
         # Returns (event_times, event_labels, event_mapping)
         loader._extract_events_from_raw = Mock(
-            return_value=([100, 200, 300], [0, 1, 0], {"left_hand": 0, "right_hand": 1})
+            return_value=([100, 200, 300], [1, 2, 1], {"left_hand": 1, "right_hand": 2})
         )
 
         # This should NOT raise NameError
@@ -57,4 +57,4 @@ class TestLoadContinuous:
         assert data.shape[0] == 22  # Has channels
         assert len(event_times) == 3
         assert len(event_labels) == 3
-        assert event_mapping == {"left_hand": 0, "right_hand": 1}
+        assert event_mapping == {"left_hand": 1, "right_hand": 2}

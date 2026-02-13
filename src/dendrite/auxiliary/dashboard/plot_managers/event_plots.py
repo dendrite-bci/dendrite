@@ -15,6 +15,7 @@ from dendrite.auxiliary.dashboard.plot_managers.plot_utils import EVENT_COLORS
 from dendrite.gui.styles.design_tokens import BORDER
 
 EVENT_DISPLAY_DURATION_S = 30.0
+MAX_RENDERED_EVENTS = 50
 
 
 class EventPlotManager:
@@ -34,9 +35,10 @@ class EventPlotManager:
         # Event colors
         self.event_colors = EVENT_COLORS
 
-        # Cache for pen/brush objects to avoid recreation every frame
+        # Cache for pen/brush/color objects to avoid recreation every frame
         self._pen_cache: dict[str, pg.QtGui.QPen] = {}
         self._brush_cache: dict[str, pg.QtGui.QBrush] = {}
+        self._color_cache: dict[str, QtGui.QColor] = {}
 
         self.event_display_duration = EVENT_DISPLAY_DURATION_S
 
@@ -53,8 +55,14 @@ class EventPlotManager:
             self._brush_cache[color] = pg.mkBrush(color)
         return self._brush_cache[color]
 
+    def _get_cached_color(self, color: str) -> QtGui.QColor:
+        """Get or create cached QColor for color string."""
+        if color not in self._color_cache:
+            self._color_cache[color] = QtGui.QColor(color)
+        return self._color_cache[color]
+
     def initialize_plots(self):
-        """Sets up the event plot structure."""
+        """Sets up the event plot structure with pre-allocated item pool."""
         self.plot_widget.clear()
         self.stim_plot = self.plot_widget.addPlot(title="Events", row=0, col=0)
         self.stim_plot.setFixedHeight(100)
@@ -65,8 +73,29 @@ class EventPlotManager:
         self.x_axis_line = pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen(BORDER, width=1))
         self.stim_plot.addItem(self.x_axis_line)
 
+        # Pre-allocate fixed pool to avoid addItem() during rendering
+        self.event_lines = []
+        self.event_scatters = []
+        self.event_point_texts = []
+        for _ in range(MAX_RENDERED_EVENTS):
+            line = pg.PlotCurveItem(pen=pg.mkPen(width=2))
+            line.setVisible(False)
+            self.stim_plot.addItem(line)
+            self.event_lines.append(line)
+
+            scatter = pg.ScatterPlotItem(size=10, brush=pg.mkBrush("w"), pen=None)
+            scatter.setVisible(False)
+            self.stim_plot.addItem(scatter)
+            self.event_scatters.append(scatter)
+
+            point_text = pg.TextItem(color=(255, 255, 255))
+            point_text.setFont(QtGui.QFont("Arial", 8))
+            point_text.setVisible(False)
+            self.stim_plot.addItem(point_text)
+            self.event_point_texts.append(point_text)
+
     def update_plots(self):
-        """Efficient event visualization using reusable plot items."""
+        """Efficient event visualization using pre-allocated plot item pool."""
         if not self.stim_plot or not self.data_manager.initialized:
             return
 
@@ -79,81 +108,57 @@ class EventPlotManager:
         ):
             self.data_manager.event_history.popleft()
 
-        events_to_display = list(self.data_manager.event_history)
         time_window = self.data_manager.buffer_size / self.data_manager.sample_rate
 
-        # Calculate x positions and filter out events
+        # Calculate x positions and filter to visible events
         x_positions = []
         filtered_events = []
-        for event in events_to_display:
+        for event in self.data_manager.event_history:
             time_diff = current_time - event[0]
-            # Check if event is outside visible range
             if time_diff > time_window:
-                continue  # Skip events that would be beyond the left edge
-
-            x_pos = time_window - time_diff
-            x_positions.append(x_pos)
+                continue
+            x_positions.append(time_window - time_diff)
             filtered_events.append(event)
 
-        # Use filtered events only
-        events_to_display = filtered_events
+        # Cap to most recent events to keep rendering fast
+        events_to_display = filtered_events[-MAX_RENDERED_EVENTS:]
+        x_positions = x_positions[-MAX_RENDERED_EVENTS:]
 
         # Fixed Y range for raster-style display (all events at same height)
         self.stim_plot.setYRange(0, 1.5, padding=0)
 
-        required_items = len(events_to_display)
-
-        # Ensure enough plot items exist
-        while len(self.event_lines) < required_items:
-            line = pg.PlotCurveItem(pen=pg.mkPen(width=2))
-            self.stim_plot.addItem(line)
-            self.event_lines.append(line)
-        while len(self.event_scatters) < required_items:
-            scatter = pg.ScatterPlotItem(size=10, brush=pg.mkBrush("w"), pen=None)
-            self.stim_plot.addItem(scatter)
-            self.event_scatters.append(scatter)
-        while len(self.event_point_texts) < required_items:
-            point_text = pg.TextItem(color=(255, 255, 255))
-            point_text.setFont(QtGui.QFont("Arial", 8))
-            self.stim_plot.addItem(point_text)
-            self.event_point_texts.append(point_text)
-
-        # Update existing items
-        for i, (event, x_pos) in enumerate(zip(events_to_display, x_positions, strict=False)):
-            timestamp, event_value, _ = event
+        rendered = 0
+        for event, x_pos in zip(events_to_display, x_positions, strict=False):
+            _, event_value, _ = event
             display_value = int(event_value)
-            if display_value <= 0:
+            if display_value < 0:
                 continue
-            color_idx = (display_value - 1) % len(self.event_colors)
+            color_idx = display_value % len(self.event_colors)
             color = self.event_colors[color_idx]
 
-            # Raster-style: all events at same height (y=1)
-            y_pos = 1
-
-            line = self.event_lines[i]
-            line.setData([x_pos, x_pos], [0, y_pos])
+            line = self.event_lines[rendered]
+            line.setData([x_pos, x_pos], [0, 1])
             line.setPen(self._get_cached_pen(color, width=2))
             line.setVisible(True)
 
-            scatter = self.event_scatters[i]
-            scatter.setData([x_pos], [y_pos])
+            scatter = self.event_scatters[rendered]
+            scatter.setData([x_pos], [1])
             scatter.setBrush(self._get_cached_brush(color))
             scatter.setVisible(True)
 
-            # Update point text with event code above marker
-            point_text = self.event_point_texts[i]
+            point_text = self.event_point_texts[rendered]
             point_text.setText(str(display_value))
-            point_text.setPos(x_pos, y_pos + 0.15)
+            point_text.setPos(x_pos, 1.15)
             point_text.setAnchor((0.5, 1))
-            point_text.setColor(QtGui.QColor(color))
+            point_text.setColor(self._get_cached_color(color))
             point_text.setVisible(True)
 
-        # Hide extra items
-        for i in range(required_items, len(self.event_lines)):
+            rendered += 1
+
+        # Hide unused pool items
+        for i in range(rendered, MAX_RENDERED_EVENTS):
             self.event_lines[i].setVisible(False)
-        for i in range(required_items, len(self.event_scatters)):
             self.event_scatters[i].setVisible(False)
-        for i in range(required_items, len(self.event_point_texts)):
             self.event_point_texts[i].setVisible(False)
 
         self.stim_plot.setXRange(0, time_window, padding=0)

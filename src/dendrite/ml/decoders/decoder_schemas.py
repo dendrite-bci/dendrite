@@ -359,10 +359,13 @@ class DecoderConfig(NeuralNetConfig):
                 if d != s
             ]
             if mismatches:
-                idx, dec_lbl, sys_lbl = mismatches[0]
+                examples = ", ".join(
+                    f"idx {i}: '{d}'->'{s}'" for i, d, s in mismatches[:3]
+                )
+                suffix = f" (and {len(mismatches) - 3} more)" if len(mismatches) > 3 else ""
                 issues.append(
-                    f"{modality.upper()}: channel label mismatch at index {idx} "
-                    f"(decoder='{dec_lbl}', system='{sys_lbl}')"
+                    f"{modality.upper()}: {len(mismatches)} channel label mismatch(es): "
+                    f"{examples}{suffix}"
                 )
         return issues
 

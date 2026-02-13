@@ -8,19 +8,20 @@ from dendrite.auxiliary.ml_workbench import TrainResult
 from dendrite.ml.decoders.decoder_schemas import DecoderConfig
 
 
+@pytest.fixture
+def sample_data():
+    """Create sample EEG data for testing."""
+    np.random.seed(42)
+    n_samples = 100
+    n_channels = 8
+    n_times = 250
+    X = np.random.randn(n_samples, n_channels, n_times).astype(np.float32)
+    y = np.random.randint(0, 2, n_samples)
+    return X, y
+
+
 class TestOfflineTrainer:
     """Tests for OfflineTrainer class."""
-
-    @pytest.fixture
-    def sample_data(self):
-        """Create sample EEG data for testing."""
-        np.random.seed(42)
-        n_samples = 100
-        n_channels = 8
-        n_times = 250
-        X = np.random.randn(n_samples, n_channels, n_times).astype(np.float32)
-        y = np.random.randint(0, 2, n_samples)
-        return X, y
 
     @pytest.fixture
     def config(self):
@@ -150,6 +151,90 @@ class TestOfflineTrainer:
         result = trainer.train(X, y, config)
         assert result.decoder is not None
         assert result.accuracy >= 0
+
+
+class TestConfusionMatrixOnValidationData:
+    """Tests that confusion matrix is computed on held-out data, not training data."""
+
+    @pytest.fixture
+    def config(self):
+        """Create test config with known validation split."""
+        return DecoderConfig(
+            model_type="EEGNet",
+            epochs=2,
+            batch_size=16,
+            learning_rate=0.001,
+            modality="eeg",
+            validation_split=0.2,
+        )
+
+    def test_simple_train_confusion_matrix_uses_validation_data(self, sample_data, config):
+        """Confusion matrix from simple training should use validation set, not full data."""
+        from dendrite.auxiliary.ml_workbench import OfflineTrainer
+
+        X, y = sample_data
+        trainer = OfflineTrainer()
+
+        result = trainer.train(X, y, config)
+
+        # Confusion matrix sum should equal validation set size, not total samples
+        n_val = int(len(y) * config.validation_split)
+        conf_total = result.confusion_matrix.sum()
+        assert conf_total == n_val, (
+            f"Confusion matrix has {conf_total} samples but validation set has {n_val}. "
+            f"Matrix should be computed on validation data, not training data."
+        )
+
+    def test_cv_train_confusion_matrix_uses_oof_predictions(self, sample_data, config):
+        """Confusion matrix from CV training should use out-of-fold predictions."""
+        from dendrite.auxiliary.ml_workbench import OfflineTrainer
+
+        X, y = sample_data
+        trainer = OfflineTrainer()
+
+        result = trainer.train(X, y, config, n_folds=3)
+
+        # OOF predictions cover all samples
+        conf_total = result.confusion_matrix.sum()
+        assert conf_total == len(y), (
+            f"CV confusion matrix has {conf_total} samples but should have {len(y)} "
+            f"(all samples via out-of-fold predictions)."
+        )
+
+    def test_confusion_matrix_shape_matches_classes(self, sample_data, config):
+        """Confusion matrix dimensions should match number of classes."""
+        from dendrite.auxiliary.ml_workbench import OfflineTrainer
+
+        X, y = sample_data
+        trainer = OfflineTrainer()
+
+        result = trainer.train(X, y, config)
+
+        n_classes = len(np.unique(y))
+        assert result.confusion_matrix.shape == (n_classes, n_classes)
+
+    def test_simple_train_no_validation_split_uses_training_data(self):
+        """When validation_split=0, confusion matrix falls back to training data."""
+        from dendrite.auxiliary.ml_workbench import OfflineTrainer
+
+        np.random.seed(42)
+        X = np.random.randn(50, 8, 250).astype(np.float32)
+        y = np.random.randint(0, 2, 50)
+
+        config = DecoderConfig(
+            model_type="EEGNet",
+            epochs=2,
+            batch_size=16,
+            modality="eeg",
+            validation_split=0.0,
+        )
+
+        trainer = OfflineTrainer()
+        result = trainer.train(X, y, config)
+
+        # With no validation split, falls back to training data
+        conf_total = result.confusion_matrix.sum()
+        assert conf_total == len(y)
 
 
 class TestTrainerIntegration:

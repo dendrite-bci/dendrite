@@ -200,6 +200,8 @@ class NeurofeedbackMode(BaseMode):
             eeg_data = eeg_data[np.newaxis, :, :]
         elif eeg_data.ndim == 1:
             eeg_data = eeg_data.reshape(1, 1, -1)
+        if self.selected_channel_indices:
+            eeg_data = eeg_data[:, self.selected_channel_indices, :]
         n_channels = eeg_data.shape[1]
 
         X_input = {self.modality_name: eeg_data}
@@ -211,13 +213,10 @@ class NeurofeedbackMode(BaseMode):
 
         # Calculate per-channel band powers
         for ch_idx in range(n_channels):
-            original_idx = (
-                self.selected_channel_indices[ch_idx] if self.selected_channel_indices else ch_idx
-            )
             channel_label = (
-                self.channel_labels[original_idx]
-                if self.channel_labels and original_idx < len(self.channel_labels)
-                else f"ch{original_idx}"
+                self.channel_labels[ch_idx]
+                if self.channel_labels and ch_idx < len(self.channel_labels)
+                else f"ch{ch_idx}"
             )
             band_powers = {}
 

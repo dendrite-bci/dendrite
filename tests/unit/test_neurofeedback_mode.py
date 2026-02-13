@@ -423,6 +423,34 @@ class TestNeurofeedbackModeBandPowerCalculation:
         for ch_label in expected_channels:
             assert ch_label in channel_powers
     
+    def test_calculate_band_powers_noncontiguous_channel_indices(self):
+        """Test that channel labels are correct when channel_selection uses non-zero-based indices.
+
+        Regression test: get_modality_labels() returns already-filtered labels
+        (e.g. ["F3", "C3", "C4"] for selected indices [2, 3, 4]), so
+        _calculate_band_powers must index into channel_labels using the local
+        ch_idx (0, 1, 2), not the original stream-level index (2, 3, 4).
+        """
+        mode = create_test_mode(
+            data_queue=Mock(),
+            output_queue=Mock(),
+            stop_event=Mock(),
+            mode_name='test_nfb',
+            sample_rate=500.0,
+            feature_config={'target_band': [8.0, 12.0]},
+            channel_selection={'EEG': [2, 3, 4]},
+            modality_labels={'eeg': ['F3', 'C3', 'C4']},
+        )
+        mode.logger = Mock()
+        mode._initialize_mode()
+
+        # 8 channels to simulate full stream data (indices [2,3,4] will be selected)
+        eeg_data = np.random.randn(8, 500)
+        channel_powers = mode._calculate_band_powers(eeg_data)
+
+        assert list(channel_powers.keys()) == ['F3', 'C3', 'C4']
+        assert_valid_channel_powers(channel_powers, expected_channels=3, expected_bands=['default'])
+
     def test_calculate_band_powers_known_frequency(self, nfb_mode_single_band):
         """Test band power calculation with known frequency content."""
         # Create synthetic data with known frequency (10 Hz, within alpha band 8-12 Hz)
@@ -838,7 +866,8 @@ class TestNeurofeedbackModeEdgeCases:
             output_queue=Mock(),
             stop_event=Mock(),
             mode_name='test_nfb',
-            sample_rate=500.0
+            sample_rate=500.0,
+            channel_selection={'EEG': [0, 1, 2]}
         )
         mode.logger = Mock()  # Mock logger before initialization
         mode._initialize_mode()  # Initialize band_power_transform
@@ -863,7 +892,8 @@ class TestNeurofeedbackModeEdgeCases:
             output_queue=None,
             stop_event=Mock(),
             mode_name='test_nfb',
-            sample_rate=500.0
+            sample_rate=500.0,
+            channel_selection={'EEG': [0, 1]}
         )
         mode.logger = Mock()
         mode._initialize_mode()

@@ -26,6 +26,16 @@ PSD_MEAN_SIGNAL = "#40E8C0"  # Same teal as EEG for visual consistency
 PSD_CHANNEL_OVERLAY = (64, 232, 192, 60)  # Teal with low alpha for per-channel overlay
 NEUROFEEDBACK_SIGNAL = "#33A1C9"  # Ocean blue        (unchanged)
 
+# Neurofeedback band overlay colors (one per frequency band)
+NEUROFEEDBACK_BAND_COLORS = [
+    (51, 161, 201, 150),   # Ocean blue (matches NEUROFEEDBACK_SIGNAL)
+    (232, 180, 76, 150),   # Warm gold
+    (64, 232, 192, 150),   # Teal
+    (209, 117, 255, 150),  # Lavender
+    (255, 107, 107, 150),  # Coral red
+    (136, 232, 128, 150),  # Light green
+]
+
 # Async scatter colors (all unchanged - already vibrant, not neon)
 ASYNC_PREDICTION_FILL = "#FF6B6B"
 ASYNC_PREDICTION_EDGE = "#8B0000"

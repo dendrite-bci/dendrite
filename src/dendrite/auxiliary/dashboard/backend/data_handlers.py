@@ -47,8 +47,6 @@ class DataBufferManager:
         self.modality_info: dict[str, ModalityInfo] = {}
         self.mod_buffers: list[deque] = []
 
-        self.stim_buffer = deque([0.0] * buffer_size, maxlen=buffer_size)
-        self.stim_times = deque([0.0] * buffer_size, maxlen=buffer_size)
         self.event_history = deque(maxlen=300)  # 30 seconds of events at ~10Hz max
 
         self.time_axis = np.linspace(0, (buffer_size - 1) / sample_rate, buffer_size)
@@ -98,9 +96,6 @@ class DataBufferManager:
             new_buffer_size = int(DEFAULT_TIME_WINDOW * actual_rate)
             self.buffer_size = new_buffer_size
             self.time_axis = np.linspace(0, DEFAULT_TIME_WINDOW, new_buffer_size)
-            # Resize stim buffers (created in __init__)
-            self.stim_buffer = deque([0.0] * new_buffer_size, maxlen=new_buffer_size)
-            self.stim_times = deque([0.0] * new_buffer_size, maxlen=new_buffer_size)
             logging.info(
                 f"Adjusted to {actual_rate}Hz: buffer={new_buffer_size} samples ({DEFAULT_TIME_WINDOW}s window)"
             )
@@ -232,15 +227,12 @@ class DataBufferManager:
             except (ValueError, TypeError, IndexError):
                 event_value = 0.0
 
-        if event_value != 0.0 or "markers" in data:
-            self.stim_buffer.append(event_value)
-            self.stim_times.append(timestamp)
-            if event_value > 0:
-                time_position = len(self.time_axis) - 1
-                if time_position >= 0:
-                    self.event_history.append(
-                        (time.time(), event_value, self.time_axis[time_position])
-                    )
+        if event_value != 0.0:
+            time_position = len(self.time_axis) - 1
+            if time_position >= 0:
+                self.event_history.append(
+                    (time.time(), event_value, self.time_axis[time_position])
+                )
 
         self.data_changed = True
         self.last_update_timestamp = timestamp
@@ -260,8 +252,6 @@ class DataBufferManager:
             buf.clear()
         self.mod_buffers = []
 
-        self.stim_buffer.clear()
-        self.stim_times.clear()
         self.event_history.clear()
 
         logging.info("DataBufferManager: All buffers cleared and state reset.")
