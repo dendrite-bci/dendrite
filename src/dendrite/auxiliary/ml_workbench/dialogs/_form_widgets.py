@@ -30,6 +30,7 @@ def create_epoch_group(
     group = QtWidgets.QGroupBox("Epoch Settings")
     layout = QtWidgets.QFormLayout(group)
     layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    layout.setSpacing(LAYOUT["form_spacing"])
 
     tmin_spin = QtWidgets.QDoubleSpinBox()
     tmin_spin.setRange(-5.0, 5.0)
@@ -77,6 +78,7 @@ def create_preproc_group(
     group = QtWidgets.QGroupBox("Preprocessing")
     layout = QtWidgets.QFormLayout(group)
     layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    layout.setSpacing(LAYOUT["form_spacing"])
 
     lowcut_spin = QtWidgets.QDoubleSpinBox()
     lowcut_spin.setRange(0.1, 10.0)
@@ -161,7 +163,7 @@ class FileInfoWidget(QtWidgets.QWidget):
     def _setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(LAYOUT["spacing_xs"])
+        layout.setSpacing(LAYOUT["spacing_sm"])
 
         self._path_label = QtWidgets.QLabel()
         self._path_label.setStyleSheet(WidgetStyles.label("small", color=TEXT_MUTED))
@@ -242,10 +244,11 @@ class EventsSelectorWidget(QtWidgets.QWidget):
     def _setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(LAYOUT["spacing_xs"])
+        layout.setSpacing(LAYOUT["spacing_md"])
 
         # Table for events
         self._table = QtWidgets.QTableWidget()
+        self._table.setStyleSheet(WidgetStyles.tablewidget)
         self._table.setColumnCount(3)
         self._table.setHorizontalHeaderLabels(["Use", "Code", "Class Name"])
         self._table.horizontalHeader().setStretchLastSection(True)
@@ -255,8 +258,8 @@ class EventsSelectorWidget(QtWidgets.QWidget):
         self._table.horizontalHeader().setSectionResizeMode(
             1, QtWidgets.QHeaderView.ResizeMode.Fixed
         )
-        self._table.setColumnWidth(0, 40)
-        self._table.setColumnWidth(1, 60)
+        self._table.setColumnWidth(0, 50)
+        self._table.setColumnWidth(1, 70)
         self._table.setMinimumHeight(120)
         self._table.verticalHeader().setVisible(False)
         layout.addWidget(self._table)
@@ -264,12 +267,15 @@ class EventsSelectorWidget(QtWidgets.QWidget):
         # Button row
         btn_layout = QtWidgets.QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(LAYOUT["spacing_sm"])
 
         select_all_btn = QtWidgets.QPushButton("Select All")
+        select_all_btn.setStyleSheet(WidgetStyles.button())
         select_all_btn.clicked.connect(self._on_select_all)
         btn_layout.addWidget(select_all_btn)
 
         clear_btn = QtWidgets.QPushButton("Clear All")
+        clear_btn.setStyleSheet(WidgetStyles.button())
         clear_btn.clicked.connect(self._on_clear_all)
         btn_layout.addWidget(clear_btn)
 
@@ -331,6 +337,7 @@ class EventsSelectorWidget(QtWidgets.QWidget):
             for row, code in enumerate(event_codes):
                 # Checkbox for "Use"
                 checkbox = QtWidgets.QCheckBox()
+                checkbox.setStyleSheet(WidgetStyles.checkbox)
                 checkbox.setChecked(code in codes_to_check)
                 checkbox.stateChanged.connect(self._update_status)
                 checkbox_widget = QtWidgets.QWidget()
@@ -442,6 +449,7 @@ def create_events_group(
     """
     group = QtWidgets.QGroupBox("Event Mappings")
     layout = QtWidgets.QVBoxLayout(group)
+    layout.setSpacing(LAYOUT["spacing_sm"])
 
     selector = EventsSelectorWidget(file_path, events_json)
     layout.addWidget(selector)

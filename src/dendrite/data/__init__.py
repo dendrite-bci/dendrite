@@ -5,6 +5,7 @@ from .imports import (
     BaseLoader,
     DatasetConfig,
     FIFLoader,
+    H5DatasetLoader,
     InternalDatasetWrapper,
     MOAABLoader,
     discover_moabb_datasets,

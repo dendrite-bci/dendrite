@@ -53,7 +53,7 @@ class DatasetDialog(QtWidgets.QDialog):
         else:
             self.setWindowTitle(f"Edit Dataset: {self._dataset.get('name', 'Unknown')}")
 
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(650)
         self.setStyleSheet(WidgetStyles.dialog())
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -63,7 +63,7 @@ class DatasetDialog(QtWidgets.QDialog):
             LAYOUT["dialog_margin"],
             LAYOUT["dialog_margin"],
         )
-        layout.setSpacing(LAYOUT["spacing_lg"])
+        layout.setSpacing(LAYOUT["spacing_xxl"])
 
         if self._mode == "add":
             self._setup_add_file_section(layout)
@@ -138,6 +138,7 @@ class DatasetDialog(QtWidgets.QDialog):
         file_layout = QtWidgets.QVBoxLayout(file_group)
 
         file_row = QtWidgets.QHBoxLayout()
+        file_row.setSpacing(LAYOUT["spacing_md"])
         self._file_edit = QtWidgets.QLineEdit()
         self._file_edit.setPlaceholderText("Select a .fif or .set file...")
         self._file_edit.setReadOnly(True)

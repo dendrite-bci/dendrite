@@ -6,7 +6,7 @@ from ._types import LoadedData
 from .base_loader import BaseLoader
 from .config import DatasetConfig
 from .fif_loader import FIFLoader
-from .h5_loader import H5Loader
+from .h5_loader import H5DatasetLoader
 from .internal_moabb_wrapper import InternalDatasetWrapper
 from .moabb_discovery import (
     discover_moabb_datasets,
@@ -21,8 +21,8 @@ def load_file(file_path: str) -> LoadedData:
     ext = Path(file_path).suffix.lower()
     if ext in FIFLoader.EXTENSIONS:
         return FIFLoader.load_file(file_path)
-    elif ext in H5Loader.EXTENSIONS:
-        return H5Loader.load_file(file_path)
+    elif ext in H5DatasetLoader.EXTENSIONS:
+        return H5DatasetLoader.load_file(file_path)
     raise ValueError(f"Unsupported format: {ext}")
 
 
@@ -39,4 +39,4 @@ def get_file_filter() -> str:
 def is_supported_format(file_path: str) -> bool:
     """Check if file format is supported."""
     ext = Path(file_path).suffix.lower()
-    return ext in FIFLoader.EXTENSIONS or ext in H5Loader.EXTENSIONS
+    return ext in FIFLoader.EXTENSIONS or ext in H5DatasetLoader.EXTENSIONS

@@ -9,7 +9,6 @@ class Buffer:
     """Sliding window buffer for Dendrite modes.
 
     Uses pre-allocated numpy ring buffers for O(1) window extraction
-    instead of concatenating thousands of tiny arrays per step.
     """
 
     def __init__(self, modalities: list[str], buffer_size: int, logger: logging.Logger):

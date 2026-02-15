@@ -1,10 +1,11 @@
 """Data tab - Dataset selection for training and evaluation."""
 
 import json
+from pathlib import Path
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from dendrite.data import DatasetConfig, FIFLoader, MOAABLoader
+from dendrite.data import DatasetConfig, FIFLoader, H5DatasetLoader, MOAABLoader
 from dendrite.auxiliary.ml_workbench.utils import setup_worker_thread
 from dendrite.auxiliary.ml_workbench.widgets import DatasetInfoPanel
 from dendrite.gui.styles.design_tokens import (
@@ -361,7 +362,11 @@ class DataTab(QtWidgets.QWidget):
             preproc_highcut=self._info_panel.get_preproc_highcut(),
             preproc_rereference=self._info_panel.get_preproc_rereference(),
         )
-        loader = FIFLoader.from_dataset_info(config, dataset_info)
+        ext = Path(dataset_info["file_path"]).suffix.lower()
+        if ext in H5DatasetLoader.EXTENSIONS:
+            loader = H5DatasetLoader.from_dataset_info(config, dataset_info)
+        else:
+            loader = FIFLoader.from_dataset_info(config, dataset_info)
 
         self.study_changed.emit(
             {

@@ -244,7 +244,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         with torch.inference_mode():
             X_tensor = self._prepare_input_tensor(X)
             outputs = self.model(X_tensor)
-            _, predicted = torch.max(outputs.data, 1)
+            _, predicted = torch.max(outputs, 1)
             return predicted.cpu().numpy()
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:

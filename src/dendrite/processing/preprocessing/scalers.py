@@ -52,7 +52,3 @@ class ChannelScaler(BaseEstimator, TransformerMixin):
             self._scale_3d = self.scaler.scale_[np.newaxis, :, np.newaxis].astype(np.float32)
 
         return (X - self._mean_3d) / self._scale_3d
-
-    def fit_transform(self, X, y=None):
-        """Fit and transform in one step."""
-        return self.fit(X, y).transform(X)

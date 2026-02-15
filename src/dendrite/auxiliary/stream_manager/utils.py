@@ -5,7 +5,7 @@ from typing import Any
 
 import mne
 
-from dendrite.data.imports import H5Loader
+from dendrite.data.imports import H5DatasetLoader
 from dendrite.utils.logger_central import get_logger
 
 logger = get_logger("StreamManagerGUI")
@@ -130,9 +130,9 @@ def get_file_info(file_path: str) -> tuple[float, Any, dict] | None:
             duration = raw.times[-1] if len(raw.times) > 0 else 0.0
             events, event_ids = mne.events_from_annotations(raw)
 
-        elif ext in H5Loader.EXTENSIONS:
+        elif ext in H5DatasetLoader.EXTENSIONS:
             # H5 format - use lightweight metadata function
-            duration, _, _ = H5Loader.get_file_info(file_path)
+            duration, _, _ = H5DatasetLoader.get_file_info(file_path)
             events = []
             event_ids = {}
         else:
