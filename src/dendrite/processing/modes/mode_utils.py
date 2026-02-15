@@ -1,25 +1,32 @@
 import logging
 from collections import deque
-from itertools import islice
 from typing import Any
 
 import numpy as np
 
 
 class Buffer:
-    """Sliding window buffer for Dendrite modes."""
+    """Sliding window buffer for Dendrite modes.
+
+    Uses pre-allocated numpy ring buffers for O(1) window extraction
+    instead of concatenating thousands of tiny arrays per step.
+    """
 
     def __init__(self, modalities: list[str], buffer_size: int, logger: logging.Logger):
         self.modalities = modalities
         self.buffer_size = buffer_size
         self.logger = logger
 
-        # Initialize buffers for each modality + markers
-        self.buffers = {modality: deque(maxlen=buffer_size) for modality in modalities}
-        self.buffers["markers"] = deque(maxlen=buffer_size)
+        # Ring buffers for data modalities (lazy-init on first sample per modality)
+        self._rings: dict[str, np.ndarray] = {}
+        self._write_pos = 0
+        self._sample_count = 0
+
+        # Markers stay in deque (sparse, variable content)
+        self.buffers: dict[str, deque] = {"markers": deque(maxlen=buffer_size)}
 
         # Track DAQ timestamps for E2E latency measurement
-        self.timestamps = deque(maxlen=buffer_size)
+        self.timestamps: deque = deque(maxlen=buffer_size)
 
         # Step tracking
         self.samples_since_last_step = 0
@@ -28,10 +35,21 @@ class Buffer:
 
     def add_sample(self, sample: dict) -> bool:
         """Add sample to all buffers."""
-        for modality in self.buffers:
-            if modality in sample:
-                self.buffers[modality].append(sample[modality])
+        for modality in self.modalities:
+            if modality not in sample:
+                continue
+            data = sample[modality]
+            if modality not in self._rings:
+                n_channels = data.shape[0]
+                self._rings[modality] = np.zeros((n_channels, self.buffer_size), dtype=np.float32)
+            self._rings[modality][:, self._write_pos] = data[:, 0]
+
+        if "markers" in sample:
+            self.buffers["markers"].append(sample["markers"])
+
         self.timestamps.append(sample.get("_daq_receive_ns"))
+        self._write_pos = (self._write_pos + 1) % self.buffer_size
+        self._sample_count += 1
         self.samples_since_last_step += 1
         return True
 
@@ -39,38 +57,53 @@ class Buffer:
         """Get timestamp of newest sample (when window became ready)."""
         return self.timestamps[-1] if self.timestamps else None
 
-    def _is_valid_data_buffer(self, modality: str) -> bool:
-        """Check if buffer is valid for data extraction (excludes markers, checks size)."""
-        if modality == "markers":
-            return False
-        buffer = self.buffers.get(modality)
-        return buffer is not None and len(buffer) >= self.buffer_size
+    def _is_full(self) -> bool:
+        """Check if buffer has received enough samples to fill."""
+        return self._sample_count >= self.buffer_size
 
     def _extract_slice(self, modality: str, start: int, end: int) -> np.ndarray | None:
-        """Extract and concatenate data slice from buffer."""
-        if not self._is_valid_data_buffer(modality):
+        """Extract contiguous data slice from ring buffer.
+
+        Args:
+            modality: Data modality key.
+            start: Logical start index (0 = oldest sample).
+            end: Logical end index (exclusive).
+        """
+        if modality == "markers" or modality not in self._rings or not self._is_full():
             return None
-        buffer = self.buffers[modality]
-        data_arrays = list(islice(buffer, start, end))
-        if data_arrays:
-            return np.concatenate(data_arrays, axis=1)
-        return None
+
+        length = end - start
+        if length <= 0:
+            return None
+
+        ring = self._rings[modality]
+        # Map logical index 0 (oldest) to ring position
+        oldest_pos = self._write_pos  # next write overwrites oldest
+        ring_start = (oldest_pos + start) % self.buffer_size
+        ring_end = (oldest_pos + end) % self.buffer_size
+
+        if ring_start < ring_end:
+            return ring[:, ring_start:ring_end].copy()
+        # Wrapped: need two slices
+        return np.concatenate([ring[:, ring_start:], ring[:, :ring_end]], axis=1)
 
     def is_ready_for_step(self, step_size: int) -> bool:
         """Check if ready for step-based processing."""
         if not self.modalities:
             return False
-        primary_buffer = self.buffers.get(self.modalities[0])
         return (
-            primary_buffer is not None
-            and len(primary_buffer) >= self.buffer_size
+            self.modalities[0] in self._rings
+            and self._is_full()
             and self.samples_since_last_step >= step_size
         )
 
     def extract_window(self) -> dict[str, np.ndarray] | None:
         """Extract full data window from buffer."""
+        if not self._is_full():
+            return None
+
         X_data = {}
-        for modality in self.buffers:
+        for modality in self.modalities:
             result = self._extract_slice(modality, 0, self.buffer_size)
             if result is not None:
                 X_data[modality] = result
@@ -83,15 +116,10 @@ class Buffer:
         self, start_offset_samples: int, epoch_length_samples: int, event_position_from_end: int = 0
     ) -> dict[str, np.ndarray] | None:
         """Extract epoch data relative to an event position."""
-        if not self.modalities:
+        if not self.modalities or not self._is_full():
             return None
 
-        primary_buffer = self.buffers.get(self.modalities[0])
-        if not primary_buffer or len(primary_buffer) < self.buffer_size:
-            return None
-
-        # Calculate epoch boundaries
-        buffer_length = len(primary_buffer)
+        buffer_length = self.buffer_size
         event_pos = buffer_length - 1 - event_position_from_end
         epoch_start = event_pos + start_offset_samples
         epoch_end = epoch_start + epoch_length_samples
@@ -103,7 +131,7 @@ class Buffer:
             return None
 
         X_data = {}
-        for modality in self.buffers:
+        for modality in self.modalities:
             result = self._extract_slice(modality, epoch_start, epoch_end)
             if result is not None and result.shape[1] == epoch_length_samples:
                 X_data[modality] = result
@@ -112,10 +140,10 @@ class Buffer:
 
     def get_status(self) -> dict:
         """Get buffer status."""
-        primary_size = len(self.buffers.get(self.modalities[0], [])) if self.modalities else 0
+        current_size = min(self._sample_count, self.buffer_size)
         return {
             "buffer_size": self.buffer_size,
-            "current_size": primary_size,
+            "current_size": current_size,
             "samples_since_last_step": self.samples_since_last_step,
         }
 

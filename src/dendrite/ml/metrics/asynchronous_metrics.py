@@ -5,7 +5,7 @@ Per-class accuracy measures correct classification rate (prediction matches tria
 FAR counts any prediction made outside trial windows (per BCI literature conventions).
 """
 
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -61,8 +61,8 @@ class AsynchronousMetrics:
         # Trial tracking
         self.trials: list[Trial] = []
 
-        # Background false positive tracking (for FAR)
-        self.background_fp_samples: list[int] = []
+        # Background false positive tracking (for FAR) — capped to ~5 min window
+        self.background_fp_samples: deque[int] = deque(maxlen=6000)
 
         # Track last sample for FAR calculation
         self.last_sample_idx: int = 0
@@ -112,10 +112,12 @@ class AsynchronousMetrics:
 
     def _get_active_trial(self, current_sample_idx: int) -> Trial | None:
         """Get the trial whose detection window contains current sample."""
-        for trial in self.trials:
+        for trial in reversed(self.trials):
             window_end = trial.onset_sample + self.detection_window_samples
             if trial.onset_sample <= current_sample_idx < window_end:
                 return trial
+            if current_sample_idx >= window_end:
+                break
         return None
 
     def _get_majority_class(self, predictions: list[int]) -> int | None:
@@ -253,5 +255,5 @@ class AsynchronousMetrics:
     def reset(self):
         """Reset all metrics."""
         self.trials = []
-        self.background_fp_samples = []
+        self.background_fp_samples = deque(maxlen=6000)
         self.last_sample_idx = 0

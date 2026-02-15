@@ -102,6 +102,7 @@ class AsynchronousMode(BaseMode):
         self._active_label = -1
         self._labeling_samples_remaining = 0
         self.effective_sample_rate: float | None = None
+        self._cached_metrics: dict = {}
 
     def _validate_configuration(self) -> bool:
         """Validate asynchronous mode configuration."""
@@ -286,7 +287,7 @@ class AsynchronousMode(BaseMode):
             self.logger.error(f"Error in _trigger_prediction: {e}", exc_info=True)
 
     def _update_metrics_and_send(self, prediction, confidence):
-        """Update metrics with trial-level evaluation."""
+        """Update metrics and send prediction output."""
         if self.metrics_manager:
             self.metrics_manager.update_metrics(
                 prediction=prediction,
@@ -294,17 +295,18 @@ class AsynchronousMode(BaseMode):
                 current_sample_idx=self.current_sample_index,
             )
 
-        current_metrics = self.metrics_manager.get_current_metrics() if self.metrics_manager else {}
+        if self.metrics_manager and self.prediction_count % LOG_METRICS_INTERVAL == 0:
+            self._cached_metrics = self.metrics_manager.get_current_metrics()
 
-        self._send_prediction_output(prediction, confidence, current_metrics)
+            if self._current_label >= 0:
+                n_trials = self._cached_metrics.get("n_trials", 0)
+                balanced_acc = self._cached_metrics.get("balanced_accuracy", 0.0)
+                self.logger.info(
+                    f"EVENT - Pred: {int(prediction)} Label: {int(self._current_label)} "
+                    f"(conf={confidence:.3f}, acc={balanced_acc:.2f}, trials={n_trials})"
+                )
 
-        if self.prediction_count % LOG_METRICS_INTERVAL == 1 and self._current_label >= 0:
-            n_trials = current_metrics.get("n_trials", 0)
-            balanced_acc = current_metrics.get("balanced_accuracy", 0.0)
-            self.logger.info(
-                f"EVENT - Pred: {int(prediction)} Label: {int(self._current_label)} "
-                f"(conf={confidence:.3f}, acc={balanced_acc:.2f}, trials={n_trials})"
-            )
+        self._send_prediction_output(prediction, confidence, self._cached_metrics)
 
     def _send_prediction_output(self, prediction, confidence, current_metrics):
         """Send prediction data to output queues."""

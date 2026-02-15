@@ -112,6 +112,9 @@ def load_decoder(decoder_path: str) -> Decoder:
             decoder.pipeline = data["pipeline"]
             classifier = decoder.pipeline.named_steps["classifier"]
 
+            # Re-detect device in this process (pickled value may be stale)
+            classifier.device = classifier.config.get_device()
+
             # Restore model
             classifier.model = classifier._create_model(data["input_shape"])
             classifier.model.load_state_dict(data["model_state_dict"])
@@ -120,6 +123,10 @@ def load_decoder(decoder_path: str) -> Decoder:
             classifier.input_shape = data["input_shape"]
             classifier.classes_ = data["classes_"]
             classifier.is_fitted = True
+
+            first_param = next(classifier.model.parameters(), None)
+            if first_param is not None:
+                logger.info(f"Model loaded on device: {first_param.device}")
 
         elif os.path.exists(joblib_path):
             # Classical: load from .joblib

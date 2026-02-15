@@ -218,12 +218,13 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
 
         # TrainingLoop may have modified model (SWA, best checkpoint restore)
         self.model = training_loop.model
+        self.model.eval()
 
         return results
 
     def _prepare_input_tensor(self, X: np.ndarray) -> torch.Tensor:
         """Convert input data to PyTorch tensor with proper shape and device."""
-        X_tensor = torch.FloatTensor(X).to(self.device)
+        X_tensor = torch.as_tensor(X, dtype=torch.float32, device=self.device)
         return self._adapt_tensor_shape(X_tensor)
 
     def _adapt_tensor_shape(self, X_tensor: torch.Tensor) -> torch.Tensor:
@@ -240,8 +241,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         if not self.is_fitted:
             raise ValueError("Classifier must be fitted before prediction")
 
-        self.model.eval()
-        with torch.no_grad():
+        with torch.inference_mode():
             X_tensor = self._prepare_input_tensor(X)
             outputs = self.model(X_tensor)
             _, predicted = torch.max(outputs.data, 1)
@@ -252,8 +252,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         if not self.is_fitted:
             raise ValueError("Classifier must be fitted before prediction")
 
-        self.model.eval()
-        with torch.no_grad():
+        with torch.inference_mode():
             X_tensor = self._prepare_input_tensor(X)
             outputs = self.model(X_tensor)
             probabilities = torch.softmax(outputs, dim=1)
