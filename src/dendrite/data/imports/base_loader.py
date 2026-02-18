@@ -86,6 +86,16 @@ class BaseLoader(ABC):
         """Load train epochs and validation continuous data with split metadata."""
         ...
 
+    @abstractmethod
+    def get_label_info(self) -> tuple[dict[int, str], dict[str, int]]:
+        """Return (event_mapping, label_mapping) for decoder configuration.
+
+        Returns:
+            event_mapping: {event_code: event_name} e.g. {1: 'left', 2: 'right'}
+            label_mapping: {event_name: class_index} e.g. {'left': 0, 'right': 1}
+        """
+        ...
+
     def _get_channel_picks(self) -> str:
         """Get channel pick string (e.g., 'eeg') from config."""
         return self.config.channels if self.config.channels else "eeg"
@@ -207,7 +217,7 @@ class FileDatasetLoader(BaseLoader):
         logger.info(f"Loading epochs from: {self._file_path}")
 
         raw = self.load_raw(subject_id, preprocess=True)
-        mne_events, mne_event_id = mne.events_from_annotations(raw)
+        mne_events, mne_event_id = mne.events_from_annotations(raw, event_id=self._event_mapping)
 
         if not self._event_mapping:
             raise ValueError(
@@ -242,7 +252,7 @@ class FileDatasetLoader(BaseLoader):
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, int]]:
         """Load continuous data (n_channels, n_samples), event times, labels, and mapping."""
         raw = self.load_raw(subject_id, preprocess=True)
-        mne_events, _ = mne.events_from_annotations(raw, verbose=False)
+        mne_events, _ = mne.events_from_annotations(raw, event_id=self._event_mapping, verbose=False)
 
         selected_codes = set(self._event_mapping.values())
         filtered = filter_events_by_codes(mne_events, selected_codes)
@@ -277,7 +287,7 @@ class FileDatasetLoader(BaseLoader):
     ]:
         """Load train epochs and validation continuous data with split metadata."""
         raw = self.load_raw(subject_id, preprocess=True)
-        mne_events, _ = mne.events_from_annotations(raw, verbose=False)
+        mne_events, _ = mne.events_from_annotations(raw, event_id=self._event_mapping, verbose=False)
 
         selected_codes = set(self._event_mapping.values())
         filtered = filter_events_by_codes(mne_events, selected_codes)
@@ -315,6 +325,19 @@ class FileDatasetLoader(BaseLoader):
 
         logger.info(f"Split data: {n_train} train, {n_val} val events")
         return (X_train, y_train), (val_continuous, val_times, val_labels, self._event_mapping), split_info
+
+    def get_label_info(self) -> tuple[dict[int, str], dict[str, int]]:
+        """Return (event_mapping, label_mapping) for decoder configuration.
+
+        Sorting by code value matches encode_labels() ordering.
+        """
+        if not self._event_mapping:
+            return {}, {}
+        event_mapping = {code: name for name, code in self._event_mapping.items()}
+        label_mapping = {}
+        for idx, (_name, _code) in enumerate(sorted(self._event_mapping.items(), key=lambda x: x[1])):
+            label_mapping[_name] = idx
+        return event_mapping, label_mapping
 
     def get_n_times(self, subject_id: int = 1) -> int:
         """Get number of time samples per epoch."""

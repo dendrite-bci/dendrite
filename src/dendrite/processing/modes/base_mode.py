@@ -456,6 +456,13 @@ class BaseMode(multiprocessing.Process, ABC):
 
             if self.logger:
                 self.logger.info(f"Successfully loaded {model_type}")
+
+            if not self.event_mapping and hasattr(self.decoder, "event_mapping") and self.decoder.event_mapping:
+                self.event_mapping = self.decoder.event_mapping
+                self._generate_label_mapping(self.event_mapping)
+                if self.logger:
+                    self.logger.info(f"Inherited event mapping from decoder: {self.event_mapping}")
+
             self._validate_loaded_decoder_channels(model_path)
             self._validate_loaded_decoder_sample_rate(self.decoder)
             return True

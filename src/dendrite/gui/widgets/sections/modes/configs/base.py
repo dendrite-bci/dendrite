@@ -467,6 +467,7 @@ class BaseModeConfig(ABC):
         needs_resampling = metadata.get("_needs_resampling", False)
         resample_note = " (will resample)" if needs_resampling else ""
         system_channels = self._format_system_channels(expected_shapes, sample_rate)
+        event_mapping = metadata.get("event_mapping")
 
         if issues:
             status_widget.set_warning(
@@ -474,11 +475,16 @@ class BaseModeConfig(ABC):
                 requires=info,
                 system=f"{system_channels}{resample_note}",
                 issues=issues,
+                event_mapping=event_mapping,
             )
         else:
             note = "Will resample to match decoder" if needs_resampling else ""
             status_widget.set_valid(
-                display_name, requires=info, system=f"{system_channels}{resample_note}", note=note
+                display_name,
+                requires=info,
+                system=f"{system_channels}{resample_note}",
+                note=note,
+                event_mapping=event_mapping,
             )
             self.apply_decoder_config_to_gui(metadata)
 

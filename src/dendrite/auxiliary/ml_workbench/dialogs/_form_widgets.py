@@ -405,10 +405,9 @@ class EventsSelectorWidget(QtWidgets.QWidget):
             self._status_label.setText("No events available")
 
     def get_events_json(self) -> str | None:
-        """Get selected events as JSON string."""
+        """Get selected events as JSON string with codes renumbered 1..N."""
         events = {}
         for row in range(self._table.rowCount()):
-            # Check if row is enabled
             checkbox_widget = self._table.cellWidget(row, 0)
             if not checkbox_widget:
                 continue
@@ -416,7 +415,6 @@ class EventsSelectorWidget(QtWidgets.QWidget):
             if not checkbox or not checkbox.isChecked():
                 continue
 
-            # Get code and name
             code_item = self._table.item(row, 1)
             name_item = self._table.item(row, 2)
             if not code_item or not name_item:
@@ -432,7 +430,13 @@ class EventsSelectorWidget(QtWidgets.QWidget):
             except ValueError:
                 continue
 
-        return json.dumps(events) if events else None
+        if not events:
+            return None
+
+        # Renumber codes 1..N sorted by original code to remove gaps from unselected events
+        sorted_names = sorted(events, key=lambda n: events[n])
+        renumbered = {name: idx + 1 for idx, name in enumerate(sorted_names)}
+        return json.dumps(renumbered)
 
 
 def create_events_group(

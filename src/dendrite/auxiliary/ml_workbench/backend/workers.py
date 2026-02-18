@@ -48,6 +48,8 @@ class DataLoaderWorker(QtCore.QObject):
         self.subjects = subjects
         self.holdout_pct = holdout_pct
         self._stopped = False
+        self.event_mapping: dict[int, str] = {}
+        self.label_mapping: dict[str, int] = {}
 
     def stop(self):
         """Signal the worker to stop."""
@@ -183,6 +185,9 @@ class DataLoaderWorker(QtCore.QObject):
                     f"from {len(all_X)} subjects"
                 )
                 self.validation_ready.emit(None)
+
+            if hasattr(self.loader, "get_label_info"):
+                self.event_mapping, self.label_mapping = self.loader.get_label_info()
 
             self.finished.emit(X, y)
 

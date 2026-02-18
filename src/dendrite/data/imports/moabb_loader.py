@@ -483,6 +483,20 @@ class MOAABLoader:
         raw = self._apply_paradigm_preprocessing(raw)
         return list(raw.ch_names)
 
+    def get_label_info(self) -> tuple[dict[int, str], dict[str, int]]:
+        """Return (event_mapping, label_mapping) for decoder configuration.
+
+        Sorting by code value matches _encode_labels() ordering.
+        """
+        events = self.config.events or {}
+        if not events:
+            return {}, {}
+        event_mapping = {code: name for name, code in events.items()}
+        label_mapping = {}
+        for idx, (name, _code) in enumerate(sorted(events.items(), key=lambda x: x[1])):
+            label_mapping[name] = idx
+        return event_mapping, label_mapping
+
     def get_channel_types(self, subject_id: int) -> list[str]:
         """Get channel types from preprocessed data (matching load_continuous)."""
         raw = self.load_raw(subject_id)

@@ -331,6 +331,9 @@ class TrainingTab(QtWidgets.QWidget):
             return
 
         base_config = self._get_base_config()
+        if self._data_loader_worker:
+            base_config.event_mapping = self._data_loader_worker.event_mapping or None
+            base_config.label_mapping = self._data_loader_worker.label_mapping or None
         self._thread = QtCore.QThread()
 
         self._optuna_results = None
@@ -392,6 +395,9 @@ class TrainingTab(QtWidgets.QWidget):
         if results and "best_params" in results:
             best_params = results["best_params"]
             base_config = self._get_base_config()
+            if self._data_loader_worker:
+                base_config.event_mapping = self._data_loader_worker.event_mapping or None
+                base_config.label_mapping = self._data_loader_worker.label_mapping or None
             config_dict = base_config.model_dump()
             config_dict.update(best_params)
             self._final_training_config = DecoderConfig(**config_dict)

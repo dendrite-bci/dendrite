@@ -81,6 +81,12 @@ class DecoderStatusWidget(QtWidgets.QFrame):
         self._system_label.setWordWrap(True)
         details_layout.addWidget(self._system_label)
 
+        self._mapping_label = QtWidgets.QLabel()
+        self._mapping_label.setStyleSheet(WidgetStyles.label("tiny", color=TEXT_LABEL))
+        self._mapping_label.setWordWrap(True)
+        self._mapping_label.setVisible(False)
+        details_layout.addWidget(self._mapping_label)
+
         self._note_label = QtWidgets.QLabel()
         self._note_label.setStyleSheet(WidgetStyles.label("tiny", color=TEXT_MUTED))
         self._note_label.setWordWrap(True)
@@ -116,7 +122,19 @@ class DecoderStatusWidget(QtWidgets.QFrame):
             WidgetStyles.frame(bg=color, border=True, radius=LAYOUT["radius"], padding=0)
         )
 
-    def set_valid(self, name: str, requires: str, system: str, note: str = ""):
+    def _set_mapping(self, event_mapping: dict | None):
+        """Show/hide the mapping label from an event_mapping dict."""
+        if not event_mapping:
+            self._mapping_label.setVisible(False)
+            return
+
+        parts = [f"{name} ({event_id})" for event_id, name in sorted(event_mapping.items(), key=lambda x: int(x[0]))]
+        self._mapping_label.setText(f"Mapping: {', '.join(parts)}")
+        self._mapping_label.setVisible(True)
+
+    def set_valid(
+        self, name: str, requires: str, system: str, note: str = "", event_mapping: dict | None = None
+    ):
         """Set status to valid/ready state."""
         self._set_background(BG_OK_SUBTLE)
         self._set_status_dot(STATUS_OK)
@@ -127,6 +145,7 @@ class DecoderStatusWidget(QtWidgets.QFrame):
 
         self._requires_label.setText(f"Requires: {requires}")
         self._system_label.setText(f"System:   {system}")
+        self._set_mapping(event_mapping)
         self._details_widget.setVisible(True)
 
         if note:
@@ -135,7 +154,9 @@ class DecoderStatusWidget(QtWidgets.QFrame):
         else:
             self._note_label.setVisible(False)
 
-    def set_warning(self, name: str, requires: str, system: str, issues: list[str]):
+    def set_warning(
+        self, name: str, requires: str, system: str, issues: list[str], event_mapping: dict | None = None
+    ):
         """Set status to warning state with issues list."""
         self._set_background(BG_WARN_SUBTLE)
         self._set_status_dot(STATUS_WARN)
@@ -146,6 +167,7 @@ class DecoderStatusWidget(QtWidgets.QFrame):
 
         self._requires_label.setText(f"Requires: {requires}")
         self._system_label.setText(f"System:   {system}")
+        self._set_mapping(event_mapping)
         self._details_widget.setVisible(True)
 
         if issues:
@@ -168,6 +190,7 @@ class DecoderStatusWidget(QtWidgets.QFrame):
         self._requires_label.setText(error)
         self._requires_label.setStyleSheet(WidgetStyles.label("tiny", color=STATUS_ERROR))
         self._system_label.setVisible(False)
+        self._mapping_label.setVisible(False)
         self._note_label.setVisible(False)
         self._details_widget.setVisible(True)
 
@@ -182,6 +205,7 @@ class DecoderStatusWidget(QtWidgets.QFrame):
 
         self._requires_label.setText("")
         self._system_label.setText("")
+        self._mapping_label.setVisible(False)
         self._note_label.setVisible(False)
         self._details_widget.setVisible(False)
 
@@ -197,5 +221,6 @@ class DecoderStatusWidget(QtWidgets.QFrame):
         self._requires_label.setText(message)
         self._requires_label.setStyleSheet(WidgetStyles.label("tiny", color=TEXT_LABEL))
         self._system_label.setVisible(False)
+        self._mapping_label.setVisible(False)
         self._note_label.setVisible(False)
         self._details_widget.setVisible(True)
