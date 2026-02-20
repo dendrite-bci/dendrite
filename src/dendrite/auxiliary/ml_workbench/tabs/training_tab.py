@@ -273,6 +273,14 @@ class TrainingTab(QtWidgets.QWidget):
             modality="eeg",
         )
 
+    def _get_base_config_with_mappings(self) -> DecoderConfig:
+        """Build base config with event/label mappings from the data loader."""
+        config = self._get_base_config()
+        if self._data_loader_worker:
+            config.event_mapping = self._data_loader_worker.event_mapping or None
+            config.label_mapping = self._data_loader_worker.label_mapping or None
+        return config
+
     # -- Training Lifecycle --
 
     def _on_train_btn_clicked(self):
@@ -330,10 +338,7 @@ class TrainingTab(QtWidgets.QWidget):
             self._status_label.setText("Failed to load data")
             return
 
-        base_config = self._get_base_config()
-        if self._data_loader_worker:
-            base_config.event_mapping = self._data_loader_worker.event_mapping or None
-            base_config.label_mapping = self._data_loader_worker.label_mapping or None
+        base_config = self._get_base_config_with_mappings()
         self._thread = QtCore.QThread()
 
         self._optuna_results = None
@@ -394,10 +399,7 @@ class TrainingTab(QtWidgets.QWidget):
 
         if results and "best_params" in results:
             best_params = results["best_params"]
-            base_config = self._get_base_config()
-            if self._data_loader_worker:
-                base_config.event_mapping = self._data_loader_worker.event_mapping or None
-                base_config.label_mapping = self._data_loader_worker.label_mapping or None
+            base_config = self._get_base_config_with_mappings()
             config_dict = base_config.model_dump()
             config_dict.update(best_params)
             self._final_training_config = DecoderConfig(**config_dict)

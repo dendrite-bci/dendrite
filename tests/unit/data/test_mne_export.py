@@ -15,7 +15,6 @@ import mne
 import numpy as np
 import pytest
 
-from dendrite.constants import UV_TO_V
 from dendrite.data.io.mne_export import (
     export_to_fif,
     guess_channel_type,
@@ -96,18 +95,15 @@ class TestToMneRaw:
         assert raw.info['nchan'] == 4
         assert len(raw.times) == 500
 
-    def test_converts_uv_to_volts(self, sample_h5_for_mne):
-        """Test data is converted from microvolts to volts."""
-        # Get original data in microvolts
+    def test_preserves_original_units(self, sample_h5_for_mne):
+        """Test data stays in original recording units (no conversion)."""
         with h5py.File(sample_h5_for_mne, 'r') as h5f:
             original_uv = h5f['EEG'][()]
 
         raw = to_mne_raw(sample_h5_for_mne, sfreq=500.0)
-        data_v = raw.get_data()
+        data = raw.get_data()
 
-        # MNE data should be original * UV_TO_V
-        expected_v = original_uv.T * UV_TO_V
-        np.testing.assert_array_almost_equal(data_v, expected_v)
+        np.testing.assert_array_almost_equal(data, original_uv.T)
 
     def test_sets_channel_types(self, sample_h5_for_mne):
         """Test channel types are set based on channel names."""

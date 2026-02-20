@@ -10,6 +10,7 @@ from typing import Any
 import mne
 import numpy as np
 
+from .base_loader import build_label_info
 from .config import DatasetConfig
 
 logger = logging.getLogger(__name__)
@@ -484,18 +485,8 @@ class MOAABLoader:
         return list(raw.ch_names)
 
     def get_label_info(self) -> tuple[dict[int, str], dict[str, int]]:
-        """Return (event_mapping, label_mapping) for decoder configuration.
-
-        Sorting by code value matches _encode_labels() ordering.
-        """
-        events = self.config.events or {}
-        if not events:
-            return {}, {}
-        event_mapping = {code: name for name, code in events.items()}
-        label_mapping = {}
-        for idx, (name, _code) in enumerate(sorted(events.items(), key=lambda x: x[1])):
-            label_mapping[name] = idx
-        return event_mapping, label_mapping
+        """Return (event_mapping, label_mapping) for decoder configuration."""
+        return build_label_info(self.config.events or {})
 
     def get_channel_types(self, subject_id: int) -> list[str]:
         """Get channel types from preprocessed data (matching load_continuous)."""

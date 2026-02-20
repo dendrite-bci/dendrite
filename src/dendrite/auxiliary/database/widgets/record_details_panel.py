@@ -5,6 +5,7 @@ Right panel for viewing record details and performing actions.
 Replaces the modal DatabaseRecordDialog.
 """
 
+import json
 import os
 from typing import Any
 
@@ -197,6 +198,14 @@ class RecordDetailsPanel(QtWidgets.QWidget):
                 parts.append(f"Channels: {channels}")
             self._add_info_row("", "  |  ".join(parts))
 
+        # Event mapping section
+        mapping_pairs = self._extract_event_mapping(record)
+        if mapping_pairs:
+            self._add_spacer()
+            self._add_section_header("Mapping")
+            for event_id, class_name in mapping_pairs:
+                self._add_info_row("", f"{class_name} ({event_id})")
+
         self._add_spacer()
 
         # Accuracy section with visual bars
@@ -272,6 +281,41 @@ class RecordDetailsPanel(QtWidgets.QWidget):
         file_path = record.get("file_path")
         if file_path:
             self._add_file_row("File", file_path)
+
+    def _extract_event_mapping(self, record: dict) -> list[tuple[str, str]]:
+        """Extract sorted event_id -> class_name pairs from decoder record.
+
+        Tries event_mapping from training_config first, falls back to class_labels (label_mapping).
+        Returns list of (event_id, class_name) tuples sorted by event_id, or empty list.
+        """
+        # Try event_mapping from training_config
+        training_config_raw = record.get("training_config")
+        if training_config_raw:
+            try:
+                config = json.loads(training_config_raw) if isinstance(training_config_raw, str) else training_config_raw
+                event_mapping = config.get("event_mapping")
+                if event_mapping:
+                    return sorted(
+                        [(str(k), str(v)) for k, v in event_mapping.items()],
+                        key=lambda x: int(x[0]),
+                    )
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+        # Fallback: invert label_mapping from class_labels
+        class_labels_raw = record.get("class_labels")
+        if class_labels_raw:
+            try:
+                label_mapping = json.loads(class_labels_raw) if isinstance(class_labels_raw, str) else class_labels_raw
+                if label_mapping:
+                    return sorted(
+                        [(str(v), str(k)) for k, v in label_mapping.items()],
+                        key=lambda x: int(x[0]),
+                    )
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+        return []
 
     def _add_info_row(self, label: str, value: str):
         """Add a label: value row."""

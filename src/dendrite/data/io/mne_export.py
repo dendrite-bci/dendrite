@@ -33,18 +33,14 @@ def to_mne_raw(
         montage: EEG montage name (e.g., 'standard_1005')
 
     Returns:
-        MNE RawArray with data in Volts and channel types set.
-
-    Note:
-        Data is assumed to be stored in microvolts (µV) and is automatically
-        converted to Volts (V) for MNE compatibility.
+        MNE RawArray with data in original recording units and channel types set.
     """
     df = load_dataset(h5_path, dataset)
 
     # Filter out timestamp columns (case-insensitive for backward compat)
     timestamp_cols_lower = {c.lower() for c in TIMESTAMP_COLS}
     data_cols = [col for col in df.columns if col.lower() not in timestamp_cols_lower]
-    data = df[data_cols].values.T * UV_TO_V  # (n_channels, n_samples) in Volts
+    data = df[data_cols].values.T  # (n_channels, n_samples) in original units
 
     # Create MNE info and Raw
     info = mne.create_info(ch_names=data_cols, sfreq=sfreq)
@@ -97,6 +93,9 @@ def export_to_fif(
 
     # Create Raw object
     raw = to_mne_raw(h5_path, sfreq, dataset)
+
+    # FIF convention requires SI units (Volts). H5 data is stored in µV.
+    raw.apply_function(lambda x: x * UV_TO_V, picks="eeg")
 
     # Attach events
     if include_events:

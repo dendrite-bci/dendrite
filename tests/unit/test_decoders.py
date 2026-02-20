@@ -18,6 +18,7 @@ import os
 import pytest
 import numpy as np
 import tempfile
+import torch
 from unittest.mock import Mock, patch
 
 # Add the project root to the path so BMI can be imported
@@ -626,3 +627,222 @@ class TestDecoderCompatibility:
         msg = label_issues[0]
         assert 'Fp1' in msg or 'C3' in msg, f"First mismatch not in message: {msg}"
         assert 'F3' in msg or 'P3' in msg, f"Second mismatch not in message: {msg}"
+
+
+class TestSaveLoadPredictionConsistency:
+    """Verify predictions are identical before and after save/load cycle."""
+
+    @pytest.mark.parametrize("model_type", ["EEGNet", "BDEEGNet"])
+    def test_save_load_prediction_consistency(self, model_type):
+        """Predictions must be identical before and after save/load."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        n_channels, n_times = 8, 64
+        n_train, n_test = 40, 10
+
+        X = np.random.randn(n_train + n_test, n_channels, n_times).astype(np.float32)
+        y = np.random.randint(0, 2, n_train + n_test)
+
+        X_train, X_test = X[:n_train], X[n_train:]
+        y_train = y[:n_train]
+
+        config = DecoderConfig(
+            model_type=model_type,
+            num_classes=2,
+            input_shapes={'eeg': (n_channels, n_times)},
+            epochs=3,
+            event_mapping={1: 'left', 2: 'right'},
+            label_mapping={'left': 0, 'right': 1},
+            sample_rate=128.0,
+        )
+        decoder = Decoder(config)
+        decoder.fit(X_train, y_train)
+
+        original_probs = decoder.predict_proba(X_test)
+        assert original_probs.shape == (n_test, 2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'test_roundtrip')
+            decoder.save(path)
+
+            loaded = load_decoder(f"{path}.json")
+            loaded_probs = loaded.predict_proba(X_test)
+
+        np.testing.assert_allclose(
+            original_probs, loaded_probs, atol=1e-5,
+            err_msg=f"Predictions differ after save/load for {model_type}"
+        )
+
+    def test_bdeegnet_no_all_ones_confidence_after_load(self):
+        """BDEEGNet must not produce all-1.0 confidences after save/load."""
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        n_channels, n_times = 8, 64
+        X_train = np.random.randn(40, n_channels, n_times).astype(np.float32)
+        y_train = np.random.randint(0, 2, 40)
+        X_test = np.random.randn(10, n_channels, n_times).astype(np.float32)
+
+        config = DecoderConfig(
+            model_type='BDEEGNet',
+            num_classes=2,
+            input_shapes={'eeg': (n_channels, n_times)},
+            epochs=3,
+            event_mapping={1: 'left', 2: 'right'},
+            label_mapping={'left': 0, 'right': 1},
+            sample_rate=128.0,
+        )
+        decoder = Decoder(config)
+        decoder.fit(X_train, y_train)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'test_confidence')
+            decoder.save(path)
+
+            loaded = load_decoder(f"{path}.json")
+            loaded_probs = loaded.predict_proba(X_test)
+
+        max_confidences = np.max(loaded_probs, axis=1)
+        assert not np.all(max_confidences == 1.0), (
+            f"All confidences are exactly 1.0 after save/load — "
+            f"model output is degenerate. Probs:\n{loaded_probs}"
+        )
+
+    def test_save_load_predict_sample_matches_batch(self):
+        """predict_sample() must match predict_proba() after save/load.
+
+        This tests the exact code path used by async mode deployment:
+        predict_sample() on individual samples vs batch predict_proba().
+        """
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        n_channels, n_times = 8, 64
+        n_train, n_test = 40, 10
+
+        X = np.random.randn(n_train + n_test, n_channels, n_times).astype(np.float32)
+        y = np.random.randint(0, 2, n_train + n_test)
+        X_train, X_test = X[:n_train], X[n_train:]
+        y_train = y[:n_train]
+
+        config = DecoderConfig(
+            model_type='BDEEGNet',
+            num_classes=2,
+            input_shapes={'eeg': (n_channels, n_times)},
+            epochs=3,
+            event_mapping={1: 'left', 2: 'right'},
+            label_mapping={'left': 0, 'right': 1},
+            sample_rate=128.0,
+        )
+        decoder = Decoder(config)
+        decoder.fit(X_train, y_train)
+
+        # Get original predictions via both paths
+        orig_sample_preds = []
+        for i in range(n_test):
+            pred, conf = decoder.predict_sample(X_test[i])
+            orig_sample_preds.append((pred, conf))
+
+        orig_batch_probs = decoder.predict_proba(X_test)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'test_sample_vs_batch')
+            decoder.save(path)
+            loaded = load_decoder(f"{path}.json")
+
+            # Test loaded decoder: predict_sample vs predict_proba
+            loaded_batch_probs = loaded.predict_proba(X_test)
+
+            for i in range(n_test):
+                pred_i, conf_i = loaded.predict_sample(X_test[i])
+                batch_probs_i = loaded_batch_probs[i]
+
+                # predict_sample confidence must equal max of predict_proba
+                assert abs(conf_i - float(np.max(batch_probs_i))) < 1e-6, (
+                    f"Sample {i}: predict_sample conf={conf_i:.6f} != "
+                    f"max(predict_proba)={np.max(batch_probs_i):.6f}"
+                )
+
+                # predict_sample prediction must match argmax of predict_proba
+                assert pred_i == int(np.argmax(batch_probs_i)), (
+                    f"Sample {i}: predict_sample pred={pred_i} != "
+                    f"argmax(predict_proba)={np.argmax(batch_probs_i)}"
+                )
+
+            # Loaded predictions must match original predictions
+            np.testing.assert_allclose(
+                orig_batch_probs, loaded_batch_probs, atol=1e-5,
+                err_msg="Batch predictions differ after save/load"
+            )
+
+            for i in range(n_test):
+                orig_pred, orig_conf = orig_sample_preds[i]
+                loaded_pred, loaded_conf = loaded.predict_sample(X_test[i])
+                assert orig_pred == loaded_pred, (
+                    f"Sample {i}: original pred={orig_pred} != loaded pred={loaded_pred}"
+                )
+                assert abs(orig_conf - loaded_conf) < 1e-5, (
+                    f"Sample {i}: original conf={orig_conf:.6f} != loaded conf={loaded_conf:.6f}"
+                )
+
+    def test_save_load_realistic_dimensions(self):
+        """Test save/load with realistic EEG dimensions and longer training.
+
+        Uses 32 channels, 250 timepoints, 20 epochs — closer to real deployment
+        conditions where the bug (all-1.0 confidence) was observed.
+        """
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        n_channels, n_times = 32, 250
+        n_train, n_test = 80, 10
+
+        X = np.random.randn(n_train + n_test, n_channels, n_times).astype(np.float32)
+        y = np.random.randint(0, 2, n_train + n_test)
+        X_train, X_test = X[:n_train], X[n_train:]
+        y_train = y[:n_train]
+
+        config = DecoderConfig(
+            model_type='BDEEGNet',
+            num_classes=2,
+            input_shapes={'eeg': (n_channels, n_times)},
+            epochs=20,
+            batch_size=32,
+            event_mapping={1: 'left', 2: 'right'},
+            label_mapping={'left': 0, 'right': 1},
+            sample_rate=250.0,
+        )
+        decoder = Decoder(config)
+        decoder.fit(X_train, y_train)
+
+        # Get original predict_sample results
+        orig_preds = []
+        for i in range(n_test):
+            pred, conf = decoder.predict_sample(X_test[i])
+            orig_preds.append((pred, conf))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'test_realistic')
+            decoder.save(path)
+            loaded = load_decoder(f"{path}.json")
+
+            # Verify predict_sample on loaded decoder
+            loaded_confs = []
+            for i in range(n_test):
+                loaded_pred, loaded_conf = loaded.predict_sample(X_test[i])
+                orig_pred, orig_conf = orig_preds[i]
+                loaded_confs.append(loaded_conf)
+
+                assert loaded_pred == orig_pred, (
+                    f"Sample {i}: loaded pred={loaded_pred} != orig pred={orig_pred}"
+                )
+                assert abs(loaded_conf - orig_conf) < 1e-5, (
+                    f"Sample {i}: loaded conf={loaded_conf:.6f} != orig conf={orig_conf:.6f}"
+                )
+
+            # No all-1.0 confidences
+            assert not all(c == 1.0 for c in loaded_confs), (
+                f"All confidences are exactly 1.0 after save/load with realistic "
+                f"dimensions — model output is degenerate. Confs: {loaded_confs}"
+            )

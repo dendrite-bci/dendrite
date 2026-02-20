@@ -18,6 +18,25 @@ from .config import DatasetConfig
 logger = logging.getLogger(__name__)
 
 
+def build_label_info(events: dict[str, int]) -> tuple[dict[int, str], dict[str, int]]:
+    """Build (event_mapping, label_mapping) from a {name: code} dict.
+
+    Args:
+        events: Mapping of event names to integer codes, e.g. {'left': 1, 'right': 2}.
+
+    Returns:
+        event_mapping: {code: name} reverse lookup.
+        label_mapping: {name: class_index} sorted by code value to match encode_labels() ordering.
+    """
+    if not events:
+        return {}, {}
+    event_mapping = {code: name for name, code in events.items()}
+    label_mapping = {
+        name: idx for idx, (name, _) in enumerate(sorted(events.items(), key=lambda x: x[1]))
+    }
+    return event_mapping, label_mapping
+
+
 class BaseLoader(ABC):
     """Abstract base class for EEG data loaders.
 
@@ -327,17 +346,8 @@ class FileDatasetLoader(BaseLoader):
         return (X_train, y_train), (val_continuous, val_times, val_labels, self._event_mapping), split_info
 
     def get_label_info(self) -> tuple[dict[int, str], dict[str, int]]:
-        """Return (event_mapping, label_mapping) for decoder configuration.
-
-        Sorting by code value matches encode_labels() ordering.
-        """
-        if not self._event_mapping:
-            return {}, {}
-        event_mapping = {code: name for name, code in self._event_mapping.items()}
-        label_mapping = {}
-        for idx, (_name, _code) in enumerate(sorted(self._event_mapping.items(), key=lambda x: x[1])):
-            label_mapping[_name] = idx
-        return event_mapping, label_mapping
+        """Return (event_mapping, label_mapping) for decoder configuration."""
+        return build_label_info(self._event_mapping)
 
     def get_n_times(self, subject_id: int = 1) -> int:
         """Get number of time samples per epoch."""
