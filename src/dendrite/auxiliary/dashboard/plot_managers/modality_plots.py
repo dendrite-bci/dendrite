@@ -5,7 +5,6 @@ Modality Plot Manager
 Handles initialization and updating of physiological signal plots (EMG, EOG, etc.).
 """
 
-import numpy as np
 import pyqtgraph as pg
 
 from dendrite.auxiliary.dashboard.plot_managers.plot_utils import (
@@ -80,7 +79,7 @@ class ModalityPlotManager:
         for i, curve in enumerate(self.mod_curves):
             if i < len(self.data_manager.mod_buffers) and len(self.data_manager.mod_buffers[i]) > 1:
                 buffer = self.data_manager.mod_buffers[i]
-                data = np.array(buffer)
+                data = buffer.as_array()
 
                 # Update curve data
                 curve.setData(self.data_manager.time_axis[-len(data) :], data)

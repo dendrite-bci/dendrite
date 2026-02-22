@@ -3,7 +3,7 @@
 LSL Data Receiver
 
 Handles connection to and data reception from Lab Streaming Layer (LSL) streams.
-Optimized for clean code, efficiency, and reduced logging.
+Uses pull_chunk for batched reception to reduce cross-thread signal overhead.
 """
 
 import json
@@ -16,12 +16,13 @@ from PyQt6 import QtCore
 
 DEFAULT_STREAM_NAME = "Dendrite_Visualization"
 RAW_DATA_LOG_INTERVAL = 100
+CHUNK_MAX_SAMPLES = 64
 
 
 class OptimizedLSLReceiver(QtCore.QObject):
     """Receives and parses LSL stream data"""
 
-    new_payload_signal = QtCore.pyqtSignal(dict)
+    new_payloads_signal = QtCore.pyqtSignal(list)
     connection_changed_signal = QtCore.pyqtSignal(bool)  # True = connected, False = disconnected
     stream_info_signal = QtCore.pyqtSignal(str)  # Stream info string for status display
 
@@ -73,7 +74,7 @@ class OptimizedLSLReceiver(QtCore.QObject):
             self.connection_changed_signal.emit(False)
 
     def _receiver_loop(self):
-        """Main receiver loop"""
+        """Main receiver loop using pull_chunk for batched reception."""
         logging.info(f"Resolving LSL stream: '{self.stream_name}'...")
         while not self.stop_event.is_set():
             if self._connect():
@@ -85,11 +86,21 @@ class OptimizedLSLReceiver(QtCore.QObject):
 
         while not self.stop_event.is_set():
             try:
-                sample, timestamp = self.inlet.pull_sample(timeout=0.5)
-                if sample is None:
+                samples, timestamps = self.inlet.pull_chunk(
+                    timeout=0.2, max_samples=CHUNK_MAX_SAMPLES
+                )
+                if not samples:
                     continue
 
-                self._process_sample(sample[0], timestamp)
+                # Process all samples in the chunk, collect payloads
+                payloads = []
+                for sample, ts in zip(samples, timestamps):
+                    payload = self._parse_sample(sample[0], ts)
+                    if payload is not None:
+                        payloads.append(payload)
+
+                if payloads:
+                    self.new_payloads_signal.emit(payloads)
 
             except pylsl.LostError:
                 logging.error("LSL connection lost. Reconnecting...")
@@ -107,59 +118,42 @@ class OptimizedLSLReceiver(QtCore.QObject):
         if self.inlet:
             self.inlet.close_stream()
 
-    def _process_sample(self, sample_data: str, lsl_timestamp: float):
-        """Parse and emit LSL sample"""
+    def _parse_sample(self, sample_data: str, lsl_timestamp: float) -> dict | None:
+        """Parse LSL sample into a payload dict. Returns None on parse failure."""
         try:
             payload = json.loads(sample_data)
         except json.JSONDecodeError as e:
             logging.warning(f"Invalid JSON: {e} - Sample: '{sample_data[:100]}'")
-            return
+            return None
 
         payload_type = payload.get("type", "unknown")
-        timestamp = payload.get("timestamp", lsl_timestamp)
 
-        # Handle different payload types
         if payload_type == "raw_data":
-            self._handle_raw_data(payload, timestamp)
-        elif payload_type == "mode_history":
-            self._handle_mode_history(payload)
-        else:
-            self._handle_mode_output(payload, payload_type, timestamp)
+            self.raw_data_log_counter = (self.raw_data_log_counter + 1) % RAW_DATA_LOG_INTERVAL
+            if self.raw_data_log_counter == 0:
+                timestamp = payload.get("timestamp", lsl_timestamp)
+                logging.debug(f"Received raw_data (ts={timestamp:.3f})")
+            return payload
 
-    def _handle_raw_data(self, payload: dict, timestamp: float):
-        """Handle raw data payloads with reduced logging"""
-        self.raw_data_log_counter = (self.raw_data_log_counter + 1) % RAW_DATA_LOG_INTERVAL
-        if self.raw_data_log_counter == 0:
-            logging.debug(f"Received raw_data (ts={timestamp:.3f})")
-        self.new_payload_signal.emit(payload)
+        if payload_type == "mode_history":
+            mode_name = payload.get("mode_name", "unknown")
+            if mode_name in self.history_consumed_modes:
+                logging.debug(f"Skipping duplicate history for '{mode_name}'")
+                return None
+            self.history_consumed_modes.add(mode_name)
+            packet_count = payload.get("packet_count", len(payload.get("packets", [])))
+            mode_type = payload.get("mode_type", "unknown")
+            logging.info(
+                f"Processing {packet_count} history packets for '{mode_name}' (type: {mode_type})"
+            )
+            return payload
 
-    def _handle_mode_history(self, payload: dict):
-        """Handle mode history - emit once, let dashboard unpack"""
-        mode_name = payload.get("mode_name", "unknown")
-
-        if mode_name in self.history_consumed_modes:
-            logging.debug(f"Skipping duplicate history for '{mode_name}'")
-            return
-
-        self.history_consumed_modes.add(mode_name)
-        packet_count = payload.get("packet_count", len(payload.get("packets", [])))
-        mode_type = payload.get("mode_type", "unknown")
-
-        logging.info(
-            f"Processing {packet_count} history packets for '{mode_name}' (type: {mode_type})"
-        )
-        self.new_payload_signal.emit(payload)
-
-    def _handle_mode_output(self, payload: dict, payload_type: str, timestamp: float):
-        """Handle regular mode output payloads"""
+        # Mode output
         mode_name = payload.get("mode_name", "unknown")
         mode_type = payload.get("mode_type")
-
         if mode_type is None:
             logging.warning(f"Received '{payload_type}' from '{mode_name}' missing mode_type field")
-            mode_type = "missing"
-
-        self.new_payload_signal.emit(payload)
+        return payload
 
     def stop(self):
         """Stop receiver cleanly"""

@@ -33,6 +33,7 @@ Thumbs.db
 
 # Project
 /data/
+/scripts/
 
 # Keep lock file
 !uv.lock

@@ -41,7 +41,7 @@ FREQ_MIN = 0.5
 FREQ_MAX = 50.0
 
 # Throttle interval for PSD updates (seconds)
-PSD_UPDATE_INTERVAL = 0.5
+PSD_UPDATE_INTERVAL = 1.0
 
 
 class PSDPlotManager:
@@ -89,6 +89,8 @@ class PSDPlotManager:
 
         # Mean PSD curve (thick, on top)
         self.mean_curve = self.plot_item.plot(pen=pg.mkPen(PSD_MEAN_SIGNAL, width=2))
+        self.mean_curve.setDownsampling(auto=True, method="peak")
+        self.mean_curve.setClipToView(True)
 
         self._last_update_time = 0.0
 
@@ -142,7 +144,7 @@ class PSDPlotManager:
             if len(buf) < WELCH_NPERSEG:
                 continue
 
-            data = np.array(buf)
+            data = buf.as_array()
             nperseg = min(WELCH_NPERSEG, len(data))
             noverlap = min(WELCH_NOVERLAP, nperseg - 1)
 
@@ -193,6 +195,8 @@ class PSDPlotManager:
         # Add missing curves
         while len(self.channel_curves) < n_channels:
             curve = self.plot_item.plot(pen=pg.mkPen(*PSD_CHANNEL_OVERLAY, width=1))
+            curve.setDownsampling(auto=True, method="peak")
+            curve.setClipToView(True)
             curve.setZValue(-5)
             self.channel_curves.append(curve)
 

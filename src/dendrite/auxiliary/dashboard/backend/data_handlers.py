@@ -29,6 +29,40 @@ class ModalityInfo:
         return len(self.channels)
 
 
+class NumpyRingBuffer:
+    """Fixed-capacity ring buffer backed by a double-length numpy array.
+
+    Provides O(1) append and O(1) contiguous array access without copying.
+    The trick: each value is written at both pos and pos+capacity in a 2*capacity
+    backing array. Slicing data[write_pos:write_pos+capacity] always yields
+    chronological order without any copy or rearrangement.
+    """
+
+    def __init__(self, capacity: int, fill_value: float = 0.0):
+        self.capacity = capacity
+        self._data = np.full(2 * capacity, fill_value, dtype=np.float64)
+        self._write_pos = 0
+        self._count = 0
+
+    def append(self, value: float) -> None:
+        pos = self._write_pos
+        self._data[pos] = value
+        self._data[pos + self.capacity] = value
+        self._write_pos = (pos + 1) % self.capacity
+        if self._count < self.capacity:
+            self._count += 1
+
+    def as_array(self) -> np.ndarray:
+        """Return a contiguous view of the buffer in chronological order."""
+        if self._count < self.capacity:
+            # Buffer not yet full - return filled portion from the start
+            return self._data[: self._count]
+        return self._data[self._write_pos : self._write_pos + self.capacity]
+
+    def __len__(self) -> int:
+        return self._count
+
+
 DEFAULT_TIME_WINDOW = 10.0  # seconds - fixed visual time window regardless of sample rate
 
 
@@ -42,10 +76,10 @@ class DataBufferManager:
 
         self.num_eeg = 0
         self.eeg_channel_labels: list[str] = []
-        self.eeg_buffers: list[deque] = []
+        self.eeg_buffers: list[NumpyRingBuffer] = []
 
         self.modality_info: dict[str, ModalityInfo] = {}
-        self.mod_buffers: list[deque] = []
+        self.mod_buffers: list[NumpyRingBuffer] = []
 
         self.event_history = deque(maxlen=300)  # 30 seconds of events at ~10Hz max
 
@@ -115,7 +149,7 @@ class DataBufferManager:
             self.eeg_channel_labels = []
 
         self.eeg_buffers = [
-            deque([0.0] * self.buffer_size, maxlen=self.buffer_size) for _ in range(self.num_eeg)
+            NumpyRingBuffer(self.buffer_size, fill_value=0.0) for _ in range(self.num_eeg)
         ]
 
         # Exclude known non-modality keys and timestamp fields (lowercase for internal data)
@@ -155,7 +189,7 @@ class DataBufferManager:
 
             self.modality_info[modality] = ModalityInfo(name=modality, channels=labels)
             for _ in range(len(labels)):
-                self.mod_buffers.append(deque([0.0] * self.buffer_size, maxlen=self.buffer_size))
+                self.mod_buffers.append(NumpyRingBuffer(self.buffer_size, fill_value=0.0))
 
         self.initialized = True
         logging.info(
@@ -242,14 +276,9 @@ class DataBufferManager:
         self.initialized = False
         self.num_eeg = 0
         self.eeg_channel_labels = []
-
-        for buf in self.eeg_buffers:
-            buf.clear()
         self.eeg_buffers = []
 
         self.modality_info.clear()
-        for buf in self.mod_buffers:
-            buf.clear()
         self.mod_buffers = []
 
         self.event_history.clear()

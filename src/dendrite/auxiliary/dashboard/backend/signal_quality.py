@@ -10,9 +10,9 @@ Uses unit-agnostic relative thresholds (matching dendrite.data.quality)
 instead of absolute amplitude thresholds.
 """
 
-from collections import deque
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import numpy as np
 
@@ -60,7 +60,7 @@ class SignalQualityAnalyzer:
         self.line_freq = line_freq
 
     def analyze(
-        self, eeg_buffers: list[deque], channel_labels: list[str]
+        self, eeg_buffers: list[Any], channel_labels: list[str]
     ) -> list[ChannelQualityResult]:
         """Compute quality metrics for each EEG channel.
 
@@ -95,7 +95,7 @@ class SignalQualityAnalyzer:
                 channel_data.append(None)
                 continue
 
-            data = np.array(list(buf)[-n_samples:], dtype=np.float64)
+            data = buf.as_array()[-n_samples:].astype(np.float64)
             channel_data.append(data)
             results.append(
                 ChannelQualityResult(

@@ -49,8 +49,13 @@ from dendrite.constants import (
 from dendrite.gui.styles.widget_styles import WidgetStyles, apply_app_styles
 from dendrite.gui.utils import set_app_icon
 
-UI_UPDATE_INTERVAL_MS = 50  # 20 FPS for smooth real-time visualization
+UI_UPDATE_INTERVAL_MS = 16  # Data ingestion tick (~60Hz for smooth buffer filling)
+RENDER_INTERVAL_MS = 33     # Plot rendering tick (~30fps — visually identical to 60fps)
 MAX_QUEUE_ITEMS_PER_UPDATE = 300
+
+JITTER_BUFFER_MS = 48    # Accumulate before starting (~3 timer ticks at 500Hz = 24 samples)
+BACKLOG_RESERVE_MS = 16  # Keep ~1-tick reserve to absorb arrival jitter
+MAX_BACKLOG_MS = 1000    # Safety cap — drop oldest if falling behind
 PERFORMANCE_HISTORY_LENGTH = 200
 QUALITY_UPDATE_INTERVAL_MS = 2000  # Signal quality analysis at 0.5 Hz
 
@@ -102,6 +107,14 @@ class Dashboard(QtWidgets.QWidget):
         self.modality_plot_manager = ModalityPlotManager(self.mod_plots, self.data_manager)
         self.neurofeedback_plot_manager = NeurofeedbackPlotManager(self)
 
+        # Track collapsed state to skip hidden section updates
+        self._events_expanded = False
+        self._mod_expanded = False
+        events_button = self.events_group.layout().itemAt(0).widget()
+        events_button.toggled.connect(lambda checked: setattr(self, "_events_expanded", checked))
+        mod_button = self.mod_group.layout().itemAt(0).widget()
+        mod_button.toggled.connect(lambda checked: setattr(self, "_mod_expanded", checked))
+
         # Signal quality analysis
         self.quality_analyzer = SignalQualityAnalyzer(sample_rate)
         self._quality_timer = QtCore.QTimer(self)
@@ -124,6 +137,11 @@ class Dashboard(QtWidgets.QWidget):
             neurofeedback_handler=lambda mode_name,
             data: self.neurofeedback_plot_manager.update_features(mode_name, data),
         )
+
+        self._raw_data_backlog: deque = deque()
+        self._consumption_epoch: float | None = None
+        self._total_consumed: int = 0
+        self._last_render_time: float = 0.0
 
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.update_dashboard)
@@ -274,21 +292,25 @@ class Dashboard(QtWidgets.QWidget):
         return clf_group
 
     def _process_queue(self):
-        """Process items from queue"""
+        """Process items from queue using a time-based jitter buffer for smooth scrolling.
+
+        Phase 1: Drain queue — raw data goes to backlog, mode data processed immediately.
+        Phase 2: Consume from backlog at sample rate, keeping a small reserve to absorb jitter.
+        """
+        sr = self.data_manager.sample_rate
+
+        # Phase 1 — Drain queue into backlog / process mode data
         count = 0
         try:
             while count < MAX_QUEUE_ITEMS_PER_UPDATE:
                 item = self.plot_queue.get_nowait()
-                # ModeOutputPacket uses 'type', raw_data uses 'type' via output_type key
                 payload_type = item.get("output_type") or item.get("type")
 
                 if payload_type == "raw_data":
                     if not self.data_manager.initialized:
                         self._initialize_from_data(item)
-                    self.data_manager.append_raw_data(item)
-                    # Record data received for stale detection
-                    if self.status_bar:
-                        self.status_bar.record_data_received()
+                        sr = self.data_manager.sample_rate
+                    self._raw_data_backlog.append(item)
                 elif payload_type == "mode_history":
                     self._process_mode_history(item)
                 elif payload_type:
@@ -297,6 +319,57 @@ class Dashboard(QtWidgets.QWidget):
                 count += 1
         except queue.Empty:
             pass
+
+        if not self._raw_data_backlog:
+            return
+
+        # Phase 2 — Consume from backlog at sample rate with jitter reserve
+        jitter_buffer_size = int(max(1, sr * JITTER_BUFFER_MS // 1000))
+        reserve = int(max(1, sr * BACKLOG_RESERVE_MS // 1000))
+        max_backlog = int(max(jitter_buffer_size, sr * MAX_BACKLOG_MS // 1000))
+
+        # Wait for startup accumulation
+        if self._consumption_epoch is None:
+            if len(self._raw_data_backlog) < jitter_buffer_size:
+                return
+            self._consumption_epoch = time.monotonic()
+            self._total_consumed = 0
+
+        # Budget = wall-clock elapsed samples minus what we already consumed
+        now = time.monotonic()
+        elapsed = now - self._consumption_epoch
+        ideal_consumed = int(elapsed * sr)
+        budget = ideal_consumed - self._total_consumed
+
+        # Clamp: keep reserve in backlog to absorb arrival jitter
+        available = len(self._raw_data_backlog)
+        budget = min(budget, max(0, available - reserve))
+
+        # Cap per-tick to avoid burst after long stalls
+        max_per_tick = sr * UI_UPDATE_INTERVAL_MS * 3 // 1000
+        budget = min(budget, max(1, max_per_tick))
+
+        consumed = 0
+        while consumed < budget and self._raw_data_backlog:
+            item = self._raw_data_backlog.popleft()
+            self.data_manager.append_raw_data(item)
+            if self.status_bar:
+                self.status_bar.record_data_received()
+            consumed += 1
+
+        self._total_consumed += consumed
+
+        # Reset epoch periodically to avoid float drift (every ~10s)
+        if elapsed > 10.0:
+            self._consumption_epoch = now
+            self._total_consumed = 0
+
+        # Safety valve: drop oldest if backlog exceeds max
+        if len(self._raw_data_backlog) > max_backlog:
+            drop_count = len(self._raw_data_backlog) - max_backlog
+            for _ in range(drop_count):
+                self._raw_data_backlog.popleft()
+            logging.warning(f"Dashboard: dropped {drop_count} stale samples (backlog exceeded {MAX_BACKLOG_MS}ms)")
 
     def _initialize_from_data(self, item: dict[str, Any]):
         """Initialize from first data packet"""
@@ -529,19 +602,34 @@ class Dashboard(QtWidgets.QWidget):
             self.async_managers[mode_name].handle_data(mode_name, item)
 
     def update_dashboard(self):
-        """Main update loop with conditional updates for better performance"""
+        """Main update loop — ingests data every tick, renders at ~30fps."""
         self._process_queue()
 
         if not self.data_manager.initialized:
             return
 
+        # Throttle rendering to ~30fps while keeping data ingestion at ~60Hz
+        now = time.monotonic()
+        if now - self._last_render_time < RENDER_INTERVAL_MS / 1000:
+            return
+        self._last_render_time = now
+
         # Only update raw data plots if new data has arrived
         if self.data_manager.data_changed:
+            # Suppress per-curve repaints — one batched repaint at the end
+            self.eeg_plots.setUpdatesEnabled(False)
+            self.psd_plots.setUpdatesEnabled(False)
+
             self.eeg_plot_manager.update_plots()
             self.psd_plot_manager.update_plots()
-            self.event_plot_manager.update_plots()
-            self.modality_plot_manager.update_plots()
-            self.data_manager.data_changed = False  # Reset flag
+            if self._events_expanded:
+                self.event_plot_manager.update_plots()
+            if self._mod_expanded:
+                self.modality_plot_manager.update_plots()
+
+            self.eeg_plots.setUpdatesEnabled(True)
+            self.psd_plots.setUpdatesEnabled(True)
+            self.data_manager.data_changed = False
 
         # Update mode-specific plots only if data changed
         for mode_name, manager in self.performance_managers.items():
@@ -687,6 +775,10 @@ class Dashboard(QtWidgets.QWidget):
         self._total_channels = 0
         self._channel_labels = []
 
+        self._raw_data_backlog.clear()
+        self._consumption_epoch = None
+        self._total_consumed = 0
+        self._last_render_time = 0.0
         self.data_manager.clear_all_buffers()
         self.sync_performance_data.clear()
 
@@ -735,8 +827,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.dashboard)
 
         self.receiver = OptimizedLSLReceiver(stream_name)
-        self.receiver.new_payload_signal.connect(
-            self._handle_payload, QtCore.Qt.ConnectionType.QueuedConnection
+        self.receiver.new_payloads_signal.connect(
+            self._handle_payloads, QtCore.Qt.ConnectionType.QueuedConnection
         )
         self.dashboard.reconnect_request_signal.connect(self._handle_reconnect)
 
@@ -747,15 +839,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.qt_status_bar = self.statusBar()
         self.qt_status_bar.showMessage("Initializing...")
 
-    def _handle_payload(self, payload: dict):
-        """Handle new payload"""
-        try:
-            self.plot_queue.put_nowait(payload)
-            qsize = self.plot_queue.qsize()
-            if qsize > 1500:
-                self.qt_status_bar.showMessage(f"Warning: Queue size {qsize}", 2000)
-        except queue.Full:
-            logging.warning("Plot queue full!")
+    def _handle_payloads(self, payloads: list[dict]):
+        """Handle batched payloads from LSL receiver."""
+        for payload in payloads:
+            try:
+                self.plot_queue.put_nowait(payload)
+            except queue.Full:
+                logging.warning("Plot queue full!")
+                break
+        qsize = self.plot_queue.qsize()
+        if qsize > 1500:
+            self.qt_status_bar.showMessage(f"Warning: Queue size {qsize}", 2000)
 
     def _handle_reconnect(self):
         """Handle reconnect request"""

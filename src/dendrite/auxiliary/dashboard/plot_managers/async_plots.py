@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import pyqtgraph as pg
 from PyQt6 import QtCore
+from scipy.interpolate import make_interp_spline
 
 from dendrite.auxiliary.dashboard.plot_managers.plot_utils import (
     ASYNC_PREDICTION_EDGE,
@@ -33,6 +34,7 @@ from dendrite.gui.styles.design_tokens import TEXT_LABEL
 ASYNC_WINDOW_DURATION = 30.0  # seconds - 30s window for better temporal context
 ASYNC_MAX_POINTS = 300  # 30s @ 10Hz = 300 points (no downsampling needed)
 CONFIDENCE_THRESHOLD_LINE = 0.6  # Visual threshold line position for confidence plot
+CONFIDENCE_UPSAMPLE_FACTOR = 5  # Multiply point count for smooth curve rendering
 
 
 class AsyncPlotManager:
@@ -164,7 +166,9 @@ class AsyncPlotManager:
 
         # Confidence curve
         confidence_curve = confidence_plot.plot(
-            pen=pg.mkPen(METRIC_CONFIDENCE, width=1.5), name="Confidence"
+            pen=pg.mkPen(METRIC_CONFIDENCE, width=2.5),
+            name="Confidence",
+            antialias=True,
         )
 
         # Threshold reference line (fixed position at 0.6 for visual reference)
@@ -349,8 +353,47 @@ class AsyncPlotManager:
         pred_plot["plot"].setXRange(*x_range, padding=0)
 
         conf_plot = plots["confidence"]
-        conf_plot["confidence_curve"].setData(windowed_time, windowed_confidences)
+        smooth_times, smooth_confidences = self._smooth_confidence(
+            windowed_time, windowed_confidences
+        )
+        conf_plot["confidence_curve"].setData(smooth_times, smooth_confidences)
         conf_plot["plot"].setXRange(*x_range, padding=0)
+
+    def _smooth_confidence(
+        self, times: np.ndarray, values: np.ndarray, alpha: float = 0.15
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Smooth confidence values with EMA and upsample via cubic spline.
+
+        Two-stage pipeline: EMA reduces noise, then cubic spline interpolation
+        adds intermediate points so the curve renders smoothly (raw ~10Hz data
+        creates jagged line segments).
+
+        Args:
+            times: Timestamp array matching values
+            values: Raw confidence values
+            alpha: EMA smoothing factor (lower = smoother)
+
+        Returns:
+            Tuple of (upsampled_times, smooth_values).
+        """
+        if len(values) < 4:
+            return times, values
+
+        # Stage 1: EMA to reduce noise
+        smoothed = np.empty_like(values)
+        smoothed[0] = values[0]
+        for i in range(1, len(values)):
+            smoothed[i] = alpha * values[i] + (1 - alpha) * smoothed[i - 1]
+
+        # Stage 2: Cubic spline upsample for visual smoothness
+        n_output = len(smoothed) * CONFIDENCE_UPSAMPLE_FACTOR
+        upsampled_times = np.linspace(times[0], times[-1], n_output)
+        spline = make_interp_spline(times, smoothed, k=3)
+        upsampled_values = spline(upsampled_times)
+
+        np.clip(upsampled_values, 0.0, 1.0, out=upsampled_values)
+
+        return upsampled_times, upsampled_values
 
     def clear_plots(self, mode_name: str | None = None) -> None:
         """

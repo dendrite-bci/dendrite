@@ -254,4 +254,6 @@ def setup_signal_plot(
         p.setMaximumHeight(max_height)
 
     curve = p.plot(pen=pg.mkPen(color, width=1))
+    curve.setDownsampling(auto=True, method="peak")
+    curve.setClipToView(True)
     return p, curve

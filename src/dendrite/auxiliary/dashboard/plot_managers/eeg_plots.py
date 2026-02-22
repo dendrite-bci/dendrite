@@ -7,7 +7,6 @@ Handles initialization and updating of EEG channel plots.
 
 import logging
 
-import numpy as np
 import pyqtgraph as pg
 
 from dendrite.auxiliary.dashboard.backend.signal_quality import (
@@ -107,7 +106,7 @@ class EEGPlotManager:
                 and len(self.data_manager.eeg_buffers[channel_idx]) > 1
             ):
                 buffer = self.data_manager.eeg_buffers[channel_idx]
-                data = np.array(buffer)
+                data = buffer.as_array()
 
                 # Update curve data
                 curve.setData(self.data_manager.time_axis[-len(data) :], data)
