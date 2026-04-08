@@ -31,7 +31,7 @@ from braindecode.models import (
 )
 
 from .base import ModelBase
-from .model_configs import (
+from .model_schemas import (
     BDATCNetConfig,
     BDDeep4NetConfig,
     BDEEGConformerConfig,

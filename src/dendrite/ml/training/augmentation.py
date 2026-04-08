@@ -1,9 +1,7 @@
 """
-Modality-Agnostic Data Augmentation for Dendrite/Neural Signals
+Data Augmentation for EEG/Neural Signals
 
-This module provides simple, general augmentation techniques that work with
-any 2D signal data in (channels, times) format. Supports both single arrays
-and dictionaries of arrays for multimodal data.
+Simple augmentation techniques that work with 2D signal data in (channels, times) format.
 """
 
 import logging
@@ -15,41 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 class BaseAugmentationStrategy(ABC):
-    """Base class for all augmentation strategies with automatic dict/array handling."""
+    """Base class for all augmentation strategies."""
 
     def __init__(self, name: str):
         self.name = name
 
-    def apply(self, data: np.ndarray | dict[str, np.ndarray]) -> np.ndarray | dict[str, np.ndarray]:
-        """
-        Apply augmentation to array or dictionary of arrays.
-
-        Parameters:
-        -----------
-        data : np.ndarray or dict
-            Single array (channels, times) or dict of arrays
-
-        Returns:
-        --------
-        Augmented data in same format as input
-        """
-        if isinstance(data, dict):
-            # Apply to each modality in dictionary
-            return {key: self._apply_to_array(value) for key, value in data.items()}
-        else:
-            # Apply to single array
-            return self._apply_to_array(data)
-
     @abstractmethod
-    def _apply_to_array(self, sample: np.ndarray) -> np.ndarray:
+    def apply(self, sample: np.ndarray) -> np.ndarray:
         """Apply augmentation to a single array in (channels, times) format."""
         pass
-
-    def __call__(
-        self, data: np.ndarray | dict[str, np.ndarray]
-    ) -> np.ndarray | dict[str, np.ndarray]:
-        """Make the strategy callable."""
-        return self.apply(data)
 
 
 class NoiseAugmentation(BaseAugmentationStrategy):
@@ -70,7 +42,7 @@ class NoiseAugmentation(BaseAugmentationStrategy):
         self.noise_type = noise_type.lower()
         self.intensity = intensity
 
-    def _apply_to_array(self, sample: np.ndarray) -> np.ndarray:
+    def apply(self, sample: np.ndarray) -> np.ndarray:
         """Add noise to array. Works with any dimensionality."""
         augmented = sample.copy().astype(np.float32)
 
@@ -102,7 +74,7 @@ class AmplitudeAugmentation(BaseAugmentationStrategy):
         super().__init__(f"amplitude_{scale_range[0]}_{scale_range[1]}")
         self.scale_range = scale_range
 
-    def _apply_to_array(self, sample: np.ndarray) -> np.ndarray:
+    def apply(self, sample: np.ndarray) -> np.ndarray:
         """Apply amplitude scaling."""
         scale_factor = np.random.uniform(self.scale_range[0], self.scale_range[1])
         return sample * scale_factor
@@ -126,7 +98,7 @@ class MaskingAugmentation(BaseAugmentationStrategy):
         self.mask_type = mask_type.lower()
         self.mask_ratio = mask_ratio
 
-    def _apply_to_array(self, sample: np.ndarray) -> np.ndarray:
+    def apply(self, sample: np.ndarray) -> np.ndarray:
         """Apply masking to array."""
         augmented = sample.copy()
 
@@ -162,6 +134,43 @@ class MaskingAugmentation(BaseAugmentationStrategy):
         return augmented
 
 
+class TimeShiftAugmentation(BaseAugmentationStrategy):
+    """Shift signal along time axis with zero-padding.
+
+    Critical for BCI: teaches temporal invariance so the decoder generalizes
+    from event-locked epochs to arbitrary sliding window positions.
+    """
+
+    def __init__(self, max_shift_ratio: float = 0.1):
+        """
+        Parameters
+        ----------
+        max_shift_ratio : float
+            Maximum shift as fraction of signal length. E.g., 0.1 = +/-10%.
+        """
+        super().__init__(f"timeshift_{max_shift_ratio}")
+        self.max_shift_ratio = max_shift_ratio
+
+    def apply(self, sample: np.ndarray) -> np.ndarray:
+        """Shift along last axis, zero-pad the gap."""
+        augmented = sample.copy()
+        n_times = sample.shape[-1]
+        max_shift = int(n_times * self.max_shift_ratio)
+        if max_shift == 0:
+            return augmented
+
+        shift = np.random.randint(-max_shift, max_shift + 1)
+        if shift == 0:
+            return augmented
+
+        result = np.zeros_like(augmented)
+        if shift > 0:
+            result[..., shift:] = augmented[..., :-shift]
+        else:
+            result[..., :shift] = augmented[..., -shift:]
+        return result
+
+
 class DropoutAugmentation(BaseAugmentationStrategy):
     """Random dropout of signal values."""
 
@@ -177,7 +186,7 @@ class DropoutAugmentation(BaseAugmentationStrategy):
         super().__init__(f"dropout_{dropout_rate}")
         self.dropout_rate = dropout_rate
 
-    def _apply_to_array(self, sample: np.ndarray) -> np.ndarray:
+    def apply(self, sample: np.ndarray) -> np.ndarray:
         """Apply random dropout."""
         augmented = sample.copy()
 
@@ -220,7 +229,7 @@ class CompositeAugmentation(BaseAugmentationStrategy):
         self.apply_prob = apply_prob
         self.max_strategies = max_strategies
 
-    def _apply_to_array(self, sample: np.ndarray) -> np.ndarray:
+    def apply(self, sample: np.ndarray) -> np.ndarray:
         """Apply random combination of strategies."""
         augmented = sample.copy()
 
@@ -231,7 +240,7 @@ class CompositeAugmentation(BaseAugmentationStrategy):
                 break
 
             if np.random.random() < self.apply_prob:
-                augmented = strategy._apply_to_array(augmented)
+                augmented = strategy.apply(augmented)
                 applied_count += 1
 
         return augmented
@@ -264,6 +273,9 @@ class AugmentationManager:
         self.register_strategy("masking_time", MaskingAugmentation("time", 0.1))
         self.register_strategy("masking_channel", MaskingAugmentation("channel", 0.1))
         self.register_strategy("dropout", DropoutAugmentation(0.1))
+        self.register_strategy("timeshift_light", TimeShiftAugmentation(0.05))
+        self.register_strategy("timeshift", TimeShiftAugmentation(0.1))
+        self.register_strategy("timeshift_heavy", TimeShiftAugmentation(0.2))
 
         # Create presets (3 levels of augmentation intensity)
         self.presets["light"] = CompositeAugmentation(
@@ -276,6 +288,7 @@ class AugmentationManager:
             [
                 self.strategies["noise_medium"],
                 self.strategies["amplitude"],
+                self.strategies["timeshift_light"],
                 self.strategies["masking_channel"],
             ],
             apply_prob=0.6,
@@ -286,6 +299,7 @@ class AugmentationManager:
             [
                 self.strategies["noise_heavy"],
                 self.strategies["amplitude"],
+                self.strategies["timeshift"],
                 self.strategies["masking_time"],
                 self.strategies["masking_channel"],
                 self.strategies["dropout"],
@@ -294,65 +308,13 @@ class AugmentationManager:
             max_strategies=3,
         )
 
-        # Backwards compatibility alias
-        self.presets["conservative"] = self.presets["light"]
-
         logger.debug("Default augmentation strategies and presets initialized")
-
-    def transform_batch(
-        self, batch_data: dict[str, np.ndarray], strategy_name: str = "moderate", prob: float = 0.5
-    ) -> dict[str, np.ndarray]:
-        """
-        Apply augmentation to a batch of data online (in-place transformation).
-
-        This method applies augmentation stochastically to batches during training,
-        providing better memory usage and variability compared to offline augmentation.
-
-        Parameters:
-        -----------
-        batch_data : Dict[str, np.ndarray]
-            Batch data with modality keys (e.g., {'eeg': batch_array})
-            Each array has shape (batch_size, n_channels, n_times)
-        strategy_name : str, default='moderate'
-            Name of augmentation strategy or preset to apply
-        prob : float, default=0.5
-            Probability of applying augmentation to the batch
-
-        Returns:
-        --------
-        Dict[str, np.ndarray]
-            Transformed batch data (same structure as input)
-        """
-        # Stochastic application - only augment with given probability
-        if np.random.random() > prob:
-            return batch_data
-
-        strategy = self.get_strategy(strategy_name)
-        if strategy is None:
-            logger.warning(
-                f"Augmentation strategy '{strategy_name}' not found, returning original batch"
-            )
-            return batch_data
-
-        # Apply augmentation to each modality in the batch
-        transformed_batch = {}
-        for modality, data in batch_data.items():
-            if len(data) == 0:
-                transformed_batch[modality] = data
-                continue
-
-            # Apply augmentation to each sample in the batch
-            transformed_batch[modality] = np.array(
-                [strategy._apply_to_array(sample) for sample in data]
-            )
-
-        return transformed_batch
 
     def transform_array(
         self, data: np.ndarray, strategy_name: str = "moderate", prob: float = 0.5
     ) -> np.ndarray:
         """
-        Apply augmentation to a batch array directly.
+        Apply augmentation to a batch array.
 
         Parameters:
         -----------
@@ -382,11 +344,10 @@ class AugmentationManager:
         if len(data) == 0:
             return data
 
-        return np.array([strategy._apply_to_array(sample) for sample in data])
-
-    def list_available(self) -> dict[str, list[str]]:
-        """List all available strategies and presets."""
-        return {"strategies": list(self.strategies.keys()), "presets": list(self.presets.keys())}
+        result = data.copy()
+        for i in range(len(result)):
+            result[i] = strategy.apply(result[i])
+        return result
 
 
 # Global augmentation manager instance

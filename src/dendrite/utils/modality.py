@@ -33,15 +33,3 @@ def normalize_modality_dict(d: dict) -> dict:
     if not d:
         return {}
     return {normalize_modality(k): v for k, v in d.items()}
-
-
-def display_modality(name: str) -> str:
-    """Format modality name for display (uppercase).
-
-    Args:
-        name: Modality name (e.g., 'eeg', 'EEG')
-
-    Returns:
-        Uppercase modality name (e.g., 'EEG'), or empty string if None/empty
-    """
-    return name.upper() if name else ""

@@ -1,9 +1,6 @@
-"""
-Preprocessing components for EEG-based brain-machine interfaces.
+"""Preprocessing components for brain-machine interfaces."""
 
-This package contains utilities for preprocessing EEG data.
-"""
-
+from dendrite.processing.preprocessing.preprocessor import ModalityProcessor, OnlinePreprocessor
 from dendrite.processing.preprocessing.scalers import ChannelScaler
 
-__all__ = ["ChannelScaler"]
+__all__ = ["ChannelScaler", "ModalityProcessor", "OnlinePreprocessor"]

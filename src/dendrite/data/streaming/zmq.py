@@ -68,15 +68,7 @@ class ZMQStreamer(BaseOutputStreamer):
         self.context = None
         self.publisher = None
 
-        # Check ZMQ availability
-        if not HAS_ZMQ:
-            self.logger.warning(
-                "ZeroMQ not available - ZMQStreamer will not function. Install with: pip install pyzmq"
-            )
-        else:
-            self.logger.info(
-                f"ZMQStreamer initialized: tcp://{self.ip}:{self.port} ({self.message_format})"
-            )
+        self.logger.info(f"ZMQStreamer initialized: tcp://{self.ip}:{self.port}")
 
     def _initialize_output(self) -> None:
         """Initialize ZMQ publisher."""
@@ -109,15 +101,9 @@ class ZMQStreamer(BaseOutputStreamer):
             try:
                 # Prepare message based on format
                 serializable_data = self._make_json_serializable(data)
-
-                if self.message_format == "JSON":
-                    message = json.dumps(serializable_data)
-                    self.publisher.send_string(message)
-                    self.bytes_sent += len(message.encode("utf-8"))
-                else:  # Binary
-                    message = json.dumps(serializable_data)
-                    self.publisher.send(message.encode("utf-8"))
-                    self.bytes_sent += len(message.encode("utf-8"))
+                message = json.dumps(serializable_data)
+                self.publisher.send_string(message)
+                self.bytes_sent += len(message.encode("utf-8"))
 
             except Exception as e:
                 self.logger.error(f"Error sending ZMQ data: {e}")

@@ -16,48 +16,37 @@ from pydantic import (
     model_validator,
 )
 
+from dendrite.ml.decoders.registry import get_available_decoders
 from dendrite.ml.models import get_available_models
+from dendrite.processing.preprocessing.preprocessing_schemas import ModalityPreprocessing
 from dendrite.utils.modality import normalize_modality
 
 logger = logging.getLogger(__name__)
 
 
 VALID_MODES = {"synchronous", "asynchronous", "neurofeedback"}
-VALID_DECODER_TYPE = "Decoder"
-VALID_MODEL_TYPES = set(get_available_models())
-VALID_MODEL_SOURCES = {"pretrained", "sync_mode", "database"}
+VALID_MODEL_TYPES = set(get_available_models()) | set(get_available_decoders())
+VALID_MODEL_SOURCES = {"database", "online"}
 
-# Default decoder configurations (training hyperparameters come from NeuralNetConfig)
-DEFAULT_SYNC_DECODER_CONFIG = {"decoder_type": "Decoder", "model_config": {"model_type": "EEGNet"}}
-
-DEFAULT_ASYNC_DECODER_CONFIG = {
+DEFAULT_DECODER_CONFIG: dict[str, Any] = {
     "decoder_type": "Decoder",
-    "decoder_path": None,
     "model_config": {"model_type": "EEGNet", "num_classes": 2},
 }
-
-
-def _validate_decoder_type(v: dict) -> None:
-    """Validate decoder_type field."""
-    if v.get("decoder_type", VALID_DECODER_TYPE) != VALID_DECODER_TYPE:
-        raise ValueError(f"decoder_type must be '{VALID_DECODER_TYPE}'")
 
 
 class BaseModeInstanceConfig(BaseModel):
     """Base validation schema for all mode instance configurations."""
 
     model_config = ConfigDict(
-        extra="allow", validate_assignment=True, str_strip_whitespace=True, validate_default=True
+        extra="ignore", str_strip_whitespace=True
     )
 
     name: str = Field(min_length=1, description="Unique instance name")
     mode: str = Field(description="Mode type: synchronous/asynchronous/neurofeedback")
+    enabled: bool = Field(default=True, description="Whether this mode is active for pipeline runs")
     channel_selection: dict[str, list[int]] = Field(
-        description="Channel indices per modality: {'eeg': [0,1,2,3]}"
-    )
-    required_modalities: list[str] = Field(
-        default_factory=lambda: ["eeg"],
-        description="Modalities this mode receives from processor routing",
+        default_factory=dict,
+        description="Channel indices per modality: {'eeg': [0,1,2,3]}",
     )
     stream_sources: dict[str, str] = Field(
         default_factory=dict,
@@ -65,6 +54,15 @@ class BaseModeInstanceConfig(BaseModel):
     )
     modality_labels: dict[str, list[str]] = Field(
         default_factory=dict, description="Channel labels per modality for decoder validation"
+    )
+    source_stream: str | None = Field(
+        default=None,
+        description="Preferred source stream key for ring buffer selection",
+    )
+    mode_preprocessing: dict[str, ModalityPreprocessing] = Field(
+        default_factory=dict,
+        description="Per-mode preprocessing config per modality. "
+        "e.g., {'eeg': {'lowcut': 1.0, 'highcut': 45.0, 'apply_rereferencing': True}}",
     )
 
     event_mapping: dict[int, str] = Field(
@@ -93,7 +91,7 @@ class BaseModeInstanceConfig(BaseModel):
     @classmethod
     def validate_channel_selection(cls, v):
         if not v:
-            raise ValueError("At least one modality with channels must be configured")
+            return v  # Allow empty — preflight validates before pipeline start
 
         # Enforce single modality per mode instance
         if len(v) > 1:
@@ -110,12 +108,15 @@ class BaseModeInstanceConfig(BaseModel):
 
         return v
 
-    @field_validator("required_modalities")
-    @classmethod
-    def validate_required_modalities(cls, v):
-        if not v:
-            return ["eeg"]  # Default for backward compatibility
-        return [normalize_modality(m) for m in v]
+    @model_validator(mode="after")
+    def align_preprocessing_to_modality(self):
+        """Ensure mode_preprocessing matches the selected modality."""
+        if not self.channel_selection:
+            return self
+        primary = normalize_modality(next(iter(self.channel_selection)))
+        if primary not in self.mode_preprocessing:
+            self.mode_preprocessing = {primary: ModalityPreprocessing.default_for(primary)}
+        return self
 
     @model_validator(mode="after")
     def validate_model_modality_compatibility(self):
@@ -142,25 +143,35 @@ class SynchronousInstanceConfig(BaseModeInstanceConfig):
     """Validation schema for synchronous mode instances."""
 
     decoder_config: dict[str, Any] = Field(
-        default_factory=lambda: copy.deepcopy(DEFAULT_SYNC_DECODER_CONFIG),
+        default_factory=lambda: copy.deepcopy(DEFAULT_DECODER_CONFIG),
         description="Complete decoder and model configuration",
     )
 
-    start_offset: float = Field(default=0.0, description="Epoch start offset in seconds")
-    end_offset: float = Field(default=2.0, gt=0, description="Epoch end offset in seconds")
+    epoch_tmin: float = Field(default=0.0, description="Epoch start time in seconds (relative to event)")
+    epoch_tmax: float = Field(default=2.0, gt=0, description="Epoch end time in seconds (relative to event)")
     training_interval: int = Field(default=10, ge=1, description="Train every N epochs")
+    use_epoch_qc: bool = Field(default=True, description="Filter bad epochs during training")
+    include_background: bool = Field(
+        default=False, description="Train with rest class from inter-trial gaps",
+    )
+    use_study_history: bool = Field(
+        default=False,
+        description="Augment live training data with compatible recordings from the study",
+    )
+    study_history_recording_ids: list[int] | None = Field(
+        default=None,
+        description="Specific recording IDs to use for study history augmentation",
+    )
 
     @field_validator("decoder_config")
     @classmethod
     def validate_decoder_config(cls, v):
-        # Local import to avoid circular dependency
-        from dendrite.ml.decoders.decoder_schemas import NeuralNetConfig
+        from dendrite.ml.decoders.decoder_schemas import DecoderConfig
 
-        _validate_decoder_type(v)
         model_config = v.get("model_config", {})
         if model_config:
             try:
-                validated = NeuralNetConfig(**model_config)
+                validated = DecoderConfig(**model_config)
                 v["model_config"] = validated.model_dump()
             except ValidationError as e:
                 raise ValueError(f"Invalid model_config: {e}") from e
@@ -170,7 +181,8 @@ class SynchronousInstanceConfig(BaseModeInstanceConfig):
     @classmethod
     def validate_event_mapping(cls, v):
         if not v:
-            raise ValueError("Synchronous mode requires at least 2 event classes")
+            # Provide sensible defaults for new instances
+            return {1: "Left", 2: "Right"}
 
         converted = {}
         for event_id, event_label in v.items():
@@ -188,27 +200,19 @@ class SynchronousInstanceConfig(BaseModeInstanceConfig):
 
         return converted
 
-    @field_validator("end_offset")
+    @field_validator("epoch_tmax")
     @classmethod
     def validate_end_after_start(cls, v: float, info: ValidationInfo) -> float:
-        if "start_offset" in info.data and v <= info.data["start_offset"]:
-            raise ValueError("end_offset must be greater than start_offset")
+        if "epoch_tmin" in info.data and v <= info.data["epoch_tmin"]:
+            raise ValueError("epoch_tmax must be greater than epoch_tmin")
         return v
-
-
-class EvaluationConfig(BaseModel):
-    """Evaluation configuration for async mode."""
-
-    model_config = ConfigDict(extra="allow")
-
-    background_class: int | None = Field(default=None, ge=0, le=10)
 
 
 class AsynchronousInstanceConfig(BaseModeInstanceConfig):
     """Validation schema for asynchronous mode instances."""
 
     decoder_config: dict[str, Any] = Field(
-        default_factory=lambda: copy.deepcopy(DEFAULT_ASYNC_DECODER_CONFIG),
+        default_factory=lambda: copy.deepcopy(DEFAULT_DECODER_CONFIG),
         description="Minimal decoder configuration for inference-only async mode",
     )
 
@@ -218,29 +222,28 @@ class AsynchronousInstanceConfig(BaseModeInstanceConfig):
     step_size_ms: int = Field(default=100, gt=0, description="Step size between predictions in ms")
 
     decoder_source: str = Field(
-        default="pretrained", description="Decoder source: pretrained/sync_mode/database"
+        default="database", description="Decoder source: database/online"
     )
-    source_sync_mode: str = Field(default="", description="Source synchronous mode instance name")
-
-    evaluation_config: EvaluationConfig = Field(
-        default_factory=EvaluationConfig, description="Evaluation configuration"
+    source_mode: str | None = Field(
+        default=None,
+        description="Paired sync mode name — filters online decoders to this source only",
     )
 
     @field_validator("decoder_config")
     @classmethod
     def validate_decoder_config(cls, v):
-        _validate_decoder_type(v)
-        model_config = v.get("model_config", {})
+        from dendrite.ml.decoders.decoder_schemas import DecoderConfig
+
+        model_config = v.get("model_config") or {}
         if model_config:
             model_type = model_config.get("model_type", "EEGNet")
             if model_type not in VALID_MODEL_TYPES:
                 raise ValueError(f"model_type must be one of: {VALID_MODEL_TYPES}")
-            num_classes = model_config.get("num_classes", 2)
-            if not isinstance(num_classes, int) or num_classes < 2:
-                raise ValueError("num_classes must be an integer >= 2")
-        decoder_path = v.get("decoder_path")
-        if decoder_path and not isinstance(decoder_path, str):
-            raise ValueError("decoder_path must be a string")
+            try:
+                validated = DecoderConfig(**model_config)
+                v["model_config"] = validated.model_dump()
+            except ValidationError as e:
+                raise ValueError(f"Invalid model_config: {e}") from e
         return v
 
     @field_validator("decoder_source")
@@ -249,25 +252,6 @@ class AsynchronousInstanceConfig(BaseModeInstanceConfig):
         if v not in VALID_MODEL_SOURCES:
             raise ValueError(f"decoder_source must be one of: {VALID_MODEL_SOURCES}")
         return v
-
-    @field_validator("evaluation_config", mode="before")
-    @classmethod
-    def validate_evaluation_config(cls, v):
-        if isinstance(v, dict):
-            return EvaluationConfig(**v)
-        return v
-
-    @model_validator(mode="after")
-    def validate_decoder_source_requirements(self):
-        if self.decoder_source in ("pretrained", "database"):
-            decoder_path = self.decoder_config.get("decoder_path")
-            if not decoder_path or not decoder_path.strip():
-                raise ValueError("Decoder file path is required")
-        elif self.decoder_source == "sync_mode":
-            if not self.source_sync_mode:
-                raise ValueError("Source synchronous mode instance must be specified")
-        return self
-
 
 class NeurofeedbackInstanceConfig(BaseModeInstanceConfig):
     """Validation schema for neurofeedback mode instances."""
@@ -312,6 +296,20 @@ class NeurofeedbackInstanceConfig(BaseModeInstanceConfig):
         for band_name, freq_range in bands_to_validate.items():
             validate_band(band_name, freq_range)
 
+        # IAF calibration (optional)
+        if "iaf_event_id" in v:
+            eid = v["iaf_event_id"]
+            if not isinstance(eid, int) or eid < 1:
+                raise ValueError("iaf_event_id must be a positive integer")
+            iaf_sec = v.get("iaf_baseline_sec", 5.0)
+            if not isinstance(iaf_sec, (int, float)) or iaf_sec <= 0:
+                raise ValueError("iaf_baseline_sec must be a positive number")
+            iaf_range = v.get("iaf_range", [7.0, 14.0])
+            if not isinstance(iaf_range, list) or len(iaf_range) != 2:
+                raise ValueError("iaf_range must be [low, high]")
+            if iaf_range[0] >= iaf_range[1]:
+                raise ValueError("iaf_range: low must be < high")
+
         return v
 
 
@@ -330,7 +328,7 @@ def _get_system_shapes(config: dict, stream_context: dict) -> dict[str, list[int
 
     # Calculate time samples from mode-specific window
     if mode_type == "synchronous":
-        window_sec = config.get("end_offset", 2.0) - config.get("start_offset", 0.0)
+        window_sec = config.get("epoch_tmax", 2.0) - config.get("epoch_tmin", 0.0)
     elif mode_type in ("asynchronous", "neurofeedback"):
         window_sec = config.get("window_length_sec", 1.0)
     else:
@@ -355,6 +353,22 @@ def _check_decoder_compatibility(config: dict, stream_context: dict) -> list[str
         from dendrite.ml.decoders.decoder_schemas import DecoderConfig
 
         metadata = get_decoder_metadata(decoder_path)
+
+        # Modality check: decoder's training modalities vs config's channel_selection
+        config_modalities = {k.lower() for k in config.get("channel_selection", {})}
+        decoder_modalities = set()
+        input_shapes = metadata.get("input_shapes")
+        if input_shapes and isinstance(input_shapes, dict):
+            decoder_modalities = {k.lower() for k in input_shapes}
+        elif metadata.get("modality"):
+            decoder_modalities = {metadata["modality"].lower()}
+
+        if decoder_modalities and config_modalities and not (config_modalities & decoder_modalities):
+            return [
+                f"Decoder trained on {', '.join(sorted(decoder_modalities)).upper()}, "
+                f"mode uses {', '.join(sorted(config_modalities)).upper()}"
+            ]
+
         decoder_cfg = DecoderConfig(**metadata)
         return decoder_cfg.check_compatibility(system_shapes)
     except FileNotFoundError:
@@ -378,7 +392,7 @@ def validate_mode_config(
             "neurofeedback": NeurofeedbackInstanceConfig,
         }
         validated = schema_map[mode_type](**config)
-        validated_dict = validated.model_dump()
+        validated_dict = validated.model_dump(exclude_none=True)
 
         if stream_context:
             compat_errors = _check_decoder_compatibility(config, stream_context)

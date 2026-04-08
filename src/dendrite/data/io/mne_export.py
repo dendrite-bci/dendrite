@@ -2,17 +2,22 @@
 MNE conversion and FIF export.
 
 Convert H5 recordings to MNE Raw objects and export to FIF format.
+Embeds event_id mapping in raw.info['description'] as JSON for round-trip
+fidelity with FIFLoader (which reads it back to get protocol codes).
 """
 
+import json
 import logging
 from pathlib import Path
 
+import h5py
 import mne
 import numpy as np
 
-from dendrite.constants import DEFAULT_MONTAGE, TIMESTAMP_COLS, UV_TO_V
+from .h5_explorer import find_dataset, load_dataset
 
-from .h5_io import load_dataset
+_TIMESTAMP_COLS = ["timestamp", "local_timestamp"]
+_UV_TO_V = 1e-6  # µV → V for MNE/FIF
 
 logger = logging.getLogger(__name__)
 
@@ -20,25 +25,30 @@ logger = logging.getLogger(__name__)
 def to_mne_raw(
     h5_path: str | Path,
     sfreq: float,
-    dataset: str = "EEG",
-    montage: str = DEFAULT_MONTAGE,
+    dataset: str | None = None,
+    montage: str = "standard_1005",
 ) -> mne.io.RawArray:
     """
     Convert H5 dataset to MNE Raw object.
 
     Args:
         h5_path: Path to H5 file
-        dataset: Dataset name to convert
+        dataset: Dataset name to convert. If None, auto-detects first data dataset.
         sfreq: Sampling frequency in Hz
         montage: EEG montage name (e.g., 'standard_1005')
 
     Returns:
         MNE RawArray with data in original recording units and channel types set.
     """
+    if dataset is None:
+        with h5py.File(str(h5_path), "r", swmr=True) as h5f:
+            dataset = find_dataset(h5f)
+        if dataset is None:
+            raise KeyError("No data dataset found in H5 file")
     df = load_dataset(h5_path, dataset)
 
-    # Filter out timestamp columns (case-insensitive for backward compat)
-    timestamp_cols_lower = {c.lower() for c in TIMESTAMP_COLS}
+    # Filter out timestamp columns (case-insensitive match)
+    timestamp_cols_lower = {c.lower() for c in _TIMESTAMP_COLS}
     data_cols = [col for col in df.columns if col.lower() not in timestamp_cols_lower]
     data = df[data_cols].values.T  # (n_channels, n_samples) in original units
 
@@ -66,7 +76,7 @@ def export_to_fif(
     h5_path: str | Path,
     sfreq: float,
     output_path: str | Path | None = None,
-    dataset: str = "EEG",
+    dataset: str | None = None,
     include_events: bool = True,
     event_dataset: str = "Event",
     overwrite: bool = False,
@@ -77,7 +87,7 @@ def export_to_fif(
     Args:
         h5_path: Input H5 file path
         output_path: Output FIF path (auto-generated if None)
-        dataset: EEG dataset name
+        dataset: Data dataset name. If None, auto-detects first data dataset.
         sfreq: Sampling frequency
         include_events: Whether to attach events as annotations
         event_dataset: Event dataset name
@@ -95,12 +105,14 @@ def export_to_fif(
     raw = to_mne_raw(h5_path, sfreq, dataset)
 
     # FIF convention requires SI units (Volts). H5 data is stored in µV.
-    raw.apply_function(lambda x: x * UV_TO_V, picks="eeg")
+    raw.apply_function(lambda x: x * _UV_TO_V, picks="data")
 
-    # Attach events
+    # Attach events and embed mapping for round-trip fidelity
     if include_events:
         try:
-            _attach_events(raw, h5_path, dataset, event_dataset, sfreq)
+            event_id = _attach_events(raw, h5_path, dataset, event_dataset, sfreq)
+            if event_id:
+                raw.info["description"] = json.dumps({"event_id": event_id})
         except (KeyError, ValueError, OSError) as e:
             logger.warning(f"Could not attach events: {e}")
 
@@ -138,12 +150,17 @@ def guess_channel_type(name: str) -> str:
 
 def _attach_events(
     raw: mne.io.RawArray, h5_path: str, eeg_dataset: str, event_dataset: str, sfreq: float
-) -> None:
-    """Attach events from H5 file to MNE Raw as annotations."""
+) -> dict[str, int] | None:
+    """Attach events from H5 file to MNE Raw as annotations.
+
+    Returns:
+        event_id mapping {event_name: event_code} for embedding in FIF metadata,
+        or None if no events could be attached.
+    """
     df_eeg = load_dataset(h5_path, eeg_dataset)
     df_events = load_dataset(h5_path, event_dataset)
 
-    # Normalize EEG columns to lowercase for legacy compat (events already normalized)
+    # Normalize EEG columns to lowercase (events already normalized by load_dataset)
     df_eeg.columns = df_eeg.columns.str.lower()
 
     # Find timestamp columns
@@ -152,15 +169,22 @@ def _attach_events(
 
     if eeg_ts_col is None or event_ts_col is None:
         logger.warning("Could not find timestamp columns for event alignment")
-        return
+        return None
 
     # Calculate onsets relative to EEG start
     eeg_start = df_eeg[eeg_ts_col].iloc[0]
     onsets = df_events[event_ts_col].values.astype(float) - eeg_start
 
-    # Get event descriptions
+    # Get event descriptions and build event_id mapping
     label_col = "event_type" if "event_type" in df_events.columns else df_events.columns[0]
+    id_col = "event_id" if "event_id" in df_events.columns else None
     descriptions = df_events[label_col].astype(str).values
+
+    # Build name→code mapping from event_id + event_type columns
+    event_id: dict[str, int] | None = None
+    if id_col:
+        pairs = zip(df_events[label_col].astype(str), df_events[id_col].astype(int), strict=False)
+        event_id = dict(set(pairs))
 
     raw.set_meas_date(None)  # Ensure onsets from 0.0
     annotations = mne.Annotations(
@@ -168,3 +192,4 @@ def _attach_events(
     )
     raw.set_annotations(annotations)
     logger.debug(f"Attached {len(onsets)} events")
+    return event_id

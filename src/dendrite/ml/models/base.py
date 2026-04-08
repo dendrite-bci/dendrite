@@ -33,7 +33,6 @@ Example:
 from abc import ABC, abstractmethod
 from typing import Any
 
-import torch
 import torch.nn as nn
 
 from dendrite.utils.logger_central import get_logger
@@ -104,7 +103,7 @@ class ModelBase(nn.Module, ABC):
         if cls._config_class is not None:
             return cls._config_class
         # Fallback: look up by model type in registry
-        from .model_configs import get_model_config_class
+        from .model_schemas import get_model_config_class
 
         model_type = cls._model_type or cls.__name__
         return get_model_config_class(model_type)
@@ -161,29 +160,6 @@ class ModelBase(nn.Module, ABC):
             "parameters": getattr(self, "_params", self.get_default_parameters()),
             **param_counts,
         }
-
-    def validate_input_shape(self, x: torch.Tensor) -> None:
-        """Validate input tensor shape matches model expectations.
-
-        Args:
-            x: Input tensor to validate.
-
-        Raises:
-            ValueError: If input shape doesn't match model requirements.
-
-        Note:
-            This is a helper method that subclasses can use in their forward()
-            method to provide clear error messages for shape mismatches.
-        """
-        expected_info = self.get_model_info()
-        expected_shape = expected_info["input_shape"]
-
-        # Basic validation - subclasses can override for more specific checks
-        if len(x.shape) < 3:
-            raise ValueError(
-                f"Input tensor must have at least 3 dimensions (batch, ...), "
-                f"got shape {x.shape}. Expected format: {expected_shape}"
-            )
 
     def get_parameter_count(self) -> dict[str, int]:
         """Get parameter count statistics for the model.

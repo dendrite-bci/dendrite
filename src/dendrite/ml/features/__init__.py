@@ -1,9 +1,6 @@
-"""
-Dendrite Feature Engineering Module
+"""Feature extraction pipeline components."""
 
-Band power extraction for real-time neurofeedback applications.
-"""
-
+from .csp import CSPConfig, CSPModel
 from .transforms import BandPowerTransform
 
-__all__ = ["BandPowerTransform"]
+__all__ = ["BandPowerTransform", "CSPConfig", "CSPModel"]

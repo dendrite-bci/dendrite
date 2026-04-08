@@ -14,15 +14,16 @@ import numpy as np
 from pydantic import ValidationError
 from pylsl import LostError, StreamInlet, local_clock, proc_clocksync, proc_dejitter, resolve_byprop
 
-from dendrite.constants import (
-    LATENCY_EVENT_TYPE,
-    LSL_BUFFER_SIZE_SECONDS,
-    SAMPLE_PULL_TIMEOUT,
-    STREAM_RESOLVE_TIMEOUT,
-    THREAD_JOIN_TIMEOUT,
-)
+from dendrite.constants import SAMPLE_PULL_TIMEOUT
+
+STREAM_RESOLVE_TIMEOUT = 30  # Full LSL stream resolution
+LSL_BUFFER_SIZE_SECONDS = 5  # LSL inlet buffer duration
+THREAD_JOIN_TIMEOUT = 2.0
+LATENCY_EVENT_TYPE = "latency_update"
 from dendrite.data.event_schemas import EventData
+from dendrite.data.shared_buffers import SharedRingBuffer
 from dendrite.data.stream_schemas import StreamMetadata
+from dendrite.utils.component_state import ComponentState, ComponentStateMachine
 from dendrite.utils.logger_central import get_logger, setup_logger
 from dendrite.utils.state_keys import (
     e2e_latency_key,
@@ -33,42 +34,47 @@ from dendrite.utils.state_keys import (
 
 
 @dataclass
-class DataRecord:
-    """Data structure for holding samples and metadata."""
+class EventRecord:
+    """Payload for event queue: rich event data with 3 timestamps."""
 
-    modality: str
-    sample: Any
+    sample: dict
     timestamp: float
     local_timestamp: float
+    receive_timestamp: float = 0.0
 
 
 class DataAcquisition(Process):
     """Multi-threaded data acquisition for handling multiple LSL streams at native rates.
 
-    Uses separate threads for each stream type. Each reader sends directly to queue
+    Uses separate threads for each stream type. Each reader writes to shared ring buffers
     at its native sampling rate (no main loop, no rate-ratio downsampling).
     """
 
     def __init__(
         self,
-        data_queue: Queue,
-        save_queue: Queue,
         stop_event: Event,
         stream_configs: list[StreamMetadata],
         shared_state=None,
+        ring_buffer_names: dict[str, str] | None = None,
+        event_queue: Queue | None = None,
     ) -> None:
         Process.__init__(self)
-        self.data_queue = data_queue
-        self.save_queue = save_queue
+        self.event_queue = event_queue
         self.stop_event = stop_event
         self.stream_configs = stream_configs or []
         self.shared_state = shared_state
+
+        # Shared memory buffer names (connected in run() after spawn)
+        self._ring_buffer_names = ring_buffer_names or {}
+        self._ring_buffers: dict[str, SharedRingBuffer] = {}
+
+        # Per-stream event deques: events are broadcast to ALL stream readers
+        self._pending_events_per_stream: dict[str, deque] = {}
 
         self.logger = get_logger("DataAcquisition")
 
         self.stream_inlets: dict[str, StreamInlet] = {}
         self.stream_info: dict[str, StreamMetadata] = {}
-        self.channel_mapping = self._build_channel_mapping()
 
         self._reader_threads: list[Thread] = []
 
@@ -83,124 +89,60 @@ class DataAcquisition(Process):
         self._latency_update_interval = 50  # Update P50 every 50 samples (~10Hz)
         self._latency_sample_counts: dict[str, int] = {}
 
-    def _extract_modalities_from_config(self, config: StreamMetadata) -> dict[str, Any]:
-        """Extract modality mapping from a stream config."""
-        stream_map = {
-            "modalities": {},
-            "marker_index": None,
-            "sample_rate": config.sample_rate,
-        }
-
-        channel_types = config.channel_types or []
-        if channel_types:
-            for i, ch_type in enumerate(channel_types):
-                if ch_type.lower() == "markers":
-                    stream_map["marker_index"] = i
-                else:
-                    modality = ch_type.lower()
-                    if modality not in stream_map["modalities"]:
-                        stream_map["modalities"][modality] = []
-                    stream_map["modalities"][modality].append(i)
-        else:
-            modality = config.type.lower()
-            stream_map["modalities"][modality] = list(range(config.channel_count))
-
-        return stream_map
-
-    def _build_channel_mapping(self) -> dict:
-        """Build per-stream channel mapping from configs."""
-        mapping = {}
-
-        for config in self.stream_configs:
-            stream_type = config.type
-
-            if stream_type == "Events":
-                continue
-
-            channel_format = config.channel_format or "float32"
-            if channel_format == "string":
-                mapping[stream_type] = {"is_string": True, "channel_count": config.channel_count}
-                self.logger.info(
-                    f"Stream {stream_type} has string format - will be saved but not processed"
-                )
-                continue
-
-            stream_map = self._extract_modalities_from_config(config)
-            mapping[stream_type] = stream_map
-
-            for modality, indices in stream_map["modalities"].items():
-                self.logger.info(f"  {stream_type} -> {modality}: {len(indices)} channels")
-            if stream_map["marker_index"] is not None:
-                self.logger.info(f"  {stream_type} -> markers: index {stream_map['marker_index']}")
-
-        return mapping
-
-    def _safe_save(self, record: DataRecord) -> None:
-        """Save record to queue, dropping silently if full."""
+    def _save_event(self, record: EventRecord) -> None:
+        """Save event record to event queue."""
+        if self.event_queue is None:
+            return
         try:
-            self.save_queue.put_nowait(record)
+            self.event_queue.put_nowait(record)
         except queue.Full:
-            self.logger.warning(f"Save queue full, dropped {record.modality} sample")
+            self.logger.warning("Event queue full, dropped event")
         except Exception as e:
-            self.logger.error(f"Error saving {record.modality}: {e}")
+            self.logger.error(f"Error saving event: {e}")
 
-    def _save_data_record(
-        self, modality: str, sample: Any, timestamp: float, local_time: float
-    ) -> None:
-        record = DataRecord(
-            modality=modality, sample=sample, timestamp=timestamp, local_timestamp=local_time
-        )
-        self._safe_save(record)
-
-    def _send_to_data_queue(self, payload: dict[str, Any]) -> None:
-        try:
-            self.data_queue.put_nowait(payload)
-        except queue.Full:
-            self.logger.warning("Data queue full, dropped sample")
-
-    def _handle_lost_error(self, stream_type: str) -> None:
+    def _handle_lost_error(self, stream_key: str) -> None:
         """Handle LSL stream disconnection."""
-        self.logger.error(f"{stream_type} stream lost")
+        self.logger.error(f"{stream_key} stream lost")
         if self.shared_state:
-            self.shared_state.set(stream_connected_key(stream_type), False)
+            self.shared_state.set(stream_connected_key(stream_key), False)
 
-    def _handle_reader_error(self, stream_type: str, error: Exception) -> None:
+    def _handle_reader_error(self, stream_key: str, error: Exception) -> None:
         """Handle generic reader thread error with throttled retry."""
         if not self.stop_event.is_set():
-            self.logger.exception(f"{stream_type} reader error: {error}")
+            self.logger.exception(f"{stream_key} reader error: {error}")
             time.sleep(0.1)
 
-    def _update_latency_telemetry(self, stream_type: str, latency_ms: float) -> None:
+    def _update_latency_telemetry(self, stream_key: str, latency_ms: float) -> None:
         """Update shared state with smoothed stream latency (P50, throttled).
 
         Uses deque for O(1) append and throttles P50 calculation to ~10Hz
         instead of computing on every sample (500Hz).
         """
-        # Initialize window for new stream types
-        if stream_type not in self._latency_windows:
-            self._latency_windows[stream_type] = deque(maxlen=self._latency_window_size)
-            self._latency_sample_counts[stream_type] = 0
+        # Initialize window for new stream keys
+        if stream_key not in self._latency_windows:
+            self._latency_windows[stream_key] = deque(maxlen=self._latency_window_size)
+            self._latency_sample_counts[stream_key] = 0
 
         # Append to ring buffer (O(1), no allocations)
-        self._latency_windows[stream_type].append(latency_ms)
-        self._latency_sample_counts[stream_type] += 1
+        self._latency_windows[stream_key].append(latency_ms)
+        self._latency_sample_counts[stream_key] += 1
 
         # Events streams: publish immediately (irregular, low-frequency data)
         # Other streams: throttle to every N samples for efficiency
-        is_events = stream_type.lower() == "events"
+        is_events = stream_key.lower() == "events"
         min_samples = 1 if is_events else 10
         update_interval = 1 if is_events else self._latency_update_interval
 
-        if self._latency_sample_counts[stream_type] < update_interval:
+        if self._latency_sample_counts[stream_key] < update_interval:
             return
-        self._latency_sample_counts[stream_type] = 0
+        self._latency_sample_counts[stream_key] = 0
 
         # Compute and publish P50 (or single value for Events)
-        window = self._latency_windows[stream_type]
+        window = self._latency_windows[stream_key]
         if self.shared_state and len(window) >= min_samples:
             p50 = float(np.median(window))
-            self.shared_state.set(stream_latency_key(stream_type), p50)
-            self.shared_state.set(stream_timestamp_key(stream_type), time.time())
+            self.shared_state.set(stream_latency_key(stream_key), p50)
+            self.shared_state.set(stream_timestamp_key(stream_key), time.time())
 
     def run(self) -> None:
         """
@@ -209,27 +151,49 @@ class DataAcquisition(Process):
         Sets up logging, runs data collection, and ensures cleanup on exit.
         """
         self.logger = setup_logger("DataAcquisition", level=logging.INFO)
+        self._state_machine = ComponentStateMachine("daq", self.shared_state)
         self.logger.info("Data acquisition process started")
+        self._state_machine.transition(ComponentState.STARTING)
+
+        # Connect to shared memory buffers (must happen in child process after spawn)
+        self._connect_shared_buffers()
 
         try:
             self._collect_data()
         except Exception as e:
             self.logger.error(f"DAQ error: {e}", exc_info=True)
+            if self._state_machine.state not in (ComponentState.STOPPING, ComponentState.STOPPED):
+                self._state_machine.set_error(str(e))
         finally:
             self._cleanup()
+            self._state_machine.finalize()
             self.stop_event.set()
+
+    def _connect_shared_buffers(self):
+        """Connect to shared memory buffers created by orchestrator.
+
+        Must be called in the child process (after spawn on Windows).
+        """
+        for stream_type, buf_name in self._ring_buffer_names.items():
+            try:
+                self._ring_buffers[stream_type] = SharedRingBuffer.connect(buf_name)
+                self.logger.info(f"Connected to ring buffer: {buf_name} ({stream_type})")
+            except Exception as e:
+                self.logger.error(f"Failed to connect to ring buffer '{buf_name}': {e}")
 
     def _collect_data(self) -> None:
         """
         Main data collection orchestrator.
 
-        Connects streams, starts reader threads. Each reader sends directly to queue.
+        Connects streams, starts reader threads. Each reader writes to shared ring buffers.
         No main loop - all streams send independently at native rates.
         """
         if not self._connect_streams():
+            self._state_machine.set_error("Failed to connect to required streams")
             return
 
         self._start_reader_threads()
+        self._state_machine.transition(ComponentState.RUNNING)
         self.logger.info("All reader threads started - each stream sends at native rate")
 
         # Wait for stop event (readers run independently)
@@ -239,52 +203,26 @@ class DataAcquisition(Process):
     def _connect_streams(self) -> bool:
         """Connect to all configured streams."""
         for config in self.stream_configs:
-            stream_type = config.type
-            stream_name = config.name
+            key = config.stream_key or config.type
 
-            if stream_type in self.stream_inlets:
+            if key in self.stream_inlets:
                 continue
 
-            inlet = self._resolve_stream(stream_name, stream_type)
+            inlet = self._resolve_stream(config.name, config.type)
             if inlet is None:
-                if stream_type == "EEG":
-                    self.logger.error(
-                        f"Required EEG stream not found: '{stream_name}' (type={stream_type})"
-                    )
-                    return False
-                else:
-                    self.logger.warning(
-                        f"Optional {stream_type} stream not found: '{stream_name}' (type={stream_type})"
-                    )
-                    continue
+                self.logger.error(
+                    f"Configured stream not found: '{config.name}' (type={config.type})"
+                )
+                return False
 
-            self.stream_inlets[stream_type] = inlet
-            self.stream_info[stream_type] = config
-            self.logger.info(f"Connected to {stream_type} stream: '{stream_name}'")
+            self.stream_inlets[key] = inlet
+            self.stream_info[key] = config
+            self.logger.info(f"Connected to {key} stream: '{config.name}'")
 
             if self.shared_state:
-                self.shared_state.set(stream_connected_key(stream_type), True)
+                self.shared_state.set(stream_connected_key(key), True)
 
-            # Add synthetic markers channel if stream has EEG but no markers
-            stream_map = self.channel_mapping.get(stream_type, {})
-            has_eeg = "eeg" in stream_map.get("modalities", {})
-            has_markers = stream_map.get("marker_index") is not None
-            if has_eeg and not has_markers:
-                orig_count = config.channel_count
-                config = config.model_copy(
-                    update={
-                        "channel_count": orig_count + 1,
-                        "labels": (config.labels or [])[:orig_count] + ["Markers"],
-                        "channel_types": (config.channel_types or [])[:orig_count] + ["Markers"],
-                        "channel_units": (config.channel_units or [])[:orig_count] + ["integer"],
-                    }
-                )
-                self.stream_info[stream_type] = config
-                self.logger.info(f"Added synthetic markers channel to {stream_type} stream")
-
-            self._send_stream_metadata(stream_type, inlet)
-
-        return "EEG" in self.stream_inlets
+        return len(self.stream_inlets) > 0
 
     def _resolve_stream(self, stream_name: str, stream_type: str) -> StreamInlet | None:
         """
@@ -324,61 +262,54 @@ class DataAcquisition(Process):
         """
         Start reader threads for all streams.
 
-        Each reader sends directly to data_queue at native rate.
-        No buffering - processor handles routing and event distribution.
+        Numerical readers write to shared ring buffers at native rate.
+        String readers save to disk only. Events reader broadcasts to all stream deques.
         """
         # Start data stream readers (EEG, EMG, etc.)
-        for stream_type, stream_map in self.channel_mapping.items():
-            if stream_type not in self.stream_inlets:
+        for config in self.stream_configs:
+            key = config.stream_key or config.type
+            if config.type.upper() == "EVENTS" or key not in self.stream_inlets:
                 continue
 
-            # String streams: save only, don't send to processor
-            if stream_map.get("is_string"):
-                channel_count = stream_map.get("channel_count", 1)
+            # String streams: save only, no ring buffer
+            channel_format = config.channel_format or "float32"
+            if channel_format == "string":
                 thread = Thread(
-                    target=self._string_reader, args=(stream_type, channel_count), daemon=True
+                    target=self._string_reader, args=(key, config.channel_count), daemon=True
                 )
                 thread.start()
                 self._reader_threads.append(thread)
-                self.logger.info(f"Started {stream_type} reader thread (string - save only)")
+                self.logger.info(f"Started {key} reader thread (string - save only)")
                 continue
 
-            # Numerical streams: extract modalities and send to processor
-            thread = Thread(target=self._stream_reader, args=(stream_type,), daemon=True)
+            # Numerical streams: create per-stream event deque and start reader
+            self._pending_events_per_stream[key] = deque()
+            thread = Thread(target=self._stream_reader, args=(key,), daemon=True)
             thread.start()
             self._reader_threads.append(thread)
-            rate = stream_map.get("sample_rate", "unknown")
-            self.logger.info(f"Started {stream_type} reader thread ({rate}Hz)")
+            self.logger.info(f"Started {key} reader thread ({config.sample_rate}Hz)")
 
-        # Start events reader
-        if "Events" in self.stream_inlets:
-            thread = Thread(target=self._events_reader, daemon=True)
+        # Start events reader — find the Events stream by checking stream_info types
+        events_key = next(
+            (k for k, info in self.stream_info.items() if info.type.upper() == "EVENTS"), None
+        )
+        if events_key and events_key in self.stream_inlets:
+            thread = Thread(target=self._events_reader, args=(events_key,), daemon=True)
             thread.start()
             self._reader_threads.append(thread)
             self.logger.info("Started events reader thread")
         else:
             self.logger.info("No Events stream found - events will not be processed")
 
-    def _extract_modalities_from_sample(
-        self, sample: np.ndarray, stream_map: dict[str, Any]
-    ) -> dict[str, np.ndarray]:
-        """Extract modality data from a raw sample based on channel mapping."""
-        data_dict = {}
-        for modality, indices in stream_map["modalities"].items():
-            data_dict[modality] = sample[indices].reshape(-1, 1)
-
-        marker_index = stream_map.get("marker_index")
-        if marker_index is not None:
-            data_dict["markers"] = np.array([[sample[marker_index]]])
-        elif "eeg" in data_dict:
-            data_dict["markers"] = np.array([[0.0]])
-
-        return data_dict
-
-    def _stream_reader(self, stream_type: str) -> None:
+    def _stream_reader(self, stream_key: str) -> None:
         """Generic reader thread for any data stream."""
-        inlet = self.stream_inlets[stream_type]
-        stream_map = self.channel_mapping[stream_type]
+        inlet = self.stream_inlets[stream_key]
+        ring_buffer = self._ring_buffers.get(stream_key)
+
+        # Pre-allocate write buffer: raw channels + 1 markers column
+        if ring_buffer is not None:
+            rb_buf = np.zeros(ring_buffer.n_channels, dtype=np.float32)
+            marker_col = ring_buffer.n_channels - 1
 
         while not self.stop_event.is_set():
             try:
@@ -388,50 +319,47 @@ class DataAcquisition(Process):
 
                 local_time = local_clock()
                 latency_ms = (local_time - timestamp) * 1000.0
-                self._update_latency_telemetry(stream_type, latency_ms)
+                self._update_latency_telemetry(stream_key, latency_ms)
 
                 sample = np.array(sample, dtype=np.float32)
-                data_dict = self._extract_modalities_from_sample(sample, stream_map)
-                stream_name = (
-                    self.stream_info[stream_type].name
-                    if stream_type in self.stream_info
-                    else stream_type
-                )
 
-                payload = {
-                    "data": data_dict,
-                    "stream_name": stream_name,
-                    "lsl_timestamp": timestamp,
-                    "_daq_receive_ns": time.time_ns(),
-                    f"{stream_type.lower()}_latency_ms": latency_ms,
-                }
-                self._send_to_data_queue(payload)
-                self._save_data_record(stream_type, sample, timestamp, local_time)
+                # Write to shared ring buffer with markers baked in
+                if ring_buffer is not None:
+                    n_raw = len(sample)
+                    rb_buf[:n_raw] = sample
+
+                    # Inject pending LSL event into markers column
+                    marker = 0.0
+                    my_events = self._pending_events_per_stream.get(stream_key)
+                    if my_events:
+                        marker = my_events.popleft()
+
+                    rb_buf[marker_col] = marker
+                    ring_buffer.write(rb_buf, timestamp, local_time, time.time_ns())
 
                 current_time = time.time()
                 if (
                     latency_ms > 50
-                    and (current_time - self._last_latency_warning_time.get(stream_type, 0))
+                    and (current_time - self._last_latency_warning_time.get(stream_key, 0))
                     > self._latency_warning_interval
                 ):
-                    self.logger.warning(f"{stream_type} high latency: {latency_ms:.2f}ms")
-                    self._last_latency_warning_time[stream_type] = current_time
+                    self.logger.warning(f"{stream_key} high latency: {latency_ms:.2f}ms")
+                    self._last_latency_warning_time[stream_key] = current_time
 
             except LostError:
-                self._handle_lost_error(stream_type)
+                self._handle_lost_error(stream_key)
                 break
             except Exception as e:
-                self._handle_reader_error(stream_type, e)
+                self._handle_reader_error(stream_key, e)
 
-    def _string_reader(self, stream_type: str, channel_count: int) -> None:
+    def _string_reader(self, stream_key: str, channel_count: int) -> None:
         """
-        Reader thread for string streams (save only, not sent to processor).
+        Reader thread for string streams (consume only, no ring buffer).
 
-        Args:
-            stream_type: Type identifier for the stream
-            channel_count: Number of channels to extract
+        String streams: no ring buffer, data not archived.
+        Must keep reading to prevent LSL buffer overflow.
         """
-        inlet = self.stream_inlets[stream_type]
+        inlet = self.stream_inlets[stream_key]
 
         while not self.stop_event.is_set():
             try:
@@ -439,15 +367,11 @@ class DataAcquisition(Process):
                 if sample is None:
                     continue
 
-                local_time = local_clock()
-                valid_sample = sample[:channel_count]
-                self._save_data_record(stream_type, valid_sample, timestamp, local_time)
-
             except LostError:
-                self._handle_lost_error(stream_type)
+                self._handle_lost_error(stream_key)
                 break
             except Exception as e:
-                self._handle_reader_error(stream_type, e)
+                self._handle_reader_error(stream_key, e)
 
     def _parse_event_sample(self, sample: list[str]) -> tuple[dict[str, Any], float] | None:
         """Parse event sample JSON and extract event_id.
@@ -478,9 +402,9 @@ class DataAcquisition(Process):
 
         return event_json, event.event_id
 
-    def _events_reader(self) -> None:
+    def _events_reader(self, stream_key: str) -> None:
         """Reader thread for event stream."""
-        inlet = self.stream_inlets["Events"]
+        inlet = self.stream_inlets[stream_key]
 
         while not self.stop_event.is_set():
             try:
@@ -490,33 +414,35 @@ class DataAcquisition(Process):
 
                 local_time = local_clock()
                 events_latency_ms = (local_time - timestamp) * 1000.0
-                self._update_latency_telemetry("Events", events_latency_ms)
+                self._update_latency_telemetry(stream_key, events_latency_ms)
 
                 parsed = self._parse_event_sample(sample)
                 if parsed is None:
                     continue
 
                 event_json, event_id = parsed
-                payload = {
-                    "event": {"event_id": event_id, "event_json": event_json},
-                    "lsl_timestamp": timestamp,
-                    "_daq_receive_ns": time.time_ns(),
-                }
-                self._send_to_data_queue(payload)
-                self._save_data_record("Event", event_json, timestamp, local_time)
-                self.logger.debug(f"Event sent to processor: event_id={event_id}")
+
+                # Broadcast event to all stream readers' ring buffers
+                for dq in self._pending_events_per_stream.values():
+                    dq.append(event_id)
+
+                self._save_event(EventRecord(
+                    sample=event_json, timestamp=timestamp,
+                    local_timestamp=local_time, receive_timestamp=time.time(),
+                ))
+                self.logger.debug(f"Event: id={event_id}")
 
             except LostError:
-                self._handle_lost_error("Events")
+                self._handle_lost_error(stream_key)
                 break
             except Exception as e:
-                self._handle_reader_error("Events", e)
+                self._handle_reader_error(stream_key, e)
 
     def _cleanup(self) -> None:
         """
         Clean up resources on shutdown.
 
-        Joins threads with timeout and closes stream inlets.
+        Joins threads with timeout and closes stream inlets and shared buffers.
         """
         self.logger.info("Cleaning up data acquisition resources")
 
@@ -528,51 +454,19 @@ class DataAcquisition(Process):
             except Exception as e:
                 self.logger.error(f"Error joining thread {thread.name}: {e}")
 
-        for stream_type, inlet in self.stream_inlets.items():
+        for stream_key, inlet in self.stream_inlets.items():
             try:
                 inlet.close_stream()
-                self.logger.debug(f"Closed {stream_type} stream inlet")
+                self.logger.debug(f"Closed {stream_key} stream inlet")
             except Exception as e:
-                self.logger.error(f"Error closing {stream_type} inlet: {e}")
+                self.logger.error(f"Error closing {stream_key} inlet: {e}")
 
         self.stream_inlets.clear()
 
+        # Close shared memory handles (don't unlink — orchestrator owns them)
+        for rb in self._ring_buffers.values():
+            rb.close()
+        self._ring_buffers.clear()
+
         self.logger.info("Data acquisition cleanup complete")
 
-    def _send_stream_metadata(self, stream_type: str, inlet: StreamInlet) -> None:
-        """
-        Send stream metadata to save queue.
-
-        Extracts metadata from LSL stream and config, then saves as JSON.
-
-        Args:
-            stream_type: Stream type identifier
-            inlet: LSL stream inlet
-        """
-        try:
-            stream_config = self.stream_info.get(stream_type)
-            if not stream_config:
-                return
-
-            live_stream_info = inlet.info()
-            metadata_object = stream_config.model_copy(
-                update={
-                    "created_at": live_stream_info.created_at(),
-                    "version": live_stream_info.version(),
-                }
-            )
-
-            metadata_json = json.dumps(metadata_object.model_dump())
-            now = local_clock()
-            metadata_record = DataRecord(
-                modality=f"{stream_type}_Metadata",
-                sample=metadata_json,
-                timestamp=now,
-                local_timestamp=now,
-            )
-
-            self._safe_save(metadata_record)
-            self.logger.info(f"Metadata for {stream_type} sent")
-
-        except Exception as e:
-            self.logger.error(f"Error sending metadata for {stream_type}: {e}")

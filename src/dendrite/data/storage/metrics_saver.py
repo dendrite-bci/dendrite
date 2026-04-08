@@ -14,8 +14,10 @@ from typing import Any
 import h5py
 import numpy as np
 
+from dendrite import __version__
+from dendrite.utils.component_state import ComponentState, ComponentStateMachine
 from dendrite.utils.logger_central import get_logger, setup_logger
-from dendrite.utils.state_keys import e2e_latency_key, viz_consumers_key
+from dendrite.utils.state_keys import e2e_latency_key
 
 
 class MetricsSaver(Process):
@@ -30,14 +32,14 @@ class MetricsSaver(Process):
         filename: str,
         stop_event: Event,
         script_metadata: dict,
-        mode_metrics_queues: dict[str, Queue] | None = None,
+        metrics_queue: Queue | None = None,
         shared_state=None,
     ) -> None:
         super().__init__()
         self.filename = filename
         self.stop_event = stop_event
         self.script_metadata = script_metadata
-        self.mode_metrics_queues = mode_metrics_queues or {}
+        self.metrics_queue = metrics_queue
         self.shared_state = shared_state
 
         # Telemetry sampling configuration
@@ -49,7 +51,9 @@ class MetricsSaver(Process):
     def run(self) -> None:
         """Main process entry point."""
         self.logger = setup_logger("MetricsSaver", level=logging.INFO)
+        self._state_machine = ComponentStateMachine("metrics_saver", self.shared_state)
         self.logger.info("MetricsSaver started")
+        self._state_machine.transition(ComponentState.STARTING)
 
         h5f = None
 
@@ -63,6 +67,8 @@ class MetricsSaver(Process):
                     self.logger.info("Metrics HDF5 file closed successfully")
                 except Exception as e:
                     self.logger.error(f"Error closing metrics HDF5 file: {e}")
+            self._state_machine.transition(ComponentState.STOPPING)
+            self._state_machine.transition(ComponentState.STOPPED)
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, cleanup_handler)
@@ -70,22 +76,40 @@ class MetricsSaver(Process):
             signal.signal(signal.SIGHUP, cleanup_handler)
 
         try:
-            with h5py.File(self.filename, "w") as h5f:
+            with h5py.File(self.filename, "w", libver="latest") as h5f:
+                self._h5f = h5f
                 self._save_script_metadata(h5f)
-                self._create_mode_groups(h5f)
+                self.mode_groups = {}
                 self._create_telemetry_group(h5f)
+                self._state_machine.transition(ComponentState.RUNNING)
                 self._process_metrics_loop(h5f)
 
         except Exception as e:
             self.logger.error(f"Metrics saving error: {e}")
+            if self._state_machine.state not in (ComponentState.STOPPING, ComponentState.STOPPED):
+                self._state_machine.set_error(str(e))
         finally:
+            self._state_machine.finalize()
             self.logger.info("Metrics data saver stopped")
 
     def _save_script_metadata(self, h5f: h5py.File) -> None:
-        """Save script metadata to HDF5 file."""
-        try:
-            metadata_group = h5f.create_group("script_metadata")
+        """Save script metadata to HDF5 file.
 
+        Writes root-level attributes for standalone inspection, plus the full
+        script_metadata dict into a dedicated group.
+        """
+        try:
+            # Root-level attributes (matches DataSaver convention)
+            h5f.attrs["created_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            h5f.attrs["created_by"] = f"Dendrite MetricsSaver v{__version__}"
+            h5f.attrs["version"] = __version__
+            for key in ("study_name", "recording_name", "subject_id",
+                        "session_id", "run_number", "file_identifier"):
+                if key in self.script_metadata:
+                    h5f.attrs[key] = self.script_metadata[key]
+
+            # Full metadata in dedicated group
+            metadata_group = h5f.create_group("script_metadata")
             for key, value in self.script_metadata.items():
                 if isinstance(value, (int, float, str, bool, np.integer, np.floating, np.bool_)):
                     metadata_group.attrs[key] = value
@@ -99,19 +123,17 @@ class MetricsSaver(Process):
         except Exception as e:
             self.logger.error(f"Error saving script metadata: {e}")
 
-    def _create_mode_groups(self, h5f: h5py.File) -> dict:
-        """Create groups for each BMI mode."""
-        self.mode_groups = {}
-
-        for mode_name in self.mode_metrics_queues.keys():
+    def _ensure_mode_group(self, h5f: h5py.File, mode_name: str) -> h5py.Group:
+        """Get or lazily create an HDF5 group for a mode."""
+        if mode_name not in self.mode_groups:
             group = h5f.create_group(mode_name)
-            self.mode_groups[mode_name] = group
             group.attrs["mode_type"] = (
                 "synchronous" if "sync" in mode_name.lower() else "asynchronous"
             )
             group.attrs["created_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-
-        self.logger.info(f"Created {len(self.mode_groups)} mode groups")
+            self.mode_groups[mode_name] = group
+            self.logger.info(f"Created metrics group for mode: {mode_name}")
+        return self.mode_groups[mode_name]
 
     def _create_telemetry_group(self, h5f: h5py.File) -> None:
         """Create telemetry group for SharedState metrics if shared_state is provided."""
@@ -126,9 +148,16 @@ class MetricsSaver(Process):
 
     def _process_metrics_loop(self, h5f: h5py.File) -> None:
         """Main metrics processing loop."""
+        last_flush = time.time()
         while not self.stop_event.is_set():
             self._process_all_queues()
             self._sample_telemetry()
+
+            now = time.time()
+            if now - last_flush > 2.0:
+                h5f.flush()
+                last_flush = now
+
             time.sleep(0.1)
 
         self._process_all_queues(drain=True)
@@ -162,13 +191,6 @@ class MetricsSaver(Process):
                 self.telemetry_group, "e2e_latency_ms", float(e2e), timestamp
             )
 
-        # Sample visualization stream consumer count
-        consumers = self.shared_state.get(viz_consumers_key())
-        if consumers is not None:
-            self._save_individual_metric(
-                self.telemetry_group, "viz_stream_consumers", int(consumers), timestamp
-            )
-
         # Sample mode metrics and streamer bandwidth (single pass)
         for key in self.shared_state.keys():
             if key.endswith(
@@ -179,15 +201,17 @@ class MetricsSaver(Process):
                     self._save_individual_metric(self.telemetry_group, key, float(value), timestamp)
 
     def _process_all_queues(self, drain: bool = False) -> None:
-        """Process all mode metrics queues."""
-        for mode_name, queue_obj in self.mode_metrics_queues.items():
-            group = self.mode_groups[mode_name]
-            while True:
-                try:
-                    data = queue_obj.get_nowait()
-                    self._save_metrics_data(group, data, mode_name)
-                except queue.Empty:
-                    break
+        """Process the shared metrics queue. Mode groups are created lazily."""
+        if self.metrics_queue is None:
+            return
+        while True:
+            try:
+                data = self.metrics_queue.get_nowait()
+                mode_name = data.get("mode_name", "unknown")
+                group = self._ensure_mode_group(self._h5f, mode_name)
+                self._save_metrics_data(group, data, mode_name)
+            except queue.Empty:
+                break
 
     def _save_metrics_data(
         self, group: h5py.Group, data_packet: dict[str, Any], mode_name: str

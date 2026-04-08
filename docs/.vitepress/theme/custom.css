@@ -1,0 +1,4 @@
+html.dark .light-only,
+html:not(.dark) .dark-only {
+  display: none !important;
+}

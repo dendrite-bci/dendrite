@@ -1,11 +1,15 @@
 """
 Dendrite ML - Machine Learning Module
 
-Factory functions for models and decoders. For internal classes, import directly:
-- `from dendrite.ml.models.base import ModelBase`
-- `from dendrite.ml.decoders.decoder import Decoder`
-- `from dendrite.ml.metrics import SynchronousMetrics`
+Factory functions for models and decoders.
 """
+
+import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OMP_WAIT_POLICY", "passive")
+os.environ.setdefault("GOMP_SPINCOUNT", "0")
 
 from .decoders import (
     Decoder,

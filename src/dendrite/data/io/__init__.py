@@ -1,5 +1,5 @@
 """
-Data I/O - H5 I/O, MNE Export, and BIDS Conversion
+Data I/O - H5 I/O and MNE Export
 
 Clean, focused modules for working with H5 recordings.
 
@@ -13,18 +13,10 @@ Examples:
     from dendrite.data.io import to_mne_raw, export_to_fif
     raw = to_mne_raw('recording.h5')
     export_to_fif('recording.h5', 'output.fif')
-
-    # Export to BIDS
-    from dendrite.data.io import export_recording_to_bids, export_study_to_bids
-    export_recording_to_bids('recording.h5', 'bids_output/')
-    export_study_to_bids('my_study', 'bids_output/')
 """
 
-from .bids_export import (
-    export_recording_to_bids,
-    export_study_to_bids,
-)
-from .h5_io import (
+from .h5_explorer import (
+    find_dataset,
     get_channel_info,
     get_h5_info,
     get_h5_metadata,
@@ -38,6 +30,7 @@ from .mne_export import (
 )
 
 __all__ = [
+    "find_dataset",
     "load_dataset",
     "get_h5_info",
     "get_h5_metadata",
@@ -46,6 +39,4 @@ __all__ = [
     "to_mne_raw",
     "export_to_fif",
     "guess_channel_type",
-    "export_recording_to_bids",
-    "export_study_to_bids",
 ]

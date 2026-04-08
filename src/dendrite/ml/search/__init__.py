@@ -1,37 +1,23 @@
-"""
-Optuna-based hyperparameter search utilities.
+"""Optuna-based hyperparameter search utilities."""
 
-Provides search space definitions and configuration generation for
-hyperparameter optimization across both real-time processing and
-offline training workflows.
-
-OptunaRunner and OptunaSearchCV have been moved to:
-    dendrite.auxiliary.ml_workbench.backend
-"""
-
-from .config import OptunaConfig, create_sampler
-from .optuna_utils import (
-    DEFAULT_SEARCH_SPACE,
-    create_optuna_search_configs,
-    suggest_params,
+from .optuna_runner import (
+    TrialResult,
+    prepare_holdout_split,
+    run_optuna_search,
+    run_single_trial,
+    suggest_decoder_kwargs,
 )
 from .search_space import (
-    BENCHMARK_SEARCH_SPACE,
-    PROFILES,
-    TRAINING,
-    get_profile,
-    get_search_space_description,
+    build_decoder_search_space,
+    get_decoder_categories,
 )
 
 __all__ = [
-    "OptunaConfig",
-    "create_sampler",
-    "create_optuna_search_configs",
-    "suggest_params",
-    "DEFAULT_SEARCH_SPACE",
-    "BENCHMARK_SEARCH_SPACE",
-    "TRAINING",
-    "PROFILES",
-    "get_profile",
-    "get_search_space_description",
+    "TrialResult",
+    "build_decoder_search_space",
+    "get_decoder_categories",
+    "prepare_holdout_split",
+    "run_optuna_search",
+    "run_single_trial",
+    "suggest_decoder_kwargs",
 ]

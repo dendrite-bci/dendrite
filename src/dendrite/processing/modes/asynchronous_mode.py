@@ -1,17 +1,14 @@
-import os
-import threading
 import time
 from dataclasses import dataclass
-from queue import Empty
 from typing import Any
 
-from dendrite.constants import LOG_INTERVAL_SAMPLES, get_study_paths
 from dendrite.processing.modes.base_mode import BaseMode
-from dendrite.processing.modes.mode_utils import extract_event_code, get_shared_model_path
+from dendrite.processing.modes.mode_utils import extract_event_code
+from dendrite.processing._types import Sample
 from dendrite.utils.state_keys import mode_metric_key
 
 # Async mode constants
-MODEL_CHECK_INTERVAL_SEC = 5
+LOG_INTERVAL_SAMPLES = 30000  # ~60s @ 500Hz between log messages
 LOG_PREDICTION_INTERVAL = 500
 LOG_METRICS_INTERVAL = 50
 
@@ -23,6 +20,7 @@ class AsyncPrediction:
     prediction: int = 0  # Original event code from paradigm configuration
     event_name: str = ""
     confidence: float = 0.0
+    detected: bool = False  # True when dwell threshold was met
 
 
 @dataclass
@@ -34,6 +32,7 @@ class AsyncMetrics:
     event_name: str = ""
     true_label: int | None = None
     balanced_accuracy: float = 0.0
+    detected: bool = False
 
 
 class AsynchronousMode(BaseMode):
@@ -51,35 +50,27 @@ class AsynchronousMode(BaseMode):
 
     def __init__(
         self,
-        data_queue,
         output_queue,
         stop_event,
         instance_config: dict[str, Any],
-        sample_rate,
         prediction_queue=None,
         shared_state=None,
+        training_queue=None,
     ):
         """Initialize AsynchronousMode with validated instance configuration."""
         super().__init__(
-            data_queue=data_queue,
             output_queue=output_queue,
             stop_event=stop_event,
-            sample_rate=sample_rate,
             prediction_queue=prediction_queue,
             instance_config=instance_config,
             shared_state=shared_state,
+            training_queue=training_queue,
         )
 
         self.decoder_config = instance_config.get("decoder_config", {})
 
         # Decoder source configuration
-        self.decoder_source = instance_config.get("decoder_source", "pretrained")
-        self.source_sync_mode = instance_config.get("source_sync_mode", "")
-        self.study_name = instance_config.get("study_name", "default_study")
-        self.file_identifier = instance_config.get("file_identifier", "")
-        self.last_model_check_time = 0
-        self.model_check_interval = MODEL_CHECK_INTERVAL_SEC
-        self.last_model_modification_time = 0
+        self.decoder_source = instance_config.get("decoder_source", "database")
 
         # Prediction timing configuration (recalculated in _initialize_mode with effective rate)
         self.step_size_ms = instance_config.get("step_size_ms", 100)
@@ -91,18 +82,16 @@ class AsynchronousMode(BaseMode):
         self.window_length_sec = instance_config.get("window_length_sec", 1.0)
         self.epoch_length_samples = int(self.window_length_sec * self.sample_rate)
 
-        # Evaluation configuration
-        eval_config = instance_config.get("evaluation_config", {})
-        self.background_class = eval_config.get("background_class", None)
-
         self.prediction_count = 0
         self.current_sample_index = 0
-        self.decoder = None
         self._current_label = -1
         self._active_label = -1
         self._labeling_samples_remaining = 0
-        self.effective_sample_rate: float | None = None
         self._cached_metrics: dict = {}
+
+        # Online decoder reload state
+        self._last_decoder_check_ts: float = 0.0
+        self._source_mode: str | None = instance_config.get("source_mode")
 
     def _validate_configuration(self) -> bool:
         """Validate asynchronous mode configuration."""
@@ -116,7 +105,8 @@ class AsynchronousMode(BaseMode):
             )
             return False
 
-        if not self.decoder_config:
+        # Online mode starts without decoder — it will be trained during the session
+        if self.decoder_source != "online" and not self.decoder_config:
             self.logger.error("Decoder config is required")
             return False
 
@@ -129,11 +119,10 @@ class AsynchronousMode(BaseMode):
     def _initialize_mode(self) -> bool:
         """Initialize asynchronous mode components."""
         try:
-            self._model_lock = threading.Lock()
+            # Setup per-mode preprocessing (sets self.effective_sample_rate)
+            self._setup_preprocessor()
 
-            # Calculate timing using effective sample rate (accounts for preprocessing)
-            primary_modality = next(iter(self.channel_selection.keys()), "eeg")
-            self.effective_sample_rate = self._get_modality_sample_rate(primary_modality)
+            # Recalculate timing with effective sample rate
             self.epoch_length_samples = int(self.window_length_sec * self.effective_sample_rate)
             self.samples_per_prediction_step = max(
                 1, int(self.effective_sample_rate * (self.step_size_ms / 1000.0))
@@ -142,40 +131,51 @@ class AsynchronousMode(BaseMode):
 
             self._setup_buffer(self.epoch_length_samples)
 
+            from dendrite.ml.decision_gate import DecisionGate
+
             num_classes = len(self.label_mapping) if self.label_mapping else 2
-            self.num_classes = num_classes
+            gate = DecisionGate(
+                strategy=self.instance_config.get("detection_strategy", "dwell"),
+                dwell_n=self.instance_config.get("dwell_n", 3),
+                confidence_threshold=float(
+                    self.instance_config.get("confidence_threshold", 0.0),
+                ),
+            )
             self._setup_metrics_manager(
                 num_classes=num_classes,
                 mode_type="asynchronous",
                 label_mapping=self.reverse_label_mapping,
-                background_class=self.background_class,
+                gate=gate,
+                step_size_ms=self.step_size_ms,
             )
 
             # Create decoder and handle initial model loading
-            if self.decoder_source == "external":
+            if self.decoder_source == "online":
+                self.logger.info(
+                    "Decoder source: online — waiting for trained decoder via SharedState"
+                )
+            elif self.decoder_source == "external":
                 self.logger.info("Decoder will be injected externally")
             else:
-                self.decoder = self._create_decoder(self.decoder_config)
+                # database: load from decoder path
+                self._create_decoder(self.decoder_config)
+
                 if self.decoder:
-                    if self.decoder_source == "sync_mode":
-                        self.logger.info(
-                            f"Will receive models from sync mode '{self.source_sync_mode}'"
-                        )
-                        self._check_for_model_updates()
+                    model_path = self.decoder_config.get("decoder_path", "")
+                    if model_path:
+                        if self._load_decoder(model_path, self.decoder_source):
+                            self._activate_decoder(self.decoder)
                     else:
-                        model_path = self.decoder_config.get("decoder_path", "")
-                        if model_path:
-                            self._load_model_from_path(model_path, self.decoder_source)
-                        else:
-                            self.logger.warning(
-                                f"No model path specified for {self.decoder_source} source"
-                            )
+                        self.logger.warning(
+                            f"No model path specified for {self.decoder_source} source"
+                        )
 
             self.logger.info("AsynchronousMode initialized successfully (inference-only)")
+            if self._source_mode:
+                self.logger.info(f"Linked to sync mode: {self._source_mode}")
             self.logger.info(
                 f"Configuration: epoch_length={self.epoch_length_samples} samples, "
-                f"prediction_step={self.samples_per_prediction_step} samples ({self.step_size_ms}ms), "
-                f"decoder_source={self.decoder_source}"
+                f"prediction_step={self.samples_per_prediction_step} samples ({self.step_size_ms}ms)"
             )
             return True
 
@@ -191,7 +191,9 @@ class AsynchronousMode(BaseMode):
 
         while not self.stop_event.is_set():
             try:
-                sample = self.data_queue.get(timeout=0.1)
+                sample = self._get_next_sample()
+                if sample is None:
+                    continue
                 data_received_count += 1
                 self._process_data(sample)
 
@@ -201,10 +203,24 @@ class AsynchronousMode(BaseMode):
                 if self.buffer.is_ready_for_step(self.samples_per_prediction_step):
                     self._trigger_prediction()
 
-                self._check_for_model_updates()
+                # Poll for online decoder ~1Hz
+                if self.decoder_source == "online" and self.shared_state:
+                    if self.current_sample_index % max(1, int(self.effective_sample_rate)) == 0:
+                        self._check_for_trained_decoder()
 
-            except Empty:
-                pass
+                # Activate decoder loaded by background thread (thread-safe: main loop only)
+                if self._pending_decoder_load is not None:
+                    info = self._pending_decoder_load
+                    self._pending_decoder_load = None
+                    decoder = info.pop("_decoder", None)
+                    if decoder and self._activate_decoder(decoder):
+                        source = info.get("source_mode", "unknown")
+                        self.logger.info(
+                            f"Online decoder activated from {source} "
+                            f"(trained in {info.get('elapsed', 0):.1f}s, "
+                            f"{info.get('n_epochs', '?')} epochs)"
+                        )
+
             except Exception as e:
                 self.logger.error(f"Error in main loop: {e}", exc_info=True)
 
@@ -216,7 +232,7 @@ class AsynchronousMode(BaseMode):
         self.logger.info(f"Total predictions made: {self.prediction_count}")
         super()._cleanup()
 
-    def _process_data(self, sample: dict):
+    def _process_data(self, sample: Sample):
         """Process incoming data sample using unified buffer and existing event labeling."""
         if self.stop_event.is_set():
             return
@@ -224,10 +240,12 @@ class AsynchronousMode(BaseMode):
         if not isinstance(sample, dict):
             return
 
-        self.last_lsl_timestamp = sample.get("lsl_timestamp", 0.0)
+        # Apply per-mode preprocessing (CAR, bandpass, downsample)
+        sample = self._preprocess_sample(sample)
+        if sample is None:
+            return  # Accumulating for downsample
 
-        if not self.decoder and self.decoder_source == "sync_mode":
-            self._check_for_model_updates()
+        self.last_lsl_timestamp = sample.get("lsl_timestamp", 0.0)
 
         event_code = extract_event_code(sample)
 
@@ -245,7 +263,7 @@ class AsynchronousMode(BaseMode):
             current_label = -1
 
         if self._current_label == -1 and current_label >= 0:
-            if self.metrics_manager:
+            if self.metrics_manager and self.is_decoder_ready:
                 self.metrics_manager.register_event(self.current_sample_index, current_label)
         self._current_label = current_label
 
@@ -254,7 +272,7 @@ class AsynchronousMode(BaseMode):
 
     def _trigger_prediction(self):
         """Trigger a prediction using the current sliding window data."""
-        if not self.decoder or not getattr(self.decoder, "is_fitted", False):
+        if not self.is_decoder_ready:
             return
 
         try:
@@ -269,9 +287,7 @@ class AsynchronousMode(BaseMode):
             if self.prediction_count == 0:
                 self.logger.info("Model is now ready - starting predictions!")
 
-            prediction, confidence, _ = self._predict(
-                model=self.decoder, X_input=X_input, lock=self._model_lock, blocking=True
-            )
+            prediction, confidence, _ = self._predict(X_input)
             self._update_gpu_metrics()
 
             self._update_metrics_and_send(prediction, confidence)
@@ -288,15 +304,16 @@ class AsynchronousMode(BaseMode):
 
     def _update_metrics_and_send(self, prediction, confidence):
         """Update metrics and send prediction output."""
+        detected = False
         if self.metrics_manager:
-            self.metrics_manager.update_metrics(
+            _in_trial, detected = self.metrics_manager.add_prediction(
                 prediction=prediction,
-                true_label=self._current_label,
                 current_sample_idx=self.current_sample_index,
+                confidence=confidence,
             )
 
         if self.metrics_manager and self.prediction_count % LOG_METRICS_INTERVAL == 0:
-            self._cached_metrics = self.metrics_manager.get_current_metrics()
+            self._cached_metrics = self.metrics_manager.get_all_metrics()
 
             if self._current_label >= 0:
                 n_trials = self._cached_metrics.get("n_trials", 0)
@@ -306,9 +323,9 @@ class AsynchronousMode(BaseMode):
                     f"(conf={confidence:.3f}, acc={balanced_acc:.2f}, trials={n_trials})"
                 )
 
-        self._send_prediction_output(prediction, confidence, self._cached_metrics)
+        self._send_prediction_output(prediction, confidence, self._cached_metrics, detected)
 
-    def _send_prediction_output(self, prediction, confidence, current_metrics):
+    def _send_prediction_output(self, prediction, confidence, current_metrics, detected=False):
         """Send prediction data to output queues."""
         event_code = self.index_to_event_code.get(prediction, prediction)
 
@@ -316,12 +333,13 @@ class AsynchronousMode(BaseMode):
             prediction=event_code,
             event_name=self.reverse_label_mapping.get(prediction, str(int(prediction))),
             confidence=confidence,
+            detected=detected,
         )
         self._send_output(prediction_payload, "prediction", queue="prediction")
 
         balanced_accuracy = current_metrics.get("balanced_accuracy", 0.0)
         if self.shared_state:
-            self.shared_state.set(mode_metric_key(self.mode_name, "balanced_accuracy"), balanced_accuracy)
+            self.shared_state.set(mode_metric_key(self.mode_name, "accuracy"), balanced_accuracy)
 
         true_label_code = (
             self.index_to_event_code.get(self._current_label, self._current_label)
@@ -335,120 +353,107 @@ class AsynchronousMode(BaseMode):
             event_name=self.reverse_label_mapping.get(prediction, str(event_code)),
             true_label=true_label_code,
             balanced_accuracy=balanced_accuracy,
+            detected=detected,
         )
         self._send_output(metrics_payload, "performance", queue="main")
 
-    def _create_decoder(self, decoder_config: dict[str, Any]) -> Any | None:
-        """Create decoder for AsynchronousMode with simplified num_classes logic."""
-        if self.decoder_source == "pretrained":
-            original_mapping = self.label_mapping
-            self.label_mapping = {}
-            decoder = super()._create_decoder(decoder_config)
-            self.label_mapping = original_mapping
-            return decoder
+    def _check_for_trained_decoder(self):
+        """Poll SharedState for a newly trained decoder. Load in background thread."""
+        # Prefer mode-specific key (immune to overwrite by other modes)
+        result = None
+        if self._source_mode:
+            result = self.shared_state.get(f"{self._source_mode}:trained_decoder")
 
-        return super()._create_decoder(decoder_config)
+        if not result:
+            result = self.shared_state.get("latest_trained_decoder")
+            if not result:
+                return
+            # Filter by source mode if linked
+            if self._source_mode and result.get("source_mode") != self._source_mode:
+                self.logger.debug(
+                    f"Ignoring decoder from '{result.get('source_mode')}' "
+                    f"(linked to '{self._source_mode}')"
+                )
+                return
 
-    def _load_model_from_path(self, model_path: str, model_type: str = "decoder") -> bool:
-        """Load a decoder from the specified path with async-specific handling."""
-        success = super()._load_model_from_path(model_path, model_type)
+        ts = result.get("timestamp", 0)
+        if ts <= self._last_decoder_check_ts:
+            return  # Already processed this decoder
 
-        if success:
-            self._update_epoch_length_from_model()
+        self._last_decoder_check_ts = ts
+        path = result.get("path", "")
+        if not path:
+            return
 
-            if not self._validate_channel_count():
-                return False
+        delay = time.time() - ts
+        self.logger.info(
+            f"New trained decoder detected: {path} "
+            f"(source={result.get('source_mode')}, delay={delay:.1f}s)"
+        )
+        self._start_background_decoder_load(path, result)
 
-        return success
+    def _activate_decoder(self, decoder) -> bool:
+        """Configure mode for a new decoder: shapes, preprocessing, metrics.
 
-    def _validate_channel_count(self) -> bool:
-        """Validate that mode's channel count matches decoder's expected input."""
-        if not hasattr(self.decoder, "input_shapes") or not self.decoder.input_shapes:
+        Called from the main loop (via _pending_decoder_load) or during init.
+        Returns True if decoder is ready to use, False on validation failure.
+        """
+        try:
+            primary, _ch, expected_t = self._validate_decoder_channels(decoder)
+        except ValueError as e:
+            self.logger.error(f"{e} — decoder disabled")
+            return False
+
+        self.decoder = decoder
+
+        if not primary:
             return True
 
-        for modality, channel_indices in self.channel_selection.items():
-            if modality not in self.decoder.input_shapes:
-                continue
+        if expected_t:
+            self.logger.info(
+                f"Decoder: {decoder.config.model_type} "
+                f"{_ch}ch x {expected_t} samples ({primary})"
+            )
 
-            expected_shape = self.decoder.input_shapes[modality]
-            expected_channels = expected_shape[0]
-            actual_channels = len(channel_indices)
+        # --- Update epoch length / buffer / metrics ---
+        if expected_t and expected_t != self.epoch_length_samples:
+            self.logger.info(
+                f"Epoch length: {self.epoch_length_samples}"
+                f" -> {expected_t}"
+            )
+            self.epoch_length_samples = expected_t
+            self.window_length_sec = expected_t / self.effective_sample_rate
+            self._setup_buffer(self.epoch_length_samples)
+            self.samples_per_prediction_step = max(
+                1,
+                int(self.effective_sample_rate * (self.step_size_ms / 1000.0)),
+            )
 
-            if actual_channels != expected_channels:
-                self.logger.error(
-                    f"Channel count mismatch for {modality}: "
-                    f"decoder expects {expected_channels} channels, mode has {actual_channels}. "
-                    f"Configure mode to use the same {expected_channels} channels the decoder was trained on."
-                )
-                return False
+        # Update detection window on existing metrics (preserve trial history)
+        if self.metrics_manager:
+            self.metrics_manager.detection_window_samples = self.epoch_length_samples
+
+        # --- Apply decoder's preprocessing config if it differs ---
+        preproc_cfg = getattr(decoder.config, "preprocessing_config", None)
+        if preproc_cfg and preproc_cfg.modality_preprocessing and self._sample_preprocessor:
+            dp = preproc_cfg.modality_preprocessing.get(primary)
+            if dp:
+                new_config = dp.model_dump(exclude_none=True)
+                cur = self._sample_preprocessor._config.get(primary, {})
+
+                runtime_keys = {"num_channels", "sample_rate", "channel_labels"}
+                cur_cmp = {k: v for k, v in cur.items() if k not in runtime_keys}
+                new_cmp = {k: v for k, v in new_config.items() if k not in runtime_keys}
+
+                if cur_cmp != new_cmp:
+                    self.logger.warning(
+                        f"Overriding preprocessing: "
+                        f"{cur.get('lowcut')}-{cur.get('highcut')}Hz"
+                        f" -> {new_config.get('lowcut')}-{new_config.get('highcut')}Hz"
+                        f" (from decoder)"
+                    )
+                    self._sample_preprocessor.reset_config({primary: new_config})
+                    self.effective_sample_rate = self._sample_preprocessor.effective_sample_rate
 
         return True
 
-    def _update_epoch_length_from_model(self):
-        """Update epoch length based on model's input shapes if needed."""
-        if not hasattr(self.decoder, "input_shapes") or not self.decoder.input_shapes:
-            return
-
-        if not self.channel_selection:
-            return
-
-        primary_modality = next(
-            (mod for mod in self.channel_selection.keys() if mod in self.decoder.input_shapes), None
-        )
-
-        if not primary_modality:
-            return
-
-        model_shape = self.decoder.input_shapes[primary_modality]
-        model_epoch_length = model_shape[1] if len(model_shape) > 1 else model_shape[0]
-
-        if model_epoch_length != self.epoch_length_samples:
-            self.logger.info(
-                f"Updating epoch length: {self.epoch_length_samples} -> {model_epoch_length}"
-            )
-            self.epoch_length_samples = model_epoch_length
-            self.window_length_sec = model_epoch_length / self.effective_sample_rate
-            self._setup_buffer(self.epoch_length_samples)
-            self.samples_per_prediction_step = max(
-                1, int(self.effective_sample_rate * (self.step_size_ms / 1000.0))
-            )
-
-    def _check_for_model_updates(self):
-        """Check for updated models from linked sync mode."""
-        if self.decoder_source != "sync_mode" or not self.source_sync_mode:
-            return
-
-        current_time = time.time()
-        if current_time - self.last_model_check_time < self.model_check_interval:
-            return
-
-        try:
-            shared_model_path = get_shared_model_path(self.source_sync_mode, self.file_identifier)
-
-            decoders_dir = get_study_paths(self.study_name)["decoders"]
-            full_path = decoders_dir / shared_model_path
-            json_path = f"{full_path}.json"
-            if not os.path.exists(json_path):
-                self.last_model_check_time = current_time
-                return
-
-            model_mtime = os.path.getmtime(json_path)
-
-            if model_mtime > self.last_model_modification_time:
-                self.logger.info(f"Loading updated model from {self.source_sync_mode}: {full_path}")
-                self._load_updated_model(str(full_path))
-                self.last_model_modification_time = model_mtime
-
-            self.last_model_check_time = current_time
-
-        except Exception as e:
-            self.logger.error(f"Error checking for model updates: {e}", exc_info=True)
-
-    def _load_updated_model(self, model_path):
-        """Load an updated model from the specified path."""
-        was_ready = getattr(self.decoder, "is_fitted", False) if self.decoder else False
-        success = self._load_model_from_path(model_path, "updated")
-
-        is_ready_now = getattr(self.decoder, "is_fitted", False) if self.decoder else False
-        if success and not was_ready and is_ready_now:
-            self.logger.info("Model is now ready for predictions!")

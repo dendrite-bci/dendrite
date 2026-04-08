@@ -12,18 +12,13 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from dendrite import DATA_DIR
+from dendrite.constants import DATA_DIR
 
 ENV_LOG_FILE = "DENDRITE_LOG_FILE"
 
 _current_study_name = "default_study"
 _current_log_file = None
-
-DEBUG = logging.DEBUG
-INFO = logging.INFO
-WARNING = logging.WARNING
-ERROR = logging.ERROR
-CRITICAL = logging.CRITICAL
+_LOG_FORMAT = "%(asctime)s - %(levelname)s - %(processName)s - %(message)s"
 
 
 def set_study_name(study_name: str) -> str:
@@ -33,45 +28,32 @@ def set_study_name(study_name: str) -> str:
     return _current_study_name
 
 
-def get_study_name() -> str:
-    """Get the current study name."""
-    return _current_study_name
-
-
-def get_active_log_file() -> str | None:
-    """Get the path to the active log file (checks both global state and environment)."""
-    return _current_log_file or os.environ.get(ENV_LOG_FILE)
-
-
 def get_logger(name: str | None = None) -> logging.Logger:
     """Get a logger with the specified name."""
     return logging.getLogger(name)
 
 
-def _create_handlers(log_file: str | None = None) -> list[logging.Handler]:
-    """Create console and optional rotating file handlers."""
+def _create_handlers(log_file: str | None = None, rotating: bool = True) -> list[logging.Handler]:
+    """Create console and optional file handlers.
+
+    Args:
+        rotating: If True (main process), use RotatingFileHandler.
+            If False (child processes), use plain FileHandler to avoid
+            Windows PermissionError when multiple processes share the file.
+    """
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if log_file:
-        handlers.append(
-            RotatingFileHandler(
-                log_file,
-                maxBytes=10 * 1024 * 1024,
-                backupCount=5,
+        if rotating:
+            handlers.append(
+                RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5)
             )
-        )
+        else:
+            handlers.append(logging.FileHandler(log_file, mode="a"))
     return handlers
 
 
-def set_level(level: int) -> None:
-    """Set logging level for the root logger and all handlers."""
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-    for handler in root_logger.handlers:
-        handler.setLevel(level)
-
-
 def configure_file_logging(
-    file_identifier: str | None = None, log_dir: str | None = None, level: int = DEBUG
+    file_identifier: str | None = None, log_dir: str | None = None, level: int = logging.DEBUG
 ) -> str | None:
     """Configure file-based logging for the main process."""
     global _current_log_file
@@ -84,7 +66,7 @@ def configure_file_logging(
     if file_identifier is None:
         file_identifier = f"app_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     if log_dir is None:
-        log_dir = DATA_DIR / "logger" / get_study_name()
+        log_dir = DATA_DIR / "studies" / _current_study_name / "logs"
 
     Path(log_dir).mkdir(parents=True, exist_ok=True)
     log_file = f"{log_dir}/{file_identifier}.log"
@@ -92,7 +74,7 @@ def configure_file_logging(
     try:
         logging.basicConfig(
             level=level,
-            format="%(asctime)s - %(levelname)s - %(processName)s - %(message)s",
+            format=_LOG_FORMAT,
             handlers=_create_handlers(log_file),
             force=True,
         )
@@ -108,7 +90,7 @@ def configure_file_logging(
         return None
 
 
-def setup_logger(process_name: str | None = None, level: int = INFO) -> logging.Logger:
+def setup_logger(process_name: str | None = None, level: int = logging.INFO) -> logging.Logger:
     """Configure logging for child processes or standalone applications."""
     if process_name:
         multiprocessing.current_process().name = process_name
@@ -118,8 +100,8 @@ def setup_logger(process_name: str | None = None, level: int = INFO) -> logging.
 
     logging.basicConfig(
         level=level,
-        format="%(asctime)s - %(levelname)s - %(processName)s - %(message)s",
-        handlers=_create_handlers(log_file),
+        format=_LOG_FORMAT,
+        handlers=_create_handlers(log_file, rotating=False),
         force=True,
     )
 

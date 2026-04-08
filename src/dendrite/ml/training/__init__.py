@@ -13,3 +13,7 @@ __all__ = [
     "TrainingLoop",
     "FocalLoss",
 ]
+
+# NOTE: runner.py functions (run_training, train_decoder, decoder_config_from_dict)
+# are imported directly via dendrite.ml.training.runner to avoid circular imports
+# (runner imports Decoder which imports TrainingLoop from this package).

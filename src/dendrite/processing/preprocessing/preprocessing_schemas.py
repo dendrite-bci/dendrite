@@ -1,97 +1,96 @@
 """
 Pydantic configuration schemas for preprocessing.
 
-Defines validated configuration models for the preprocessing pipeline.
+ModalityPreprocessing: per-modality preprocessing config (filters, resampling, runtime context).
+PreprocessingConfig: stored in decoder metadata to record training conditions.
 """
+
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class ModalityConfig(BaseModel):
-    """Configuration for a single modality (EEG, EMG, ECG, etc)."""
+class ModalityPreprocessing(BaseModel):
+    """Per-modality preprocessing config (filters, resampling, runtime context).
 
-    model_config = ConfigDict(extra="allow")
-
-    num_channels: int = Field(..., ge=1, description="Number of channels")
-    sample_rate: float = Field(500.0, gt=0, description="Sampling rate in Hz")
-    # Note: downsample_factor is injected at runtime by processing_pipeline.py (extra='allow')
-
-    lowcut: float | None = Field(None, ge=0, description="Lowcut frequency in Hz")
-    highcut: float | None = Field(None, gt=0, description="Highcut frequency in Hz")
-    apply_rereferencing: bool = Field(False, description="Apply common average reference")
-    line_freq: float | None = Field(None, ge=0, description="Line frequency for notch filter")
-
-    @model_validator(mode="after")
-    def validate_frequency_range(self):
-        """Validate filter frequency constraints."""
-        # Check highcut > lowcut if both are provided
-        if self.lowcut is not None and self.highcut is not None:
-            if self.highcut <= self.lowcut:
-                raise ValueError(
-                    f"Highcut frequency ({self.highcut}Hz) must be greater than lowcut frequency ({self.lowcut}Hz)"
-                )
-
-        # Check frequencies are below Nyquist frequency
-        nyquist = self.sample_rate / 2.0
-        if self.highcut is not None and self.highcut >= nyquist:
-            raise ValueError(
-                f"Highcut frequency ({self.highcut}Hz) must be less than Nyquist frequency ({nyquist}Hz for {self.sample_rate}Hz sampling)"
-            )
-
-        if self.lowcut is not None and self.lowcut >= nyquist:
-            raise ValueError(
-                f"Lowcut frequency ({self.lowcut}Hz) must be less than Nyquist frequency ({nyquist}Hz for {self.sample_rate}Hz sampling)"
-            )
-
-        return self
-
-
-# Default configurations for each modality type
-# These serve as the single source of truth for GUI defaults
-DEFAULT_EEG_CONFIG = {
-    "lowcut": 0.5,  # High-pass at 0.5Hz removes slow drifts
-    "highcut": 50.0,  # Low-pass at 50Hz captures main EEG bands (delta to gamma)
-    "apply_rereferencing": True,  # Common average reference is standard for EEG
-}
-
-DEFAULT_EMG_CONFIG = {
-    "lowcut": 20.0,  # EMG signals start above 20Hz
-    "highcut": 200.0,  # Safe value below Nyquist for 500Hz sampling
-    "line_freq": 50.0,  # European standard (use 60.0 for North America)
-}
-
-DEFAULT_EOG_CONFIG = {
-    "lowcut": 0.1,  # Very low frequency to capture slow eye drifts
-    "highcut": 10.0,  # Eye movements and blinks are below 10Hz
-}
-
-
-class QualityControlConfig(BaseModel):
-    """Channel quality monitoring configuration."""
-
-    enabled: bool = Field(False, description="Enable channel quality monitoring")
-
-    # All other parameters use hardcoded defaults in ChannelQualityMonitor
-    # This keeps the GUI simple (just enable/disable checkbox)
-
-
-class PreprocessingConfig(BaseModel):
-    """Complete preprocessing configuration for the Dendrite system."""
+    Runtime fields (num_channels, sample_rate) are optional for storage
+    but required when actually preprocessing.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    preprocess_data: bool = Field(True, description="Enable preprocessing")
-    target_sample_rate: int | None = Field(
-        None, gt=0, description="Target sample rate in Hz (None = no resampling)"
-    )
-    downsample_factor: int = Field(
-        1, ge=1, le=16, description="Global downsampling factor (legacy, prefer target_sample_rate)"
-    )
+    # Filter params (user-configurable)
+    lowcut: float | None = Field(None, ge=0)
+    highcut: float | None = Field(None, gt=0)
+    filter_order: int = Field(4, ge=1, le=10)
+    apply_rereferencing: bool = False
+    line_freq: float | None = Field(None, ge=0)
+    target_sample_rate: float | None = Field(None, gt=0)
+    downsample_factor: int | None = Field(None, ge=1)
+    notch_width: float | None = Field(None, gt=0)
+    channel_labels: list[str] | None = None
 
-    modality_preprocessing: dict[str, ModalityConfig] = Field(
+    # Runtime context (injected from stream/file metadata)
+    num_channels: int | None = Field(None, ge=1)
+    sample_rate: float | None = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_frequencies(self):
+        """Validate highcut > lowcut, and Nyquist check when sample_rate is present."""
+        if self.lowcut is not None and self.highcut is not None:
+            if self.highcut <= self.lowcut:
+                raise ValueError(
+                    f"Highcut ({self.highcut}Hz) must be greater than lowcut ({self.lowcut}Hz)"
+                )
+        if self.sample_rate is not None:
+            nyquist = self.sample_rate / 2.0
+            if self.highcut is not None and self.highcut >= nyquist:
+                raise ValueError(
+                    f"Highcut ({self.highcut}Hz) must be less than Nyquist "
+                    f"({nyquist}Hz for {self.sample_rate}Hz sampling)"
+                )
+            if self.lowcut is not None and self.lowcut >= nyquist:
+                raise ValueError(
+                    f"Lowcut ({self.lowcut}Hz) must be less than Nyquist "
+                    f"({nyquist}Hz for {self.sample_rate}Hz sampling)"
+                )
+        return self
+
+    @classmethod
+    def default_for(cls, modality: str) -> "ModalityPreprocessing":
+        """Return default preprocessing config for a modality."""
+        return cls(**MODALITY_DEFAULTS.get(modality.lower(), {}))
+
+    @classmethod
+    def from_user_config(
+        cls, config: dict[str, Any], n_channels: int, sample_rate: float,
+    ) -> "ModalityPreprocessing":
+        """Build from user-facing dict (computes downsample_factor from target_rate)."""
+        fields = {**config}
+        target = fields.pop("target_sample_rate", None)
+        if target and sample_rate > target and sample_rate % target == 0:
+            fields["downsample_factor"] = int(sample_rate // target)
+        fields["num_channels"] = n_channels
+        fields["sample_rate"] = sample_rate
+        return cls(**fields)
+
+
+# Default configs per modality — single source of truth for GUI defaults
+MODALITY_DEFAULTS: dict[str, dict[str, Any]] = {
+    "eeg": {"lowcut": 0.5, "highcut": 50.0, "apply_rereferencing": True, "filter_order": 4},
+    "emg": {"lowcut": 20.0, "highcut": 200.0, "line_freq": 50.0, "filter_order": 4},
+    "eog": {"lowcut": 0.1, "highcut": 10.0, "filter_order": 2},
+}
+
+class PreprocessingConfig(BaseModel):
+    """Preprocessing config stored in decoder metadata.
+
+    Records what preprocessing was applied during training so inference
+    can reproduce the same pipeline.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    modality_preprocessing: dict[str, ModalityPreprocessing] = Field(
         default_factory=dict, description="Preprocessing parameters per modality (EEG, EMG, etc)"
-    )
-
-    quality_control: QualityControlConfig = Field(
-        default_factory=QualityControlConfig, description="Channel quality monitoring configuration"
     )

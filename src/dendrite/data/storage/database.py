@@ -2,6 +2,8 @@
 Dendrite Database Backend
 
 SQLite database for experiment metadata - recordings and trained decoders.
+Uses WAL mode for concurrent read/write access and dict row factory for
+zero-overhead JSON-ready results.
 """
 
 import logging
@@ -16,6 +18,11 @@ from dendrite.constants import DATABASE_PATH
 logger = logging.getLogger(__name__)
 
 
+def _dict_factory(cursor: sqlite3.Cursor, row: tuple) -> dict[str, Any]:
+    """Row factory that returns dicts directly — no dict(row) needed."""
+    return {col[0]: row[i] for i, col in enumerate(cursor.description)}
+
+
 class Database:
     """Database backend for Dendrite experiments."""
 
@@ -27,15 +34,33 @@ class Database:
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        """Context manager for database connections."""
+        """Context manager for database connections with WAL mode."""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.row_factory = _dict_factory
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 10000")
         try:
             yield conn
         finally:
             conn.close()
+
+    @contextmanager
+    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+        """Explicit transaction — atomic multi-step operations.
+
+        All operations within the block share one connection and are
+        committed together or rolled back on error.
+        """
+        with self.get_connection() as conn:
+            conn.execute("BEGIN")
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def init_db(self) -> None:
         """Initialize the database schema."""
@@ -45,27 +70,14 @@ class Database:
             self._create_indexes(conn)
 
     def _create_tables(self, conn: sqlite3.Connection) -> None:
-        """Create all database tables."""
-        self._create_studies_table(conn)
-        self._create_recordings_table(conn)
-        self._create_datasets_table(conn)
-        self._create_decoders_table(conn)
-
-    def _create_studies_table(self, conn: sqlite3.Connection) -> None:
-        """Create studies table - master table for organizing all experiment data."""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS studies (
                 study_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 study_name TEXT UNIQUE NOT NULL,
                 description TEXT,
-                study_config TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-
-    def _create_recordings_table(self, conn: sqlite3.Connection) -> None:
-        """Create recordings table - raw EEG recording metadata (belongs to study)."""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS recordings (
                 recording_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,95 +86,59 @@ class Database:
                 subject_id TEXT NOT NULL DEFAULT '',
                 session_id TEXT NOT NULL DEFAULT '',
                 run_number INTEGER NOT NULL DEFAULT 1,
-                session_timestamp TEXT UNIQUE NOT NULL,
+                session_timestamp TEXT NOT NULL,
+                file_identifier TEXT NOT NULL DEFAULT '',
                 hdf5_file_path TEXT UNIQUE NOT NULL,
-                metrics_file_path TEXT,
-                config_file_path TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (study_id) REFERENCES studies(study_id) ON DELETE CASCADE
             )
         """)
-
-    def _create_datasets_table(self, conn: sqlite3.Connection) -> None:
-        """Create datasets table - custom FIF files for offline ML training."""
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS datasets (
-                dataset_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                study_id INTEGER,
-                name TEXT UNIQUE NOT NULL,
-                file_path TEXT NOT NULL,
-                events_json TEXT,
-                epoch_tmin REAL DEFAULT -0.2,
-                epoch_tmax REAL DEFAULT 0.8,
-                sampling_rate REAL,
-                target_sample_rate REAL,
-                preproc_lowcut REAL DEFAULT 0.5,
-                preproc_highcut REAL DEFAULT 50.0,
-                preproc_rereference INTEGER DEFAULT 0,
-                paradigm TEXT,
-                modality TEXT,
-                description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (study_id) REFERENCES studies(study_id) ON DELETE SET NULL
-            )
-        """)
-
-    def _create_decoders_table(self, conn: sqlite3.Connection) -> None:
-        """Create decoders table - trained model metadata (belongs to study)."""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS decoders (
                 decoder_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                study_id INTEGER NOT NULL,
+                study_id INTEGER,
                 decoder_name TEXT NOT NULL,
                 decoder_path TEXT UNIQUE NOT NULL,
                 model_type TEXT NOT NULL,
-                classifier_type TEXT,
+                description TEXT,
                 num_classes INTEGER,
-                num_channels INTEGER,
-                sampling_freq REAL,
-                epoch_length_samples INTEGER,
-                start_offset REAL,
-                end_offset REAL,
                 training_accuracy REAL,
                 validation_accuracy REAL,
-                cv_mean_accuracy REAL,
-                cv_std_accuracy REAL,
-                cv_folds INTEGER,
-                preprocessing_config TEXT,
-                channel_names TEXT,
-                class_labels TEXT,
-                training_dataset_name TEXT,
-                modality TEXT,
-                source TEXT,
-                description TEXT,
-                training_config TEXT,
-                search_result TEXT,
-                training_recording_id INTEGER,
+                training_recording_ids TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (study_id) REFERENCES studies(study_id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS training_jobs (
+                job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                study_id INTEGER,
+                model_type TEXT NOT NULL,
+                job_type TEXT NOT NULL DEFAULT 'training',
+                status TEXT NOT NULL DEFAULT 'pending',
+                config_json TEXT NOT NULL,
+                result_json TEXT,
+                decoder_id INTEGER,
+                error_message TEXT,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (study_id) REFERENCES studies(study_id) ON DELETE CASCADE,
-                FOREIGN KEY (training_recording_id) REFERENCES recordings(recording_id)
-                    ON DELETE SET NULL
+                FOREIGN KEY (decoder_id) REFERENCES decoders(decoder_id) ON DELETE SET NULL
             )
         """)
 
     def _create_indexes(self, conn: sqlite3.Connection) -> None:
-        """Create indexes for query performance."""
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_studies_name ON studies(study_name)")
-
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_name ON recordings(recording_name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_study ON recordings(study_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_subject ON recordings(subject_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_session ON recordings(session_id)")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_recordings_bids ON recordings(subject_id, session_id, recording_name)"
-        )
-
         conn.execute("CREATE INDEX IF NOT EXISTS idx_decoders_name ON decoders(decoder_name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_decoders_model_type ON decoders(model_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_decoders_study ON decoders(study_id)")
-
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_datasets_name ON datasets(name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_datasets_study ON datasets(study_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_training_jobs_study ON training_jobs(study_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_training_jobs_status ON training_jobs(status)"
+        )
 
 
 class RecordingRepository:
@@ -180,95 +156,72 @@ class RecordingRepository:
         subject_id: str = "",
         session_id: str = "",
         run_number: int = 1,
-        metrics_file_path: str | None = None,
-        config_file_path: str | None = None,
+        file_identifier: str = "",
+        _conn: sqlite3.Connection | None = None,
     ) -> int | None:
-        """Add a new recording."""
-        with self.db.get_connection() as conn:
+        """Add a new recording. Returns None if hdf5_file_path already exists.
+
+        Pass _conn from a transaction() block for atomic batch inserts.
+        """
+        def _insert(conn: sqlite3.Connection) -> int | None:
             try:
                 cursor = conn.execute(
-                    """INSERT INTO recordings (study_id, recording_name, subject_id, session_id, run_number, session_timestamp, hdf5_file_path, metrics_file_path, config_file_path)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO recordings
+                       (study_id, recording_name, subject_id, session_id,
+                        run_number, session_timestamp, file_identifier, hdf5_file_path)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        study_id,
-                        recording_name,
-                        subject_id,
-                        session_id,
-                        run_number,
-                        session_timestamp,
-                        hdf5_file_path,
-                        metrics_file_path,
-                        config_file_path,
+                        study_id, recording_name, subject_id, session_id,
+                        run_number, session_timestamp, file_identifier, hdf5_file_path,
                     ),
                 )
-                conn.commit()
+                if _conn is None:
+                    conn.commit()
                 return cursor.lastrowid
             except sqlite3.IntegrityError:
-                existing = self.get_by_timestamp(session_timestamp)
-                return existing["recording_id"] if existing else None
+                return None
+
+        if _conn is not None:
+            return _insert(_conn)
+        with self.db.get_connection() as conn:
+            return _insert(conn)
 
     def get_by_id(self, recording_id: int) -> dict[str, Any] | None:
-        """Get recording by ID with study_name included."""
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT r.*, s.study_name
-                FROM recordings r
-                JOIN studies s ON r.study_id = s.study_id
-                WHERE r.recording_id = ?
-            """,
+                """SELECT r.*, s.study_name FROM recordings r
+                   JOIN studies s ON r.study_id = s.study_id
+                   WHERE r.recording_id = ?""",
                 (recording_id,),
             )
-            row = cursor.fetchone()
-            return dict(row) if row else None
-
-    def get_by_timestamp(self, session_timestamp: str) -> dict[str, Any] | None:
-        """Get recording by timestamp with study_name included."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT r.*, s.study_name
-                FROM recordings r
-                JOIN studies s ON r.study_id = s.study_id
-                WHERE r.session_timestamp = ?
-            """,
-                (session_timestamp,),
-            )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            return cursor.fetchone()
 
     def get_all_recordings(self) -> list[dict[str, Any]]:
-        """Get all recordings with study_name, newest first."""
         with self.db.get_connection() as conn:
             cursor = conn.execute("""
-                SELECT r.*, s.study_name
-                FROM recordings r
+                SELECT r.*, s.study_name FROM recordings r
                 JOIN studies s ON r.study_id = s.study_id
                 ORDER BY r.recording_id DESC
             """)
-            return [dict(row) for row in cursor.fetchall()]
+            return cursor.fetchall()
 
     def search_recordings(self, search_term: str) -> list[dict[str, Any]]:
-        """Search recordings by term."""
         with self.db.get_connection() as conn:
-            query = """
-                SELECT r.*, s.study_name
-                FROM recordings r
-                JOIN studies s ON r.study_id = s.study_id
-                WHERE LOWER(r.recording_name) LIKE LOWER(?) OR
-                      LOWER(s.study_name) LIKE LOWER(?) OR
-                      LOWER(r.subject_id) LIKE LOWER(?) OR
-                      LOWER(r.session_id) LIKE LOWER(?) OR
-                      LOWER(r.session_timestamp) LIKE LOWER(?) OR
-                      LOWER(r.hdf5_file_path) LIKE LOWER(?)
-                ORDER BY r.recording_id DESC
-            """
             like_term = f"%{search_term}%"
-            cursor = conn.execute(query, (like_term,) * 6)
-            return [dict(row) for row in cursor.fetchall()]
+            cursor = conn.execute(
+                """SELECT r.*, s.study_name FROM recordings r
+                   JOIN studies s ON r.study_id = s.study_id
+                   WHERE LOWER(r.recording_name) LIKE LOWER(?) OR
+                         LOWER(s.study_name) LIKE LOWER(?) OR
+                         LOWER(r.subject_id) LIKE LOWER(?) OR
+                         LOWER(r.session_id) LIKE LOWER(?) OR
+                         LOWER(r.hdf5_file_path) LIKE LOWER(?)
+                   ORDER BY r.recording_id DESC""",
+                (like_term,) * 5,
+            )
+            return cursor.fetchall()
 
     def delete_recording(self, recording_id: int) -> bool:
-        """Delete a recording."""
         with self.db.get_connection() as conn:
             try:
                 cursor = conn.execute(
@@ -281,99 +234,28 @@ class RecordingRepository:
                 return False
 
     def get_recordings_by_study(self, study: int | str) -> list[dict[str, Any]]:
-        """Get all recordings for a study by study_id (int) or study_name (str)."""
         with self.db.get_connection() as conn:
             if isinstance(study, int):
                 cursor = conn.execute(
-                    """
-                    SELECT r.*, s.study_name
-                    FROM recordings r
-                    JOIN studies s ON r.study_id = s.study_id
-                    WHERE r.study_id = ?
-                    ORDER BY r.recording_id DESC
-                """,
+                    """SELECT r.*, s.study_name FROM recordings r
+                       JOIN studies s ON r.study_id = s.study_id
+                       WHERE r.study_id = ?
+                       ORDER BY r.session_timestamp DESC, r.recording_name ASC""",
                     (study,),
                 )
             else:
                 cursor = conn.execute(
-                    """
-                    SELECT r.*, s.study_name
-                    FROM recordings r
-                    JOIN studies s ON r.study_id = s.study_id
-                    WHERE s.study_name = ?
-                    ORDER BY r.recording_id DESC
-                """,
+                    """SELECT r.*, s.study_name FROM recordings r
+                       JOIN studies s ON r.study_id = s.study_id
+                       WHERE s.study_name = ?
+                       ORDER BY r.session_timestamp DESC, r.recording_name ASC""",
                     (study,),
                 )
-            return [dict(row) for row in cursor.fetchall()]
+            return cursor.fetchall()
 
-    def get_existing_subjects(self, study_name: str | None = None) -> list[str]:
-        """Get distinct subject IDs, optionally filtered by study name."""
-        with self.db.get_connection() as conn:
-            if study_name:
-                cursor = conn.execute(
-                    """
-                    SELECT DISTINCT r.subject_id
-                    FROM recordings r
-                    JOIN studies s ON r.study_id = s.study_id
-                    WHERE s.study_name = ? AND r.subject_id != ''
-                    ORDER BY r.subject_id
-                """,
-                    (study_name,),
-                )
-            else:
-                cursor = conn.execute(
-                    "SELECT DISTINCT subject_id FROM recordings WHERE subject_id != '' ORDER BY subject_id"
-                )
-            return [row["subject_id"] for row in cursor.fetchall()]
-
-    def get_existing_sessions(self, study_name: str | None = None, subject_id: str | None = None) -> list[str]:
-        """Get distinct session IDs, optionally filtered by study name and subject."""
-        with self.db.get_connection() as conn:
-            if study_name and subject_id:
-                cursor = conn.execute(
-                    """
-                    SELECT DISTINCT r.session_id
-                    FROM recordings r
-                    JOIN studies s ON r.study_id = s.study_id
-                    WHERE s.study_name = ? AND r.subject_id = ? AND r.session_id != ''
-                    ORDER BY r.session_id
-                """,
-                    (study_name, subject_id),
-                )
-            elif study_name:
-                cursor = conn.execute(
-                    """
-                    SELECT DISTINCT r.session_id
-                    FROM recordings r
-                    JOIN studies s ON r.study_id = s.study_id
-                    WHERE s.study_name = ? AND r.session_id != ''
-                    ORDER BY r.session_id
-                """,
-                    (study_name,),
-                )
-            else:
-                cursor = conn.execute(
-                    "SELECT DISTINCT session_id FROM recordings WHERE session_id != '' ORDER BY session_id"
-                )
-            return [row["session_id"] for row in cursor.fetchall()]
-
-    def get_next_session_id(self, study_name: str, subject_id: str) -> str:
-        """Suggest next session ID for a study+subject (e.g., '01', '02', '03')."""
-        existing = self.get_existing_sessions(study_name, subject_id)
-        if not existing:
-            return "01"
-        max_num = 0
-        for ses in existing:
-            try:
-                num = int(ses.lstrip("0") or "0")
-                max_num = max(max_num, num)
-            except ValueError:
-                continue
-        return f"{max_num + 1:02d}"
-
-    def get_next_run_number(self, subject_id: str, session_id: str, recording_name: str) -> int:
-        """Get next BIDS run number for a subject+session+task combination."""
+    def get_next_run_number(
+        self, subject_id: str, session_id: str, recording_name: str
+    ) -> int:
         with self.db.get_connection() as conn:
             cursor = conn.execute(
                 """SELECT MAX(run_number) as max_run FROM recordings
@@ -388,56 +270,37 @@ class RecordingRepository:
 class DecoderRepository:
     """Repository for decoder operations."""
 
-    DECODER_FIELDS = [
-        "decoder_name",
-        "decoder_path",
-        "model_type",
-        "classifier_type",
-        "num_classes",
-        "num_channels",
-        "sampling_freq",
-        "epoch_length_samples",
-        "start_offset",
-        "end_offset",
-        "training_accuracy",
-        "validation_accuracy",
-        "cv_mean_accuracy",
-        "cv_std_accuracy",
-        "cv_folds",
-        "preprocessing_config",
-        "channel_names",
-        "class_labels",
-        "training_dataset_name",
-        "modality",
-        "source",
-        "description",
-        "training_config",
-        "search_result",
-        "training_recording_id",
-    ]
-
     def __init__(self, db: Database) -> None:
         self.db = db
 
     def add_decoder(
-        self, study_id: int, decoder_name: str, decoder_path: str, model_type: str, **kwargs
+        self,
+        study_id: int | None,
+        decoder_name: str,
+        decoder_path: str,
+        model_type: str,
+        num_classes: int | None = None,
+        training_accuracy: float | None = None,
+        validation_accuracy: float | None = None,
+        description: str | None = None,
+        training_recording_ids: list[int] | None = None,
     ) -> int | None:
-        """Add a new decoder."""
+        import json as _json
+
         with self.db.get_connection() as conn:
             try:
-                fields = ["study_id", "decoder_name", "decoder_path", "model_type"]
-                values = [study_id, decoder_name, decoder_path, model_type]
-
-                for field in self.DECODER_FIELDS[3:]:
-                    if field in kwargs:
-                        fields.append(field)
-                        values.append(kwargs[field])
-
-                placeholders = ", ".join(["?" for _ in values])
-                field_names = ", ".join(fields)
-
                 cursor = conn.execute(
-                    f"INSERT INTO decoders ({field_names}) VALUES ({placeholders})", values
+                    """INSERT INTO decoders
+                       (study_id, decoder_name, decoder_path, model_type,
+                        num_classes, training_accuracy, validation_accuracy,
+                        description, training_recording_ids)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        study_id, decoder_name, decoder_path, model_type,
+                        num_classes, training_accuracy, validation_accuracy,
+                        description,
+                        _json.dumps(training_recording_ids) if training_recording_ids else None,
+                    ),
                 )
                 conn.commit()
                 return cursor.lastrowid
@@ -445,101 +308,68 @@ class DecoderRepository:
                 return None
 
     def get_decoder_by_id(self, decoder_id: int) -> dict[str, Any] | None:
-        """Get decoder by ID with study_name included."""
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT d.*, s.study_name
-                FROM decoders d
-                JOIN studies s ON d.study_id = s.study_id
-                WHERE d.decoder_id = ?
-            """,
+                """SELECT d.*, s.study_name FROM decoders d
+                   LEFT JOIN studies s ON d.study_id = s.study_id
+                   WHERE d.decoder_id = ?""",
                 (decoder_id,),
             )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            return cursor.fetchone()
 
     def get_all_decoders(self) -> list[dict[str, Any]]:
-        """Get all decoders with study_name, newest first."""
         with self.db.get_connection() as conn:
             cursor = conn.execute("""
-                SELECT d.*, s.study_name
-                FROM decoders d
-                JOIN studies s ON d.study_id = s.study_id
+                SELECT d.*, s.study_name FROM decoders d
+                LEFT JOIN studies s ON d.study_id = s.study_id
                 ORDER BY d.decoder_id DESC
             """)
-            return [dict(row) for row in cursor.fetchall()]
+            return cursor.fetchall()
 
     def get_decoders_by_study(self, study: int | str) -> list[dict[str, Any]]:
-        """Get all decoders for a study by study_id (int) or study_name (str)."""
         with self.db.get_connection() as conn:
             if isinstance(study, int):
                 cursor = conn.execute(
-                    """
-                    SELECT d.*, s.study_name
-                    FROM decoders d
-                    JOIN studies s ON d.study_id = s.study_id
-                    WHERE d.study_id = ?
-                    ORDER BY d.decoder_id DESC
-                """,
+                    """SELECT d.*, s.study_name FROM decoders d
+                       JOIN studies s ON d.study_id = s.study_id
+                       WHERE d.study_id = ? ORDER BY d.decoder_id DESC""",
                     (study,),
                 )
             else:
                 cursor = conn.execute(
-                    """
-                    SELECT d.*, s.study_name
-                    FROM decoders d
-                    JOIN studies s ON d.study_id = s.study_id
-                    WHERE s.study_name = ?
-                    ORDER BY d.decoder_id DESC
-                """,
+                    """SELECT d.*, s.study_name FROM decoders d
+                       JOIN studies s ON d.study_id = s.study_id
+                       WHERE s.study_name = ? ORDER BY d.decoder_id DESC""",
                     (study,),
                 )
-            return [dict(row) for row in cursor.fetchall()]
+            return cursor.fetchall()
 
     def search_decoders(self, search_term: str) -> list[dict[str, Any]]:
-        """Search decoders by term."""
         with self.db.get_connection() as conn:
-            query = """
-                SELECT d.*, s.study_name
-                FROM decoders d
-                JOIN studies s ON d.study_id = s.study_id
-                WHERE LOWER(d.decoder_name) LIKE LOWER(?) OR
-                      LOWER(d.model_type) LIKE LOWER(?) OR
-                      LOWER(s.study_name) LIKE LOWER(?) OR
-                      LOWER(d.source) LIKE LOWER(?) OR
-                      LOWER(d.description) LIKE LOWER(?)
-                ORDER BY d.decoder_id DESC
-            """
             like_term = f"%{search_term}%"
-            cursor = conn.execute(query, (like_term,) * 5)
-            return [dict(row) for row in cursor.fetchall()]
+            cursor = conn.execute(
+                """SELECT d.*, s.study_name FROM decoders d
+                   LEFT JOIN studies s ON d.study_id = s.study_id
+                   WHERE LOWER(d.decoder_name) LIKE LOWER(?) OR
+                         LOWER(d.model_type) LIKE LOWER(?) OR
+                         LOWER(s.study_name) LIKE LOWER(?) OR
+                         LOWER(d.description) LIKE LOWER(?)
+                   ORDER BY d.decoder_id DESC""",
+                (like_term,) * 4,
+            )
+            return cursor.fetchall()
 
     def delete_decoder(self, decoder_id: int) -> bool:
-        """Delete a decoder."""
         with self.db.get_connection() as conn:
             try:
-                cursor = conn.execute("DELETE FROM decoders WHERE decoder_id = ?", (decoder_id,))
+                cursor = conn.execute(
+                    "DELETE FROM decoders WHERE decoder_id = ?", (decoder_id,)
+                )
                 conn.commit()
                 return cursor.rowcount > 0
             except sqlite3.Error as e:
                 logger.warning(f"Failed to delete decoder {decoder_id}: {e}")
                 return False
-
-    def get_by_path(self, decoder_path: str) -> dict[str, Any] | None:
-        """Get decoder by file path with study_name included."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT d.*, s.study_name
-                FROM decoders d
-                JOIN studies s ON d.study_id = s.study_id
-                WHERE d.decoder_path = ?
-            """,
-                (decoder_path,),
-            )
-            row = cursor.fetchone()
-            return dict(row) if row else None
 
 
 class StudyRepository:
@@ -548,77 +378,76 @@ class StudyRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def get_or_create(self, study_name: str, description: str | None = None) -> dict[str, Any]:
-        """Get study by name or create if not exists."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM studies WHERE study_name = ?", (study_name,))
+    def get_or_create(
+        self,
+        study_name: str,
+        description: str | None = None,
+        _conn: sqlite3.Connection | None = None,
+    ) -> dict[str, Any]:
+        """Get study by name or create if not exists.
+
+        Pass _conn from a transaction() block for atomic operations.
+        """
+        def _do(conn: sqlite3.Connection) -> dict[str, Any]:
+            cursor = conn.execute(
+                "SELECT * FROM studies WHERE study_name = ?", (study_name,)
+            )
             row = cursor.fetchone()
             if row:
-                return dict(row)
-
+                return row
             cursor = conn.execute(
                 "INSERT INTO studies (study_name, description) VALUES (?, ?)",
                 (study_name, description),
             )
-            conn.commit()
+            if _conn is None:
+                conn.commit()
             return {
                 "study_id": cursor.lastrowid,
                 "study_name": study_name,
                 "description": description,
-                "study_config": None,
             }
 
-    def get_study_id(self, study_name: str) -> int | None:
-        """Get study_id by study_name. Returns None if not found."""
+        if _conn is not None:
+            return _do(_conn)
         with self.db.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT study_id FROM studies WHERE study_name = ?", (study_name,)
-            )
-            row = cursor.fetchone()
-            return row["study_id"] if row else None
-
-    def get_study_name(self, study_id: int) -> str | None:
-        """Get study_name by study_id. Returns None if not found."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT study_name FROM studies WHERE study_id = ?", (study_id,))
-            row = cursor.fetchone()
-            return row["study_name"] if row else None
+            return _do(conn)
 
     def get_by_id(self, study_id: int) -> dict[str, Any] | None:
-        """Get study by ID."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM studies WHERE study_id = ?", (study_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-
-    def get_by_name(self, study_name: str) -> dict[str, Any] | None:
-        """Get study by name."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM studies WHERE study_name = ?", (study_name,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-
-    def get_all_studies(self) -> list[dict[str, Any]]:
-        """Get all studies."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM studies ORDER BY study_name")
-            return [dict(row) for row in cursor.fetchall()]
-
-    def update_config(self, study_id: int, config: str) -> bool:
-        """Update study configuration JSON."""
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                "UPDATE studies SET study_config = ?, updated_at = CURRENT_TIMESTAMP WHERE study_id = ?",
-                (config, study_id),
+                "SELECT * FROM studies WHERE study_id = ?", (study_id,)
+            )
+            return cursor.fetchone()
+
+    def get_all_studies(self) -> list[dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT s.*,
+                    (SELECT COUNT(*) FROM recordings r WHERE r.study_id = s.study_id)
+                        AS recording_count,
+                    (SELECT COUNT(*) FROM decoders d WHERE d.study_id = s.study_id)
+                        AS decoder_count
+                FROM studies s ORDER BY s.study_name
+            """)
+            return cursor.fetchall()
+
+    def update_study(self, study_id: int, description: str | None = None) -> bool:
+        if description is None:
+            return False
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE studies SET description = ? WHERE study_id = ?",
+                (description, study_id),
             )
             conn.commit()
             return cursor.rowcount > 0
 
     def delete_study(self, study_id: int) -> bool:
-        """Delete a study and all associated recordings/decoders (CASCADE)."""
         with self.db.get_connection() as conn:
             try:
-                cursor = conn.execute("DELETE FROM studies WHERE study_id = ?", (study_id,))
+                cursor = conn.execute(
+                    "DELETE FROM studies WHERE study_id = ?", (study_id,)
+                )
                 conn.commit()
                 return cursor.rowcount > 0
             except sqlite3.Error as e:
@@ -626,179 +455,118 @@ class StudyRepository:
                 return False
 
 
-class DatasetRepository:
-    """Repository for custom dataset operations (imported FIF files)."""
+class TrainingJobRepository:
+    """Repository for ML training job operations."""
 
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def add_dataset(
+    def create_job(
         self,
-        name: str,
-        file_path: str,
+        study_id: int | None,
+        model_type: str,
+        config_json: str,
+        job_type: str = "training",
+    ) -> int:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO training_jobs
+                   (study_id, model_type, job_type, status, config_json)
+                   VALUES (?, ?, ?, 'pending', ?)""",
+                (study_id, model_type, job_type, config_json),
+            )
+            conn.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_by_id(self, job_id: int) -> dict[str, Any] | None:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM training_jobs WHERE job_id = ?", (job_id,)
+            )
+            return cursor.fetchone()
+
+    # Columns returned by list queries (excludes large result_json blob).
+    _LIST_COLS = (
+        "job_id, study_id, model_type, job_type, status, config_json,"
+        " decoder_id, error_message, started_at, completed_at, created_at"
+    )
+
+    def list_jobs(
+        self,
         study_id: int | None = None,
-        events_json: str | None = None,
-        epoch_tmin: float = -0.2,
-        epoch_tmax: float = 0.8,
-        sampling_rate: float | None = None,
-        target_sample_rate: float | None = None,
-        preproc_lowcut: float = 0.5,
-        preproc_highcut: float = 50.0,
-        preproc_rereference: bool = False,
-        paradigm: str | None = None,
-        modality: str | None = None,
-        description: str | None = None,
-    ) -> int | None:
-        """Add a custom dataset, optionally associated with a study."""
+        job_type: str | None = None,
+    ) -> list[dict[str, Any]]:
         with self.db.get_connection() as conn:
-            try:
-                cursor = conn.execute(
-                    """INSERT INTO datasets (study_id, name, file_path, events_json, epoch_tmin, epoch_tmax,
-                       sampling_rate, target_sample_rate, preproc_lowcut, preproc_highcut, preproc_rereference,
-                       paradigm, modality, description)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        study_id,
-                        name,
-                        file_path,
-                        events_json,
-                        epoch_tmin,
-                        epoch_tmax,
-                        sampling_rate,
-                        target_sample_rate,
-                        preproc_lowcut,
-                        preproc_highcut,
-                        int(preproc_rereference),
-                        paradigm,
-                        modality,
-                        description,
-                    ),
-                )
-                conn.commit()
-                return cursor.lastrowid
-            except sqlite3.IntegrityError:
-                return None
+            clauses = []
+            params: list[Any] = []
+            if study_id is not None:
+                clauses.append("study_id = ?")
+                params.append(study_id)
+            if job_type is not None:
+                clauses.append("job_type = ?")
+                params.append(job_type)
+            where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+            cursor = conn.execute(
+                f"SELECT {self._LIST_COLS} FROM training_jobs{where}"
+                " ORDER BY job_id DESC",
+                params,
+            )
+            return cursor.fetchall()
 
-    def get_by_id(self, dataset_id: int) -> dict[str, Any] | None:
-        """Get dataset by ID with study_name included if associated."""
+    def update_status(
+        self,
+        job_id: int,
+        status: str,
+        error_message: str | None = None,
+        started_at: str | None = None,
+        completed_at: str | None = None,
+    ) -> bool:
+        updates = ["status = ?"]
+        values: list[Any] = [status]
+        if error_message is not None:
+            updates.append("error_message = ?")
+            values.append(error_message)
+        if started_at is not None:
+            updates.append("started_at = ?")
+            values.append(started_at)
+        if completed_at is not None:
+            updates.append("completed_at = ?")
+            values.append(completed_at)
+        values.append(job_id)
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT d.*, s.study_name
-                FROM datasets d
-                LEFT JOIN studies s ON d.study_id = s.study_id
-                WHERE d.dataset_id = ?
-            """,
-                (dataset_id,),
+                f"UPDATE training_jobs SET {', '.join(updates)} WHERE job_id = ?",
+                values,
             )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            conn.commit()
+            return cursor.rowcount > 0
 
-    def get_by_name(self, name: str) -> dict[str, Any] | None:
-        """Get dataset by name with study_name included if associated."""
+    def set_result(self, job_id: int, result_json: str) -> bool:
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                """
-                SELECT d.*, s.study_name
-                FROM datasets d
-                LEFT JOIN studies s ON d.study_id = s.study_id
-                WHERE d.name = ?
-            """,
-                (name,),
+                "UPDATE training_jobs SET result_json = ? WHERE job_id = ?",
+                (result_json, job_id),
             )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            conn.commit()
+            return cursor.rowcount > 0
 
-    def get_all_datasets(self) -> list[dict[str, Any]]:
-        """Get all datasets with study_name, newest first."""
+    def link_decoder(self, job_id: int, decoder_id: int) -> bool:
         with self.db.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT d.*, s.study_name
-                FROM datasets d
-                LEFT JOIN studies s ON d.study_id = s.study_id
-                ORDER BY d.dataset_id DESC
-            """)
-            return [dict(row) for row in cursor.fetchall()]
+            cursor = conn.execute(
+                "UPDATE training_jobs SET decoder_id = ? WHERE job_id = ?",
+                (decoder_id, job_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
-    def get_datasets_by_study(self, study: int | str) -> list[dict[str, Any]]:
-        """Get all datasets for a study by study_id (int) or study_name (str)."""
-        with self.db.get_connection() as conn:
-            if isinstance(study, int):
-                cursor = conn.execute(
-                    """
-                    SELECT d.*, s.study_name
-                    FROM datasets d
-                    LEFT JOIN studies s ON d.study_id = s.study_id
-                    WHERE d.study_id = ?
-                    ORDER BY d.dataset_id DESC
-                """,
-                    (study,),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    SELECT d.*, s.study_name
-                    FROM datasets d
-                    JOIN studies s ON d.study_id = s.study_id
-                    WHERE s.study_name = ?
-                    ORDER BY d.dataset_id DESC
-                """,
-                    (study,),
-                )
-            return [dict(row) for row in cursor.fetchall()]
-
-    def get_unassociated_datasets(self) -> list[dict[str, Any]]:
-        """Get datasets not associated with any study."""
-        with self.db.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT * FROM datasets
-                WHERE study_id IS NULL
-                ORDER BY dataset_id DESC
-            """)
-            return [dict(row) for row in cursor.fetchall()]
-
-    def update_dataset(self, dataset_id: int, **kwargs) -> bool:
-        """Update dataset fields."""
-        allowed_fields = [
-            "study_id",
-            "name",
-            "file_path",
-            "events_json",
-            "epoch_tmin",
-            "epoch_tmax",
-            "sampling_rate",
-            "target_sample_rate",
-            "preproc_lowcut",
-            "preproc_highcut",
-            "preproc_rereference",
-            "description",
-            "paradigm",
-            "modality",
-        ]
-        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
-        if not updates:
-            return False
-
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [dataset_id]
-
+    def delete_job(self, job_id: int) -> bool:
         with self.db.get_connection() as conn:
             try:
                 cursor = conn.execute(
-                    f"UPDATE datasets SET {set_clause} WHERE dataset_id = ?", values
+                    "DELETE FROM training_jobs WHERE job_id = ?", (job_id,)
                 )
-                conn.commit()
-                return cursor.rowcount > 0
-            except sqlite3.IntegrityError:
-                return False
-
-    def delete_dataset(self, dataset_id: int) -> bool:
-        """Delete a dataset."""
-        with self.db.get_connection() as conn:
-            try:
-                cursor = conn.execute("DELETE FROM datasets WHERE dataset_id = ?", (dataset_id,))
                 conn.commit()
                 return cursor.rowcount > 0
             except sqlite3.Error as e:
-                logger.warning(f"Failed to delete dataset {dataset_id}: {e}")
+                logger.warning(f"Failed to delete training job {job_id}: {e}")
                 return False

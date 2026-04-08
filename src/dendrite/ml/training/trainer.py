@@ -11,6 +11,7 @@ Usage:
 """
 
 import copy
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -67,6 +68,7 @@ class TrainingLoop:
         model: nn.Module,
         config: Any,
         prepare_input_fn: Callable[[np.ndarray], torch.Tensor],
+        stop_event: threading.Event | None = None,
     ):
         """Initialize trainer.
 
@@ -74,9 +76,11 @@ class TrainingLoop:
             model: PyTorch model to train
             config: NeuralNetConfig with training parameters
             prepare_input_fn: Function to convert X array to tensor (required)
+            stop_event: Optional threading.Event to signal early termination
         """
         self.model = model
         self.config = config
+        self._stop_event = stop_event
 
         # Injected function for custom input handling
         self._prepare_input = prepare_input_fn
@@ -146,6 +150,8 @@ class TrainingLoop:
 
         for epoch in range(self.config.epochs):
             if self.stop_training:
+                break
+            if self._stop_event is not None and self._stop_event.is_set():
                 break
 
             # Training epoch
@@ -359,6 +365,11 @@ class TrainingLoop:
         n_samples = len(y)
         use_mixup = self.config.mixup_alpha > 0
         is_onecycle = self.config.lr_scheduler_type == "OneCycleLR"
+
+        # Deterministic per-epoch shuffle: different order each epoch, reproducible across runs
+        rng = np.random.RandomState(self.config.seed + epoch)
+        perm = rng.permutation(n_samples)
+        X, y = X[perm], y[perm]
 
         for i in range(0, n_samples, batch_size):
             end_idx = min(i + batch_size, n_samples)

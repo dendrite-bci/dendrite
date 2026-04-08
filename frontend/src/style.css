@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Surface hierarchy — near-black base */
+  --color-bg-main: #0a0a0a;
+  --color-bg-panel: #141414;
+  --color-bg-input: #111111;
+  --color-bg-elevated: #2c2c2c;
+  --color-bg-hover: #353535;
+
+  --color-text-main: #ffffff;
+  --color-text-label: #dedede;
+  --color-text-disabled: #949494;
+  --color-text-muted: #b8b8b8;
+
+  /* Border — visible but soft */
+  --color-border: #2a2a2a;
+
+  /* Brand */
+  --color-accent: #2a8be8;
+  --color-accent-hover: #1e6fc4;
+
+  /* Semantic */
+  --color-status-ok: #3da055;
+  --color-status-warn: #e8b422;
+  --color-status-error: #d04555;
+
+  /* Data role indicators (train/eval splits) */
+  --color-data-train: #4ade80;
+  --color-data-eval: #60a5fa;
+
+  /* Resource levels */
+  --color-level-ok: #20c8a0;
+  --color-level-warn: #e8a020;
+  --color-level-danger: #e87575;
+}
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--color-bg-main);
+  color: var(--color-text-main);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #333 transparent;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #383838; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #484848; }
+
+/* Form element base styles */
+@layer base {
+  input[type="text"],
+  input[type="number"],
+  input[type="search"],
+  input[type="email"],
+  input[type="password"],
+  input:not([type]),
+  select,
+  textarea {
+    font-family: inherit;
+    background-color: var(--color-bg-input);
+    color: var(--color-text-main);
+    border: 1px solid var(--color-border);
+    border-radius: 0.25rem;
+    padding: 0.5rem 0.625rem;
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+    outline: none;
+    transition: border-color 150ms, box-shadow 150ms;
+  }
+
+  input[type="text"]:focus,
+  input[type="number"]:focus,
+  input[type="search"]:focus,
+  input:not([type]):focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: var(--color-text-disabled);
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23b3b3b3' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    padding-right: 1.75rem;
+  }
+
+  select option {
+    background-color: var(--color-bg-input);
+    color: var(--color-text-main);
+  }
+
+  input[type="range"] {
+    width: 100%;
+    height: 0.25rem;
+    border-radius: 9999px;
+    appearance: none;
+    cursor: pointer;
+    background: var(--color-border);
+    border: none;
+    padding: 0;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 9999px;
+    background: var(--color-accent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 9999px;
+    background: var(--color-accent);
+    border: 0;
+  }
+}
+
+/* uPlot legend overrides — compact, theme-matched */
+.u-legend { font: 10px 'Inter', sans-serif; padding: 1px 4px; }
+.u-legend th, .u-legend td { padding: 0px 3px; }
+.u-legend .u-marker { width: 8px; height: 2px; border-radius: 1px; display: inline-block; }
+.u-legend .u-series > th { color: #b3b3b3; font-weight: 400; }
+.u-legend .u-series td { color: #808080; font-size: 9px; }

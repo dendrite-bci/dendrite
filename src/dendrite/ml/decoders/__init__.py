@@ -12,7 +12,6 @@ import os
 from typing import Any
 
 import joblib
-import torch
 from pydantic import ValidationError
 
 from dendrite.ml.decoders.decoder import Decoder
@@ -94,20 +93,13 @@ def load_decoder(decoder_path: str) -> Decoder:
         config = DecoderConfig(**metadata)
         decoder = Decoder(config)
 
-        # Restore essential attributes from config
-        decoder.num_classes = config.num_classes or 2
-        decoder.input_shapes = config.input_shapes
-        decoder.event_mapping = config.event_mapping or {}
-        decoder.label_mapping = config.label_mapping or {}
-        decoder.sample_rate = config.sample_rate or 500.0
-        decoder.target_sample_rate = config.target_sample_rate  # None = no resampling
-
         base_path = decoder_path.rsplit(".json", 1)[0]
         pt_path = f"{base_path}.pt"
         joblib_path = f"{base_path}.joblib"
 
         if os.path.exists(pt_path):
             # Neural: load pipeline and model from .pt
+            import torch
             data = torch.load(pt_path, map_location="cpu", weights_only=False)
             decoder.pipeline = data["pipeline"]
             classifier = decoder.pipeline.named_steps["classifier"]

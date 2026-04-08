@@ -6,6 +6,9 @@ from pylsl import StreamInfo, StreamOutlet
 from dendrite.data.stream_schemas import StreamConfig
 
 
+_EVENT_STREAM_TYPES = {"markers", "marker", "events", "event", "triggers", "stim"}
+
+
 def infer_channel_types_from_labels(labels: list[str], default_type: str = "EEG") -> list[str]:
     """
     Infer channel types based on channel labels using pattern matching.
@@ -21,6 +24,10 @@ def infer_channel_types_from_labels(labels: list[str], default_type: str = "EEG"
     Returns:
         List of inferred channel types matching the input labels
     """
+    # Event/marker streams: all channels are markers, skip label inference
+    if default_type.lower() in _EVENT_STREAM_TYPES:
+        return ["Markers"] * len(labels)
+
     inferred_types = []
 
     for label in labels:
@@ -55,6 +62,31 @@ def infer_channel_types_from_labels(labels: list[str], default_type: str = "EEG"
             inferred_types.append(default_type)
 
     return inferred_types
+
+
+# Canonical names for channel types and units (single source of truth).
+# Used by stream_service to normalize raw LSL metadata before sending to frontend.
+TYPE_CANONICAL = {
+    "EEG": "EEG", "EOG": "EOG", "VEOG": "VEOG", "HEOG": "HEOG",
+    "EMG": "EMG", "ECG": "ECG", "AUX": "AUX", "MARKERS": "Markers",
+    "MISC": "AUX", "STIM": "Markers", "TRIGGER": "Markers", "OTHER": "Other",
+}
+
+UNIT_CANONICAL = {
+    "µV": "µV", "UV": "µV", "MICROVOLTS": "µV",
+    "MV": "mV", "MILLIVOLTS": "mV",
+    "V": "V", "VOLTS": "V",
+}
+
+
+def normalize_channel_type(raw: str) -> str:
+    """Normalize a channel type string to its canonical form."""
+    return TYPE_CANONICAL.get(raw.upper(), raw) if raw else ""
+
+
+def normalize_channel_unit(raw: str) -> str:
+    """Normalize a channel unit string to its canonical form."""
+    return UNIT_CANONICAL.get(raw.upper(), "n/a" if raw in ("", "unknown") else raw)
 
 
 class LSLOutlet:

@@ -1,8 +1,7 @@
 """
 Quality assessment for BMI data.
 
-Provides channel-level and epoch-level quality detection:
-- ChannelQualityDetector: One-shot calibration check for bad channels
+- ChannelQualityMonitor: Continuous per-channel quality monitoring + bad channel detection
 - EpochQualityChecker: Per-epoch quality check during training
 """
 
@@ -19,89 +18,166 @@ def compute_mad(data: np.ndarray) -> float:
     return np.median(np.abs(data - median)) * 1.4826
 
 
-class ChannelQualityDetector:
+def detect_bad_channels(
+    data: np.ndarray,
+    flat_threshold: float = 0.01,
+    z_threshold: float = 5.0,
+) -> dict:
+    """Stateless bad channel detection using iterative MAD.
+
+    Works on a batch of data (channels, samples). No hysteresis — suitable for
+    offline/one-shot analysis.
+
+    Returns:
+        Dict with 'channels' (list of {index, status, variance}) and
+        'bad_channels' (sorted list of bad channel indices).
     """
-    One-shot bad channel detection during calibration.
+    n_ch = data.shape[0]
+    variances = np.var(data, axis=1)
 
-    Detects:
-    - Flat channels (no variance - broken/disconnected electrodes)
-    - High variance outliers (poor contact, noise)
+    bad_set: set[int] = set()
+    z_scores = np.zeros(n_ch)
 
-    Uses robust z-score (MAD-based) for unit-agnostic detection.
+    for _ in range(3):
+        good_mask = np.ones(n_ch, dtype=bool)
+        good_mask[list(bad_set)] = False
+        if not np.any(good_mask):
+            break
+        good_vars = variances[good_mask]
+        median_var = float(np.median(good_vars))
+        mad = compute_mad(good_vars)
+        flat_thresh = median_var * flat_threshold if median_var > 0 else 1e-10
+
+        new_bad: set[int] = set()
+        for i in range(n_ch):
+            v = variances[i]
+            z_scores[i] = (v - median_var) / mad if mad > 1e-10 else 0.0
+            if v < flat_thresh or z_scores[i] > z_threshold:
+                new_bad.add(i)
+        if new_bad == bad_set:
+            break
+        bad_set = new_bad
+
+    channels = []
+    for i in range(n_ch):
+        v = float(variances[i])
+        if i in bad_set:
+            status = "bad"
+        elif z_scores[i] > z_threshold * 0.6:
+            status = "warning"
+        else:
+            status = "good"
+        channels.append({"index": i, "status": status, "variance": v})
+
+    return {"channels": channels, "bad_channels": sorted(bad_set)}
+
+
+class ChannelQualityMonitor:
+    """Continuous per-channel quality monitoring with bad channel detection.
+
+    Replaces the old one-shot ChannelQualityDetector. Accumulates EEG samples
+    in a rolling window and classifies channels as good/warning/bad using
+    robust MAD-based statistics.
+
+    Serves two purposes:
+    1. Initial calibration: after window fills, `get_bad_channels()` returns
+       channels to exclude from CAR (stored in SharedState for modes to read)
+    2. Continuous monitoring: `get_quality()` returns per-channel status for
+       dashboard display via telemetry
     """
 
-    def __init__(self, z_threshold: float = 5.0) -> None:
-        """
-        Initialize detector.
-
-        Args:
-            z_threshold: Z-score threshold for outlier detection (default 5.0 = 5-sigma)
-        """
+    def __init__(
+        self,
+        n_channels: int,
+        sample_rate: float,
+        window_sec: float = 5.0,
+        flat_threshold: float = 0.01,
+        z_threshold: float = 5.0,
+    ) -> None:
+        self.n_channels = n_channels
+        self.window_size = int(sample_rate * window_sec)
+        self.flat_threshold = flat_threshold
         self.z_threshold = z_threshold
-        self.bad_channels: list[int] = []
-        self.detection_complete = False
         self.logger = get_logger("ChannelQuality")
 
-    def detect_from_calibration(self, data: np.ndarray) -> list[int]:
-        """
-        Detect bad channels from calibration data.
+        # Ring buffer for per-channel samples
+        self._buf = np.zeros((n_channels, self.window_size), dtype=np.float64)
+        self._pos = 0
+        self._count = 0
 
-        Args:
-            data: EEG data (n_channels, n_samples)
+        # Hysteresis: latch bad channels after repeated detection
+        self._bad_history: list[set[int]] = []
+        self._confirmed_bad: set[int] = set()
+        self._CONFIRM_WINDOW = 3   # look at last N evaluations
+        self._CONFIRM_THRESHOLD = 2  # must be bad in at least this many
 
-        Returns:
-            List of bad channel indices
-        """
-        if data is None or data.size == 0:
-            self.logger.warning("No calibration data provided")
-            return []
+    @property
+    def is_ready(self) -> bool:
+        """True when enough data has been collected for reliable detection."""
+        return self._count >= self.window_size // 2
 
-        n_channels, n_samples = data.shape
-        self.logger.info(
-            f"Running channel quality detection on {n_channels} channels, {n_samples} samples"
-        )
-
-        # Compute variance per channel
-        variances = np.var(data, axis=1)
-
-        # Detect flat channels (variance near zero)
-        median_var = np.median(variances)
-        flat_threshold = median_var * 0.01 if median_var > 0 else 1e-10
-        flat_channels = np.where(variances < flat_threshold)[0].tolist()
-
-        # Detect high-variance outliers using robust z-score (MAD)
-        mad = compute_mad(variances)
-        outlier_channels = []
-        if mad > 1e-10:
-            z_scores = (variances - median_var) / mad
-            outlier_channels = np.where(z_scores > self.z_threshold)[0].tolist()
-
-        # Combine and deduplicate
-        self.bad_channels = list(set(flat_channels + outlier_channels))
-        self.bad_channels.sort()
-        self.detection_complete = True
-
-        # Log results
-        n_good = n_channels - len(self.bad_channels)
-        if self.bad_channels:
-            self.logger.warning(
-                f"Channel quality: {n_good}/{n_channels} good | "
-                f"Bad channels: {self.bad_channels} "
-                f"(flat: {flat_channels}, outliers: {outlier_channels})"
-            )
-        else:
-            self.logger.info(f"Channel quality: all {n_channels} channels good")
-
-        return self.bad_channels
+    def update(self, eeg_sample: np.ndarray) -> None:
+        """Push a single EEG sample (n_channels, 1) into the rolling window."""
+        self._buf[:, self._pos] = eeg_sample.flatten()[: self.n_channels]
+        self._pos = (self._pos + 1) % self.window_size
+        self._count = min(self._count + 1, self.window_size)
 
     def get_bad_channels(self) -> list[int]:
-        """Get the list of bad channel indices."""
-        return self.bad_channels.copy()
+        """Get list of bad channel indices from current window.
 
-    def reset(self) -> None:
-        """Reset detector state."""
-        self.bad_channels = []
-        self.detection_complete = False
+        Replaces the old ChannelQualityDetector.detect_from_calibration().
+        Returns empty list if not enough data yet.
+        """
+        if not self.is_ready:
+            return []
+        return self.get_quality()["bad_channels"]
+
+    def get_quality(self) -> dict:
+        """Compute per-channel quality from current window.
+
+        Uses iterative refinement: bad channels are excluded from the
+        median/MAD statistics, then channels are re-evaluated against the
+        cleaned statistics. Converges in 1-3 rounds (max 3).
+
+        Returns:
+            Dict with 'channels' (list of {index, status, variance}) and
+            'bad_channels' (list of bad channel indices).
+        """
+        if not self.is_ready:
+            return {
+                "channels": [
+                    {"index": i, "status": "unknown", "variance": 0.0}
+                    for i in range(self.n_channels)
+                ],
+                "bad_channels": [],
+            }
+
+        data = self._buf[:, : self._count] if self._count < self.window_size else self._buf
+
+        # Core detection (shared with offline path)
+        result = detect_bad_channels(data, self.flat_threshold, self.z_threshold)
+        bad_set = set(result["bad_channels"])
+
+        # Hysteresis: confirm channels that are repeatedly bad, recover those that aren't
+        self._bad_history.append(bad_set)
+        if len(self._bad_history) > self._CONFIRM_WINDOW:
+            self._bad_history.pop(0)
+        for ch in bad_set:
+            if sum(ch in h for h in self._bad_history) >= self._CONFIRM_THRESHOLD:
+                self._confirmed_bad.add(ch)
+        for ch in list(self._confirmed_bad):
+            if sum(ch in h for h in self._bad_history) == 0:
+                self._confirmed_bad.discard(ch)
+
+        # Re-classify with hysteresis-confirmed bad set
+        confirmed = self._confirmed_bad
+        channels = []
+        for ch_info in result["channels"]:
+            if ch_info["index"] in confirmed:
+                ch_info["status"] = "bad"
+            channels.append(ch_info)
+
+        return {"channels": channels, "bad_channels": sorted(confirmed)}
 
 
 class EpochQualityChecker:
@@ -116,7 +192,7 @@ class EpochQualityChecker:
         3. Extreme outlier - MAD-based z-score above threshold (artifacts)
     """
 
-    def __init__(self, variance_threshold: float = 1e-12, outlier_threshold: float = 10.0) -> None:
+    def __init__(self, variance_threshold: float = 1e-12, outlier_threshold: float = 50.0) -> None:
         """
         Initialize quality checker.
 

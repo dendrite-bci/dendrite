@@ -46,9 +46,4 @@ class ChannelScaler(BaseEstimator, TransformerMixin):
 
         check_is_fitted(self.scaler)
 
-        # Rebuild cache for legacy scalers deserialized without cached arrays
-        if not hasattr(self, "_mean_3d"):
-            self._mean_3d = self.scaler.mean_[np.newaxis, :, np.newaxis].astype(np.float32)
-            self._scale_3d = self.scaler.scale_[np.newaxis, :, np.newaxis].astype(np.float32)
-
         return (X - self._mean_3d) / self._scale_3d

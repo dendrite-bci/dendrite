@@ -78,9 +78,7 @@ class ROS2Streamer(BaseOutputStreamer):
         self.ros2_publisher = None
         self.ros2_executor = None
 
-        # Check ROS2 availability
-        if not HAS_ROS2:
-            self.logger.warning("ROS2 not available - ROS2Streamer will not function")
+        self.logger.info(f"ROS2Streamer initialized: {self.topic_name} @ {self.node_name}")
 
     def _initialize_output(self) -> None:
         """Initialize ROS2 node and publisher."""

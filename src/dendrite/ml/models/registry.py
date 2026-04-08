@@ -14,11 +14,11 @@ from .braindecode_adapter import (
     BDEEGNet,
     BDShallowNet,
 )
-from .classical import CSPModel, LDAModel, SVMModel
+from .classical import LDAModel, SVMModel
 from .eegnet import EEGNet
 from .eegnet_plus import EEGNetPP
 from .linear import LinearEEG
-from .model_configs import (
+from .model_schemas import (
     BDATCNetConfig,
     BDDeep4NetConfig,
     BDEEGConformerConfig,
@@ -28,7 +28,9 @@ from .model_configs import (
     BDTCNConfig,
     EEGNetConfig,
     EEGNetPPConfig,
+    LDAConfig,
     LinearEEGConfig,
+    SVMConfig,
     TransformerEEGConfig,
 )
 from .transformer import TransformerEEG
@@ -47,8 +49,7 @@ MODEL_REGISTRY: dict[str, dict] = {
     "EEGNetPP": {"class": EEGNetPP, "config": EEGNetPPConfig},
     "LinearEEG": {"class": LinearEEG, "config": LinearEEGConfig},
     "TransformerEEG": {"class": TransformerEEG, "config": TransformerEEGConfig},
-    # Classical ML models (no config class - use sklearn defaults or model_params)
-    "CSP": {"class": CSPModel, "config": None},
-    "LDA": {"class": LDAModel, "config": None},
-    "SVM": {"class": SVMModel, "config": None},
+    # Classical ML classifiers
+    "LDA": {"class": LDAModel, "config": LDAConfig, "classical": True},
+    "SVM": {"class": SVMModel, "config": SVMConfig, "classical": True},
 }

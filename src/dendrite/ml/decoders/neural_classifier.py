@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from dendrite.ml.decoders.decoder_schemas import NeuralNetConfig
+from dendrite.ml.decoders.decoder_schemas import DecoderConfig
 from dendrite.ml.models import MODEL_REGISTRY, create_model
 from dendrite.ml.training import TrainingLoop
 from dendrite.utils.logger_central import get_logger
@@ -32,29 +32,22 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
     TrainingLoop based on config flags.
     """
 
-    @property
-    def name(self) -> str:
-        """Component name for pipeline compatibility."""
-        return f"NeuralNetClassifier_{self.model_type}"
-
-    def __init__(self, config: NeuralNetConfig, epoch_callback=None):
+    def __init__(self, config: DecoderConfig, epoch_callback=None, stop_event=None):
         """
         Initialize neural network classifier.
 
         Args:
-            config: Validated NeuralNetConfig with all training parameters
+            config: Validated DecoderConfig with all training parameters
             epoch_callback: Optional callback for per-epoch progress updates.
                            Signature: (epoch, total_epochs, train_loss, train_acc, val_loss, val_acc)
                            Can be set via sklearn's set_params(epoch_callback=...) for pipeline use.
+            stop_event: Optional threading.Event to signal early termination.
         """
         self.config = config
         self.epoch_callback = epoch_callback
-        self.model_type = config.model_type
-        self.num_classes = config.num_classes
+        self.stop_event = stop_event
         self.device = config.get_device()
-        self.learning_rate = config.learning_rate
 
-        # Model state
         self.model: nn.Module | None = None
         self.input_shape: tuple | None = None
         self.training_results: dict[str, Any] | None = None
@@ -62,13 +55,10 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         self.classes_ = None
 
         self.logger = get_logger(__name__)
-        self.logger.info(
-            f"NeuralNetClassifier initialized: {self.model_type}, device: {self.device}"
-        )
 
     def _create_model(self, input_shape: tuple) -> nn.Module:
         """Create neural network model based on configured architecture."""
-        entry = MODEL_REGISTRY.get(self.model_type)
+        entry = MODEL_REGISTRY.get(self.config.model_type)
         if entry:
             model_info = entry["class"].get_model_info()
             input_domain = model_info.get("input_domain", "time-series")
@@ -84,15 +74,15 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
             )
             model_params["n_frequencies"] = n_frequencies
             model = create_model(
-                model_type=self.model_type,
-                num_classes=self.num_classes,
+                model_type=self.config.model_type,
+                num_classes=self.config.num_classes,
                 input_shape=(n_channels, n_times),
                 **model_params,
             )
         else:
             model = create_model(
-                model_type=self.model_type,
-                num_classes=self.num_classes,
+                model_type=self.config.model_type,
+                num_classes=self.config.num_classes,
                 input_shape=input_shape,
                 **model_params,
             )
@@ -101,9 +91,9 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
 
     def _validate_training_inputs(self, X: np.ndarray, y: np.ndarray) -> str:
         """Validate training inputs and determine input shapes."""
-        entry = MODEL_REGISTRY.get(self.model_type)
+        entry = MODEL_REGISTRY.get(self.config.model_type)
         if not entry:
-            raise ValueError(f"Unknown model type: {self.model_type}")
+            raise ValueError(f"Unknown model type: {self.config.model_type}")
 
         model_info = entry["class"].get_model_info()
         input_domain = model_info.get("input_domain", "time-series")
@@ -154,9 +144,10 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         """
         self._validate_training_inputs(X, y)
 
+        torch.manual_seed(self.config.seed)
+        np.random.seed(self.config.seed)
         self.model = self._create_model(self.input_shape)
         X_train, y_train, X_val, y_val = self._split_data(X, y, self.config.validation_split)
-        self._log_training_setup()
 
         # Train using Trainer (epoch_callback set via constructor or set_params)
         results = self._fit_with_trainer(X_train, y_train, X_val, y_val, self.epoch_callback)
@@ -181,24 +172,6 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
 
         return self
 
-    def _log_training_setup(self) -> None:
-        """Log training configuration."""
-        if self.config.loss_type == "focal":
-            self.logger.info(f"Using FocalLoss (gamma={self.config.focal_gamma})")
-        if self.config.label_smoothing_factor > 0:
-            self.logger.info(f"Label smoothing: {self.config.label_smoothing_factor}")
-        if self.config.optimizer_type == "AdamW":
-            self.logger.info(f"Using AdamW with weight_decay={self.config.weight_decay}")
-        if self.config.use_lr_warmup:
-            self.logger.info(f"LR warmup: {self.config.warmup_epochs} epochs")
-        if self.config.use_augmentation:
-            self.logger.info(f"Augmentation enabled: {self.config.aug_strategy}")
-
-        self.logger.info(
-            f"Training: epochs={self.config.epochs}, batch_size={self.config.batch_size}, "
-            f"val_split={self.config.validation_split}"
-        )
-
     def _fit_with_trainer(
         self,
         X_train: np.ndarray,
@@ -212,6 +185,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
             model=self.model,
             config=self.config,
             prepare_input_fn=self._prepare_input_tensor,
+            stop_event=self.stop_event,
         )
 
         results = training_loop.fit(X_train, y_train, X_val, y_val, epoch_callback=epoch_callback)
@@ -225,10 +199,6 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
     def _prepare_input_tensor(self, X: np.ndarray) -> torch.Tensor:
         """Convert input data to PyTorch tensor with proper shape and device."""
         X_tensor = torch.as_tensor(X, dtype=torch.float32, device=self.device)
-        return self._adapt_tensor_shape(X_tensor)
-
-    def _adapt_tensor_shape(self, X_tensor: torch.Tensor) -> torch.Tensor:
-        """Adapt tensor shape based on model requirements."""
         if len(X_tensor.shape) != 3:
             return X_tensor
         if callable(getattr(self.model, "get_model_info", None)):

@@ -1,32 +1,40 @@
 """
-Base Mode Class for Dendrite System
+Base Mode Class — reads from SharedRingBuffer, runs processing pipeline.
 
-Abstract base class for all Dendrite processing modes. Modes handle workflow orchestration
-and data processing patterns while decoders focus on algorithm implementation.
-
-SAMPLE STRUCTURE FROM DATAPROCESSOR:
-Each sample is a dictionary with:
-- Modality data: 'eeg', 'emg', 'eog', etc. (numpy arrays, shape: (n_channels, 1))
-- 'markers': np.ndarray, shape: (1, 1) (-1 = background, >0 = event codes)
-- 'lsl_timestamp': float (LSL-provided timestamp)
-- '_daq_receive_ns': int (time.time_ns() when DAQ receives from LSL)
-- '_stream_name': str (name of the stream this sample came from)
-- '_eeg_latency_ms': float (EEG stream external latency in ms, computed by DAQ)
-
-CHANNEL SELECTION:
-Optional channel filtering: {'eeg': [0,1,2,3], 'emg': [0]} selects specific channels.
-If None, all available channels are used.
+SAMPLE STRUCTURE (from ring buffer):
+Each sample is a dict with:
+- Modality data: 'eeg', 'emg', etc. (numpy arrays, shape: (n_channels, 1))
+- 'markers': np.ndarray, shape: (1, 1) (0 = no marker, >0 = event codes)
+- 'lsl_timestamp': float
+- '_stream_name': str
 """
 
 import logging
 import multiprocessing
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
 
-from dendrite.processing.queue_utils import FanOutQueue
+from dendrite.ml.decoders import create_decoder, load_decoder
+from dendrite.processing._types import Sample
+from dendrite.processing.modes._metrics import AsynchronousMetrics, SynchronousMetrics
+from dendrite.processing.modes.mode_utils import (
+    Buffer,
+    FanOutQueue,
+    SamplePreprocessor,
+    SampleReader,
+    extract_event_mapping,
+    generate_label_mapping,
+)
+from dendrite.utils.component_state import ComponentState, ComponentStateMachine
+from dendrite.utils.logger_central import setup_logger
+from dendrite.utils.modality import normalize_modality_dict
 from dendrite.utils.shared_state import SharedState
+from dendrite.utils.state_keys import mode_metric_key
+
+MODE_GPU_EMIT_INTERVAL = 2.0
 
 
 @dataclass
@@ -40,19 +48,6 @@ class ModeOutputPacket:
     data_timestamp: float | None = None
 
 
-from dendrite.constants import (
-    MODE_GPU_EMIT_INTERVAL,
-)
-from dendrite.ml.metrics.metrics_manager import MetricsManager
-from dendrite.processing.modes.mode_utils import (
-    Buffer,
-    extract_event_mapping,
-)
-from dendrite.utils.logger_central import setup_logger
-from dendrite.utils.modality import normalize_modality, normalize_modality_dict
-from dendrite.utils.state_keys import mode_metric_key
-
-
 class BaseMode(multiprocessing.Process, ABC):
     """
     Abstract base class for all Dendrite processing modes.
@@ -63,59 +58,56 @@ class BaseMode(multiprocessing.Process, ABC):
 
     def __init__(
         self,
-        data_queue: "multiprocessing.Queue",
         output_queue: "FanOutQueue",
         stop_event: "multiprocessing.Event",
         instance_config: dict[str, Any],
-        sample_rate: float,
         prediction_queue: "multiprocessing.Queue | None" = None,
         shared_state: "SharedState | None" = None,
+        training_queue: "multiprocessing.Queue | None" = None,
     ):
         """Initialize the base mode with core infrastructure."""
         super().__init__()
 
-        self.data_queue = data_queue
         self.output_queue = output_queue
         self.stop_event = stop_event
         self.prediction_queue = prediction_queue
         self.shared_state = shared_state
+        self.training_queue = training_queue
+
+        # Ring buffer config — kept for modality_labels / sample_rate extraction
+        self._rb_config = instance_config.get("ring_buffer")
+        self._reader: SampleReader | None = None  # created in run()
 
         self.instance_config = instance_config
         self.mode_name = instance_config["name"]
         raw_channel_selection = instance_config.get("channel_selection") or {}
         self.channel_selection = normalize_modality_dict(raw_channel_selection)
-        raw_modality_labels = instance_config.get("modality_labels") or {}
-        self.modality_labels = normalize_modality_dict(raw_modality_labels)
-        self.preprocessing_config = instance_config.get("preprocessing_config")
-        self.sample_rate = float(sample_rate)
-
-        raw_required = instance_config.get("required_modalities", ["eeg"])
-        self.required_modalities = [normalize_modality(m) for m in raw_required]
+        rb_labels = (self._rb_config or {}).get("modality_labels", {})
+        self.modality_labels = normalize_modality_dict(rb_labels)
+        rb_rate = self._rb_config.get("sample_rate") if self._rb_config else None
+        self.sample_rate = float(rb_rate) if rb_rate else 500.0
 
         self.logger = None
 
-        if self.channel_selection:
-            self.modalities = list(self.channel_selection.keys())
-            self.modality_num_channels = {
-                mod: len(indices) for mod, indices in self.channel_selection.items()
-            }
-            self.modalities_detected = True
-        else:
-            self.modalities = []
-            self.modality_num_channels = {}
-            self.modalities_detected = False
+        self.modalities = list(self.channel_selection.keys()) if self.channel_selection else []
 
         self.metrics_manager = None
         self._start_time = None
         self._is_running = False
         self.buffer = None
-        self._model_lock = None
         self.last_lsl_timestamp = 0.0
 
-        self._gpu_emit_interval_sec = MODE_GPU_EMIT_INTERVAL
+        self.decoder = None
         self._gpu_last_emit_time = 0.0
+        self._state_machine: ComponentStateMachine | None = None
 
-        self._mode_type = getattr(self, "MODE_TYPE", "unknown")
+        self._sample_preprocessor: SamplePreprocessor | None = None
+        self.effective_sample_rate: float = self.sample_rate
+
+        # Background decoder load result (set by _start_background_decoder_load)
+        self._pending_decoder_load: dict | None = None
+
+        self._mode_type = self.MODE_TYPE
 
         self.event_mapping = extract_event_mapping(instance_config)
         self.label_mapping: dict[str, int] = {}
@@ -138,10 +130,17 @@ class BaseMode(multiprocessing.Process, ABC):
     def run(self):
         """Main process entry point with common setup and mode-specific delegation."""
         self._setup_logger()
+        if self._rb_config:
+            self._reader = SampleReader(self._rb_config, self.logger)
+            self._reader.connect()
+        self._state_machine = ComponentStateMachine(
+            f"mode:{self.mode_name}", self.shared_state
+        )
         self._start_time = time.time()
         self._is_running = True
 
         self.logger.info(f"{self.__class__.__name__} process starting")
+        self._state_machine.transition(ComponentState.STARTING)
 
         if self.channel_selection:
             self.logger.info(f"Using configured modalities: {list(self.channel_selection.keys())}")
@@ -151,19 +150,26 @@ class BaseMode(multiprocessing.Process, ABC):
         try:
             if not self._validate_configuration():
                 self.logger.error("Configuration validation failed")
+                self._state_machine.set_error("Configuration validation failed")
                 return
 
             if not self._initialize_mode():
                 self.logger.error("Mode initialization failed")
+                self._state_machine.set_error("Mode initialization failed")
                 return
 
+            self._state_machine.transition(ComponentState.RUNNING)
             self._run_main_loop()
 
         except Exception as e:
             self.logger.error(f"Fatal error in run(): {e}", exc_info=True)
+            if self._state_machine.state not in (ComponentState.STOPPING, ComponentState.STOPPED):
+                self._state_machine.set_error(str(e))
         finally:
             self._cleanup()
             self._is_running = False
+
+            self._state_machine.finalize()
 
             if self._start_time:
                 runtime = time.time() - self._start_time
@@ -185,7 +191,7 @@ class BaseMode(multiprocessing.Process, ABC):
             status["uptime_seconds"] = time.time() - self._start_time
 
         if self.metrics_manager:
-            status["metrics"] = self.metrics_manager.get_current_metrics()
+            status["metrics"] = self.metrics_manager.get_all_metrics()
 
         if self.buffer:
             status["buffer"] = self.buffer.get_status()
@@ -198,7 +204,14 @@ class BaseMode(multiprocessing.Process, ABC):
 
     def _cleanup(self):
         """Cleanup resources before process termination."""
-        pass
+        if self._reader:
+            self._reader.close()
+
+    def _get_next_sample(self) -> Sample | None:
+        """Get next sample from ring buffer. Returns Sample dict or None."""
+        if self._reader is not None:
+            return self._reader.read_sample()
+        return None
 
     def _setup_logger(self):
         """Initialize the logger for this mode."""
@@ -217,25 +230,26 @@ class BaseMode(multiprocessing.Process, ABC):
         num_classes: int = 2,
         mode_type: str | None = None,
         label_mapping: dict[int, str] | None = None,
-        background_class: int | None = None,
+        gate: Any | None = None,
+        step_size_ms: float = 100.0,
     ):
-        """Initialize the metrics manager."""
+        """Initialize the metrics tracker (sync or async)."""
         if mode_type is None:
             mode_type = self._mode_type
 
-        detection_window_samples = None
-        if mode_type == "asynchronous" and hasattr(self, "epoch_length_samples"):
-            detection_window_samples = self.epoch_length_samples
-
-        self.metrics_manager = MetricsManager(
-            mode_type=mode_type,
-            sample_rate=int(self.sample_rate),
-            num_classes=num_classes,
-            detection_window_samples=detection_window_samples,
-            label_mapping=label_mapping,
-            background_class=background_class,
-        )
-        self.logger.info(f"MetricsManager initialized for {mode_type} mode")
+        if mode_type == "asynchronous":
+            kwargs: dict[str, Any] = {
+                "detection_window_samples": self.epoch_length_samples,
+                "sample_rate": int(self.effective_sample_rate),
+                "step_size_ms": step_size_ms,
+                "label_mapping": label_mapping,
+            }
+            if gate is not None:
+                kwargs["gate"] = gate
+            self.metrics_manager = AsynchronousMetrics(**kwargs)
+        else:
+            self.metrics_manager = SynchronousMetrics(num_classes=num_classes)
+        self.logger.info(f"Metrics initialized for {mode_type} mode")
 
     def _send_output(
         self,
@@ -280,274 +294,205 @@ class BaseMode(multiprocessing.Process, ABC):
             internal_ms = (now_ns - newest_ts) / 1_000_000.0
             self.shared_state.set(mode_metric_key(self.mode_name, "internal_ms"), internal_ms)
 
-    def _update_gpu_metrics(self):
-        """Track GPU memory if using CUDA."""
-        if not self.decoder or not self.shared_state:
-            return
-        if (time.time() - self._gpu_last_emit_time) < self._gpu_emit_interval_sec:
-            return
+    def _get_primary_modality(self) -> str:
+        """Return the first configured modality."""
+        if not self.modalities:
+            raise RuntimeError("No modalities configured — check channel_selection")
+        return self.modalities[0]
 
-        try:
-            import torch
+    @property
+    def is_decoder_ready(self) -> bool:
+        """True if decoder exists and is fitted."""
+        return self.decoder is not None and getattr(self.decoder, "is_fitted", False)
 
-            if not torch.cuda.is_available():
-                return
-            allocated_mb = torch.cuda.memory_allocated() / (1024**2)
-            self.shared_state.set(mode_metric_key(self.mode_name, "gpu_mb"), float(allocated_mb))
-            self._gpu_last_emit_time = time.time()
-        except Exception:
-            pass  # GPU metrics are optional
-
-    def _generate_label_mapping(self, event_mapping: dict):
-        """Generate label mapping from event mapping.
-
-        Creates sequential class indices (0, 1, 2...) for ML training from
-        event codes that may be non-sequential (e.g., event_id 7, 8).
-
-        Args:
-            event_mapping: Dictionary mapping event codes to event names
-                           e.g., {7: 'left_hand', 8: 'right_hand'}
-        """
-        if not event_mapping:
-            self.label_mapping = {}
-            self.reverse_label_mapping = {}
-            self.index_to_event_code = {}
-            return
-
-        sorted_events = sorted(event_mapping.items())
-        self.label_mapping = {name: i for i, (code, name) in enumerate(sorted_events)}
-        self.reverse_label_mapping = {i: name for name, i in self.label_mapping.items()}
-        self.index_to_event_code = {i: code for i, (code, name) in enumerate(sorted_events)}
-
-    def _predict(self, model, X_input, lock=None, blocking=True):
-        """
-        Unified prediction method with integrated locking and timing.
-
-        Args:
-            model: The model/decoder object with predict_sample method
-            X_input: Input data - dict with modality keys or array directly
-            lock: Optional threading lock for thread-safe prediction
-            blocking: Whether lock acquisition should block (default True)
-
-        Returns:
-            Tuple of (prediction, confidence, inference_ms)
-            Returns (0, 0.5, 0.0) as default if model not ready or error occurs
-        """
-        if (
-            not model
-            or not hasattr(model, "predict_sample")
-            or not getattr(model, "is_fitted", False)
-        ):
-            return 0, 0.5, 0.0
-
-        if isinstance(X_input, dict):
-            primary_key = next(iter(X_input))
-            X_array = X_input[primary_key]
-        else:
-            X_array = X_input
-
-        acquired = False
-        if lock:
-            acquired = lock.acquire(blocking=blocking)
-            if not acquired:
-                return 0, 0.5, 0.0
-
-        try:
-            start_ns = time.perf_counter_ns()
-            prediction, confidence = model.predict_sample(X_array)
-            end_ns = time.perf_counter_ns()
-            inference_ms = (end_ns - start_ns) / 1_000_000.0
-
-            if self.shared_state and inference_ms > 0:
-                self.shared_state.set(mode_metric_key(self.mode_name, "inference_ms"), inference_ms)
-
-            return prediction, confidence, inference_ms
-
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Prediction error: {e}")
-            return 0, 0.5, 0.0
-
-        finally:
-            if lock and acquired:
-                lock.release()
-
-    def _create_decoder(self, decoder_config: dict[str, Any]) -> Any | None:
-        """
-        Create and initialize a decoder with unified logic for all modes.
-
-        This base implementation handles common decoder creation patterns:
-        - Extracts model config and parameters
-        - Calculates num_classes from label mapping
-        - Calls create_decoder factory
-        - Provides consistent logging and error handling
-
-        Subclasses can override this method for mode-specific behavior.
-
-        Args:
-            decoder_config: Full decoder configuration dictionary
-
-        Returns:
-            Decoder instance or None if creation fails
-        """
-        from dendrite.ml.decoders import create_decoder
-
+    def _create_decoder(
+        self, decoder_config: dict[str, Any], *, override_num_classes: int | None = None
+    ) -> Any | None:
+        """Create decoder from config. Stores as self.decoder."""
         try:
             model_config = decoder_config.get("model_config", {})
             model_type = model_config.get("model_type", "EEGNet")
-
             decoder_params = model_config.copy()
 
-            num_classes = (
-                len(self.label_mapping)
-                if self.label_mapping
-                else model_config.get("num_classes", 2)
-            )
+            if override_num_classes is not None:
+                num_classes = override_num_classes
+            else:
+                num_classes = (
+                    len(self.label_mapping) if self.label_mapping
+                    else model_config.get("num_classes", 2)
+                )
             decoder_params["num_classes"] = num_classes
-
-            if self.logger:
-                self.logger.info(f"Creating {model_type} decoder with {num_classes} classes")
+            self.logger.info(f"Creating {model_type} decoder with {num_classes} classes")
 
             decoder = create_decoder(**decoder_params)
-
             if self.modality_labels:
                 decoder.channel_labels = self.modality_labels
             decoder.sample_rate = self.sample_rate
-            if self.preprocessing_config:
-                decoder.config.preprocessing_config = self.preprocessing_config
 
-            if self.logger:
-                self.logger.info("Decoder created successfully")
+            preproc = self.instance_config.get("mode_preprocessing")
+            if preproc:
+                from dendrite.processing.preprocessing.preprocessing_schemas import (
+                    PreprocessingConfig,
+                )
+                decoder.config.preprocessing_config = PreprocessingConfig(
+                    modality_preprocessing=preproc
+                )
 
+            self.decoder = decoder
+            self.logger.info("Decoder created successfully")
             return decoder
 
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Error creating decoder: {e}", exc_info=True)
+            self.logger.error(f"Error creating decoder: {e}", exc_info=True)
+            self.decoder = None
             return None
 
-    def _load_model_from_path(self, model_path: str, model_type: str = "decoder") -> bool:
+    def _validate_decoder_channels(
+        self, decoder,
+    ) -> tuple[str | None, int | None, int | None]:
+        """Validate decoder input shapes against mode's channel selection.
+
+        Returns (primary_modality, expected_channels, expected_time_samples).
+        Returns (None, None, None) when shapes or channel_selection are absent.
+        Raises ValueError on channel count mismatch.
         """
-        Load a decoder from the specified path and assign to self.decoder.
+        shapes = decoder.input_shapes or {}
+        if not shapes or not self.channel_selection:
+            return None, None, None
 
-        Args:
-            model_path: Path to the model file (without .json extension)
-            model_type: Description of model type for logging (e.g., "pretrained", "updated")
+        primary = next(
+            (m for m in self.channel_selection if m in shapes), None,
+        )
+        if not primary:
+            return None, None, None
 
-        Returns:
-            True if loading succeeded, False otherwise
+        expected_ch = shapes[primary][0]
+        actual_ch = len(self.channel_selection[primary])
+        if actual_ch != expected_ch:
+            raise ValueError(
+                f"Channel mismatch: decoder expects {expected_ch}, "
+                f"mode has {actual_ch}"
+            )
+
+        expected_t = shapes[primary][1] if len(shapes[primary]) > 1 else None
+        return primary, expected_ch, expected_t
+
+    def _start_background_decoder_load(self, path: str, result_info: dict):
+        """Load decoder from disk in a background thread.
+
+        Stores the loaded decoder in ``_pending_decoder_load`` for the main
+        loop to pick up.  File I/O in ``load_decoder`` releases the GIL so
+        the main loop continues processing data.
         """
-        import os
+        import threading
 
-        from dendrite.ml.decoders import load_decoder
+        def _bg_load():
+            try:
+                decoder = load_decoder(path)
+                try:
+                    self._validate_decoder_channels(decoder)
+                except ValueError as e:
+                    self.logger.error(f"Decoder rejected: {e}")
+                    return
+                self._pending_decoder_load = {**result_info, "_decoder": decoder}
+                self.logger.info("Decoder loaded from disk, pending activation")
+            except Exception as e:
+                self.logger.error(f"Failed to load decoder from {path}: {e}")
 
+        threading.Thread(target=_bg_load, daemon=True, name="DecoderLoad").start()
+
+    def _load_decoder(self, model_path: str, source: str = "decoder") -> bool:
+        """Load decoder from path. Returns True on success."""
         if not model_path.endswith(".json") and os.path.exists(model_path + ".json"):
             model_path += ".json"
 
-        if self.logger:
-            self.logger.info(f"Loading {model_type} from {model_path}")
-
+        self.logger.info(f"Loading {source} from {model_path}")
         try:
-            if self._model_lock:
-                with self._model_lock:
-                    self.decoder = load_decoder(model_path)
-            else:
-                self.decoder = load_decoder(model_path)
+            self.decoder = load_decoder(model_path)
+            self.logger.info(f"Successfully loaded {source}")
 
-            if self.logger:
-                self.logger.info(f"Successfully loaded {model_type}")
-
-            if not self.event_mapping and hasattr(self.decoder, "event_mapping") and self.decoder.event_mapping:
+            # Inherit event mapping from decoder if mode has none
+            if not self.event_mapping and self.decoder.event_mapping:
                 self.event_mapping = self.decoder.event_mapping
                 self._generate_label_mapping(self.event_mapping)
-                if self.logger:
-                    self.logger.info(f"Inherited event mapping from decoder: {self.event_mapping}")
+                self.logger.info("Inherited event mapping from decoder")
 
-            self._validate_loaded_decoder_channels(model_path)
-            self._validate_loaded_decoder_sample_rate(self.decoder)
             return True
-
         except (FileNotFoundError, RuntimeError) as e:
-            if self.logger:
-                self.logger.error(f"Error loading {model_type} model: {e}")
+            self.logger.error(f"Error loading {source}: {e}")
             return False
 
-    def _validate_loaded_decoder_channels(self, decoder_path: str) -> None:
-        """Validate loaded decoder's channels match mode's selected channels."""
-        if not self.modality_labels:
-            return
+    def _predict(self, X_input) -> tuple[int, float, float]:
+        """Run prediction with timing. Returns (prediction, confidence, inference_ms)."""
+        if not self.is_decoder_ready:
+            return 0, 0.5, 0.0
 
-        selected_labels = {}
-        for modality, all_labels in self.modality_labels.items():
-            indices = self.channel_selection.get(modality, [])
-            if indices and all_labels:
-                selected_labels[modality] = [all_labels[i] for i in indices if i < len(all_labels)]
-            else:
-                selected_labels[modality] = all_labels
-
-        if not selected_labels:
-            return
+        X_array = X_input[next(iter(X_input))] if isinstance(X_input, dict) else X_input
 
         try:
-            from dendrite.ml.decoders import validate_decoder_file
+            start_ns = time.perf_counter_ns()
+            prediction, confidence = self.decoder.predict_sample(X_array)
+            inference_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-            _, issues = validate_decoder_file(decoder_path, expected_labels=selected_labels)
-            if issues and self.logger:
-                for issue in issues:
-                    self.logger.warning(f"Channel validation: {issue}")
-        except Exception as e:
-            if self.logger:
-                self.logger.debug(f"Could not validate decoder channels: {e}")
-
-    def _validate_loaded_decoder_sample_rate(self, model) -> None:
-        """Warn if decoder's expected sample rate doesn't match mode's rate."""
-        if not self.logger:
-            return
-
-        try:
-            mode_rate = getattr(self, "sample_rate", None)
-            if not mode_rate:
-                return
-
-            if hasattr(model, "get_expected_sample_rate"):
-                expected_rate = model.get_expected_sample_rate()
-            elif hasattr(model, "config") and hasattr(model.config, "effective_sample_rate"):
-                expected_rate = model.config.effective_sample_rate
-            else:
-                return
-
-            if abs(expected_rate - mode_rate) > 0.1:
-                self.logger.warning(
-                    f"Sample rate mismatch: decoder trained at {expected_rate:.0f} Hz, "
-                    f"mode outputs {mode_rate:.0f} Hz. Performance may degrade."
+            if self.shared_state and inference_ms > 0:
+                self.shared_state.set(
+                    mode_metric_key(self.mode_name, "inference_ms"), inference_ms
                 )
+            return prediction, confidence, inference_ms
         except Exception as e:
-            self.logger.debug(f"Could not validate sample rate: {e}")
+            self.logger.error(f"Prediction error: {e}")
+            return 0, 0.5, 0.0
 
-    def _get_modality_sample_rate(self, modality: str) -> int:
-        """Get effective sample rate for a modality after preprocessing.
+    def _update_gpu_metrics(self) -> None:
+        """Track GPU memory if using CUDA. Throttled."""
+        if not self.decoder or not self.shared_state:
+            return
+        if (time.time() - self._gpu_last_emit_time) < MODE_GPU_EMIT_INTERVAL:
+            return
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                return
+            allocated_mb = torch.cuda.memory_allocated() / (1024**2)
+            self.shared_state.set(
+                mode_metric_key(self.mode_name, "gpu_mb"), float(allocated_mb)
+            )
+            self._gpu_last_emit_time = time.time()
+        except Exception:
+            pass
 
-        Checks preprocessing config for target_sample_rate or downsample_factor.
-        Falls back to native stream sample_rate if no preprocessing is configured.
+    def _generate_label_mapping(self, event_mapping: dict):
+        """Generate label mapping from event mapping."""
+        self.label_mapping, self.reverse_label_mapping, self.index_to_event_code = (
+            generate_label_mapping(event_mapping)
+        )
 
-        Args:
-            modality: The modality name (e.g., 'eeg', 'emg')
+    def _setup_preprocessor(self):
+        """Create SamplePreprocessor from instance config. Sets effective_sample_rate."""
+        preproc_config = self.instance_config.get("mode_preprocessing", {})
+        if not preproc_config:
+            self._sample_preprocessor = None
+            self.effective_sample_rate = self.sample_rate
+            return
 
-        Returns:
-            Effective sample rate in Hz after any resampling/downsampling
-        """
-        if not self.preprocessing_config:
-            return int(self.sample_rate)
+        self._sample_preprocessor = SamplePreprocessor(
+            preproc_config=preproc_config,
+            sample_rate=self.sample_rate,
+            channel_selection=self.channel_selection,
+            modality_labels=self.modality_labels,
+            shared_state=self.shared_state,
+            logger=self.logger,
+        )
+        self.effective_sample_rate = self._sample_preprocessor.effective_sample_rate
 
-        mod_config = self.preprocessing_config.get("modality_preprocessing", {}).get(modality, {})
-
-        # Check for explicit target sample rate first
-        target = mod_config.get("target_sample_rate")
-        if target:
-            return int(target)
-
-        # Fall back to downsample_factor calculation
-        native = mod_config.get("sample_rate") or self.sample_rate
-        downsample = mod_config.get("downsample_factor", 1)
-        return int(native) // downsample
+    def _preprocess_sample(self, sample: Sample) -> Sample | None:
+        """Delegate to SamplePreprocessor. Returns None if accumulating for downsample."""
+        if self._sample_preprocessor is None:
+            return sample
+        try:
+            return self._sample_preprocessor.process(sample)
+        except ValueError as e:
+            self.logger.error(f"{e} — stopping mode.")
+            self.stop_event.set()
+            return None
 

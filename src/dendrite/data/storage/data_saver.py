@@ -1,11 +1,12 @@
-"""Data saver for raw data streams to HDF5."""
+"""Data saver for raw data streams to HDF5.
+
+Reads timeseries from ring buffers and events from a small event queue.
+"""
 
 import json
 import logging
 import os
 import queue
-import signal
-import sys
 import time
 from multiprocessing import Process
 from multiprocessing.queues import Queue
@@ -15,17 +16,15 @@ from typing import Any
 import h5py
 import numpy as np
 
-from dendrite.constants import APP_NAME, LOG_INTERVAL_SAMPLES, VERSION
-from dendrite.data.acquisition import DataRecord
+from dendrite import __version__
+from dendrite.data.acquisition import EventRecord
+from dendrite.data.shared_buffers import OverrunError, SharedRingBuffer
+from dendrite.utils.component_state import ComponentState, ComponentStateMachine
 from dendrite.utils.logger_central import setup_logger
 
 
 class DataSaver(Process):
-    """Data saver for saving data streams to HDF5 format.
-
-    Uses consistent error handling patterns similar to DataAcquisition.
-    Includes chunk saving for improved performance.
-    """
+    """Data saver that reads from ring buffers and writes to HDF5."""
 
     EVENT_DTYPE = np.dtype(
         [
@@ -33,209 +32,239 @@ class DataSaver(Process):
             ("event_type", h5py.string_dtype(encoding="utf-8")),
             ("timestamp", np.float64),
             ("local_timestamp", np.float64),
+            ("receive_timestamp", np.float64),
             ("extra_vars", h5py.string_dtype(encoding="utf-8")),
         ]
     )
 
-    DTYPE_MAP = {
-        "float32": np.float32,
-        "double64": np.float64,
-        "int8": np.int8,
-        "int16": np.int16,
-        "int32": np.int32,
-        "int64": np.int64,
-        "string": h5py.string_dtype(encoding="utf-8"),
-    }
-
-    # Keys to skip when storing metadata (channel_count redundant, version conflicts with app version)
-    METADATA_SKIP_KEYS = {"channel_count", "version"}
 
     def __init__(
-        self, filename: str, save_queue: Queue, stop_event: Event, chunk_size: int = 100
+        self,
+        filename: str,
+        stop_event: Event,
+        shared_state=None,
+        ring_buffer_names: dict[str, str] | None = None,
+        ring_buffer_channel_maps: dict[str, dict] | None = None,
+        event_queue: Queue | None = None,
+        global_metadata: dict | None = None,
+        stream_configs: list | None = None,
+        chunk_size: int = 100,
     ) -> None:
         super().__init__()
         self.filename = os.path.normpath(filename)
-        self.save_queue = save_queue
         self.stop_event = stop_event
+        self.shared_state = shared_state
+        self._ring_buffer_names = ring_buffer_names or {}
+        self._ring_buffer_channel_maps = ring_buffer_channel_maps or {}
+        self.event_queue = event_queue
+        self.global_metadata = global_metadata
+        self._stream_configs = {(c.stream_key or c.type): c for c in (stream_configs or [])}
         self.chunk_size = chunk_size
 
         os.makedirs(os.path.dirname(os.path.abspath(self.filename)), exist_ok=True)
 
-        self.stream_metadata = {}
-        self.datasets = {}
+        self.stream_metadata: dict[str, dict] = {}
+        self.datasets: dict[str, h5py.Dataset] = {}
 
-        self.data_buffers = {}
-        self.event_buffer = []
+        self.data_buffers: dict[str, dict[str, list]] = {}
+        self.event_buffer: list[EventRecord] = []
 
-        self.flush_interval = 5.0
+        self.flush_interval = 2.0
         self.last_flush_time = time.time()
         self.event_chunk_size = max(10, chunk_size // 10)
+        self._swmr_enabled = False
 
     def run(self) -> None:
         """Main process entry point."""
         self.logger = setup_logger("DataSaver", level=logging.INFO)
+        self._state_machine = ComponentStateMachine("data_saver", self.shared_state)
         self.logger.info("Data saving process started")
+        self._state_machine.transition(ComponentState.STARTING)
 
-        h5f = None
+        h5f: h5py.File | None = None
 
-        def cleanup_handler(signum, frame) -> None:
-            """Handle SIGTERM/SIGHUP by closing HDF5 file gracefully."""
-            signal_name = signal.Signals(signum).name
-            self.logger.warning(f"Received {signal_name}, closing HDF5 file...")
-            if h5f is not None:
-                try:
-                    self._flush_all_buffers(h5f)
-                    h5f.close()
-                    self.logger.info("HDF5 file closed successfully")
-                except Exception as e:
-                    self.logger.error(f"Error closing HDF5 file: {e}")
-            self.logger.info("Data saver process stopped")
-            sys.exit(0)
-
-        signal.signal(signal.SIGTERM, cleanup_handler)
-        if hasattr(signal, "SIGHUP"):
-            signal.signal(signal.SIGHUP, cleanup_handler)
+        # Connect to ring buffers (must happen in child process)
+        ring_buffers: dict[str, SharedRingBuffer] = {}
+        read_positions: dict[str, int] = {}
+        for stream_type, buf_name in self._ring_buffer_names.items():
+            try:
+                rb = SharedRingBuffer.connect(buf_name)
+                ring_buffers[stream_type] = rb
+                read_positions[stream_type] = rb.write_pos  # start from current
+                self.logger.info(f"Connected to ring buffer: {buf_name}")
+            except Exception as e:
+                self.logger.error(f"Failed to connect to ring buffer '{buf_name}': {e}")
 
         try:
-            with h5py.File(self.filename, "w") as h5f:
-                self._initialize_file(h5f)
-                self._process_data_loop(h5f)
-                self._flush_all_buffers(h5f)
+            h5f = h5py.File(self.filename, "w", libver="latest")
+            self._initialize_file(h5f)
+            self._create_all_datasets(h5f)
+            if self.shared_state:
+                self.shared_state.set("recording_file", self.filename)
+            self._state_machine.transition(ComponentState.RUNNING)
+            self._process_data_loop(h5f, ring_buffers, read_positions)
+            self._flush_all_buffers(h5f)
 
         except Exception as e:
             self.logger.error(f"Data saving error: {e}")
+            if self._state_machine.state not in (ComponentState.STOPPING, ComponentState.STOPPED):
+                self._state_machine.set_error(str(e))
         finally:
+            if h5f is not None:
+                try:
+                    h5f.close()
+                    self.logger.info("HDF5 file closed")
+                except Exception as e:
+                    self.logger.error(f"Error closing HDF5 file: {e}")
+            for rb in ring_buffers.values():
+                rb.close()
+            self._state_machine.finalize()
             self.logger.info("Data saver process stopped")
+
+    SCHEMA_VERSION = 1
 
     def _initialize_file(self, h5f: h5py.File) -> None:
         h5f.attrs["created_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        h5f.attrs["created_by"] = f"{APP_NAME} DataSaver v{VERSION}"
-        h5f.attrs["version"] = VERSION
+        h5f.attrs["created_by"] = f"Dendrite DataSaver v{__version__}"
+        h5f.attrs["version"] = __version__
+        h5f.attrs["schema_version"] = self.SCHEMA_VERSION
+        if self.global_metadata:
+            for key, value in self.global_metadata.items():
+                self._safe_set_attribute(h5f.attrs, key, value)
         self.logger.info("HDF5 file initialized")
 
-    def _process_data_loop(self, h5f: h5py.File) -> None:
-        record_count = 0
+    def _create_all_datasets(self, h5f: h5py.File) -> None:
+        """Create all timeseries and event datasets upfront from stream configs."""
+        for stream_type in self._ring_buffer_names:
+            config = self._stream_configs.get(stream_type)
+            channel_map = self._ring_buffer_channel_maps.get(stream_type, {})
 
-        while not self.stop_event.is_set() or not self.save_queue.empty():
-            try:
-                record = self.save_queue.get(timeout=0.1)
-                record_count += 1
-
-                self._process_record(h5f, record)
-
-                if record_count % LOG_INTERVAL_SAMPLES == 0:
-                    self.logger.info(f"Processed {record_count} records")
-
-                self._periodic_flush(h5f)
-
-            except queue.Empty:
-                self._periodic_flush(h5f)
-                continue
-            except Exception as e:
-                self.logger.error(f"Error processing record: {e}")
-                continue
-
-        self.logger.info(f"Data processing completed. Total records: {record_count}")
-
-    def _process_record(self, h5f: h5py.File, record: DataRecord) -> None:
-        """Process a single data record based on its modality."""
-        modality = record.modality
-
-        try:
-            if modality == "Metadata":
-                self._handle_global_metadata(h5f, record)
-            elif modality.endswith("_Metadata"):
-                self._handle_stream_metadata(h5f, record)
-            elif modality == "Event":
-                self._handle_event_data(h5f, record)
+            if config:
+                labels = list(config.labels or [])
+                channel_types = list(config.channel_types or [])
+                channel_count = config.channel_count
+                sample_rate = config.sample_rate or 500.0
             else:
-                self._handle_timeseries_data(h5f, record)
+                labels = []
+                channel_types = []
+                channel_count = 0
+                sample_rate = channel_map.get("sample_rate", 500.0)
 
-        except Exception as e:
-            self.logger.error(f"Error processing {modality} record: {e}")
+            metadata = {
+                "labels": labels,
+                "channel_count": channel_count,
+                "channel_format": "float32",
+                "channel_types": channel_types,
+                "sample_rate": sample_rate,
+            }
+            self.stream_metadata[stream_type] = metadata
+            dataset = self._create_timeseries_dataset(h5f, stream_type)
+            if dataset is not None:
+                self.datasets[stream_type] = dataset
+
+        # Always create Event dataset
+        self.datasets["Event"] = self._create_event_dataset(h5f)
+
+        # Write stream index: maps stream_key → stream_type for robust loading
+        stream_index = {}
+        for key in self._ring_buffer_names:
+            cfg = self._stream_configs.get(key)
+            stream_index[key] = cfg.type if cfg else key
+        h5f.attrs["stream_index"] = json.dumps(stream_index)
+
+        self.logger.info(f"Created {len(self.datasets)} datasets upfront")
+
+    def _process_data_loop(
+        self,
+        h5f: h5py.File,
+        ring_buffers: dict[str, SharedRingBuffer],
+        read_positions: dict[str, int],
+    ) -> None:
+        sample_count = 0
+
+        while not self.stop_event.is_set():
+            drained = self._drain_ring_buffers(ring_buffers, read_positions)
+            self._drain_event_queue()
+            sample_count += drained
+
+            # Write chunks if buffer large enough
+            for stream_type in list(self.data_buffers.keys()):
+                buf = self.data_buffers[stream_type]
+                total_samples = sum(len(d) for d in buf["data"])
+                if total_samples >= self.chunk_size:
+                    self._write_timeseries_chunk(h5f, stream_type)
+
+            if len(self.event_buffer) >= self.event_chunk_size:
+                self._write_event_chunk(h5f)
+
+            self._periodic_flush(h5f)
+
+            if drained == 0:
+                time.sleep(0.01)
+
+        self.logger.info(f"Data processing completed. Total samples: {sample_count}")
+
+    def _drain_ring_buffers(
+        self,
+        ring_buffers: dict[str, SharedRingBuffer],
+        read_positions: dict[str, int],
+    ) -> int:
+        total = 0
+        for stream_type, rb in ring_buffers.items():
+            try:
+                data, timestamps, local_ts, receive_ns, new_pos = rb.read_new(read_positions[stream_type])
+            except OverrunError:
+                read_positions[stream_type] = rb.write_pos
+                self.logger.warning(f"Ring buffer overrun in {stream_type}, skipping ahead")
+                continue
+            except (FileNotFoundError, ValueError, OSError):
+                continue
+
+            if len(data) == 0:
+                continue
+            read_positions[stream_type] = new_pos
+
+            # Save all raw channels (exclude the injected markers column at the end)
+            raw_channels = rb.n_channels - 1
+            mod_data = data[:, :raw_channels].astype(np.float32)
+
+            receive_timestamps = receive_ns.astype(np.float64) / 1e9
+
+            if stream_type not in self.data_buffers:
+                self.data_buffers[stream_type] = {
+                    "data": [], "timestamps": [], "local_timestamps": [], "receive_timestamps": [],
+                }
+            self.data_buffers[stream_type]["data"].append(mod_data)
+            self.data_buffers[stream_type]["timestamps"].append(timestamps)
+            self.data_buffers[stream_type]["local_timestamps"].append(local_ts)
+            self.data_buffers[stream_type]["receive_timestamps"].append(receive_timestamps)
+
+            total += len(data)
+        return total
+
+    def _drain_event_queue(self) -> None:
+        if self.event_queue is None:
+            return
+        while True:
+            try:
+                record = self.event_queue.get_nowait()
+                self.event_buffer.append(record)
+            except queue.Empty:
+                break
 
     def _periodic_flush(self, h5f: h5py.File) -> None:
         current_time = time.time()
         if current_time - self.last_flush_time > self.flush_interval:
             h5f.flush()
+            self._enable_swmr_if_ready(h5f)
             self.last_flush_time = current_time
 
-    def _handle_global_metadata(self, h5f: h5py.File, record: DataRecord) -> None:
-        """Handle global metadata record."""
-        try:
-            metadata = json.loads(record.sample)
-
-            for key, value in metadata.items():
-                self._safe_set_attribute(h5f.attrs, key, value)
-
-            self.logger.info("Global metadata processed")
-
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Invalid global metadata JSON: {e}")
-        except (KeyError, TypeError, AttributeError) as e:
-            self.logger.error(f"Error processing global metadata: {e}")
-
-    def _handle_stream_metadata(self, h5f: h5py.File, record: DataRecord) -> None:
-        """Handle stream-specific metadata."""
-        try:
-            stream_type = record.modality.split("_")[0]
-            metadata_dict = json.loads(record.sample)
-
-            if "labels" in metadata_dict:
-                metadata_dict["labels"] = [str(label) for label in metadata_dict["labels"]]
-
-            self.stream_metadata[stream_type] = metadata_dict
-            self.logger.info(f"Stream metadata received for {stream_type}")
-
-            if stream_type not in self.datasets and stream_type != "Events":
-                dataset = self._create_timeseries_dataset(h5f, stream_type)
-                if dataset is not None:
-                    self.datasets[stream_type] = dataset
-
-            if stream_type == "Events" and "Event" not in self.datasets:
-                self.datasets["Event"] = self._create_event_dataset(h5f)
-
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Invalid stream metadata JSON: {e}")
-        except (KeyError, TypeError, AttributeError) as e:
-            self.logger.error(f"Error processing stream metadata: {e}")
-
-    def _handle_timeseries_data(self, h5f: h5py.File, record: DataRecord) -> None:
-        """Handle timeseries data (EEG, EMG, etc.) with chunk buffering."""
-        modality = record.modality
-
-        if modality not in self.stream_metadata:
-            self.logger.warning(f"No metadata for {modality}, buffering record...")
-            try:
-                self.save_queue.put_nowait(record)
-            except queue.Full:
-                pass
-            return
-
-        if modality not in self.datasets:
-            dataset = self._create_timeseries_dataset(h5f, modality)
-            if dataset is None:
-                self.logger.error(f"Failed to create dataset for {modality}")
-                return
-            self.datasets[modality] = dataset
-
-        if modality not in self.data_buffers:
-            self.data_buffers[modality] = []
-
-        self.data_buffers[modality].append(record)
-
-        if len(self.data_buffers[modality]) >= self.chunk_size:
-            self._write_timeseries_chunk(h5f, modality)
-
-    def _handle_event_data(self, h5f: h5py.File, record: DataRecord) -> None:
-        """Handle event data with chunk buffering."""
-        if "Event" not in self.datasets:
-            self.datasets["Event"] = self._create_event_dataset(h5f)
-
-        self.event_buffer.append(record)
-
-        if len(self.event_buffer) >= self.event_chunk_size:
-            self._write_event_chunk(h5f)
+    def _enable_swmr_if_ready(self, h5f: h5py.File) -> None:
+        """Enable SWMR mode once datasets exist."""
+        if not self._swmr_enabled and self.datasets:
+            h5f.swmr_mode = True
+            self._swmr_enabled = True
+            self.logger.info("SWMR mode enabled")
 
     def _create_timeseries_dataset(self, h5f: h5py.File, modality: str) -> h5py.Dataset | None:
         """Create a timeseries dataset for the given modality."""
@@ -267,16 +296,20 @@ class DataSaver(Process):
             )
 
             dataset.attrs["field_names"] = list(structured_dtype.names)
+            dataset.attrs["channel_labels"] = channel_labels
+            dataset.attrs["sampling_frequency"] = metadata.get("sample_rate", 500.0)
+            dataset.attrs["channel_format"] = metadata.get("channel_format", "float32")
+            if "channel_types" in metadata:
+                dataset.attrs["channel_types"] = metadata["channel_types"]
 
-            for key, value in metadata.items():
-                if key in self.METADATA_SKIP_KEYS:
-                    continue
-                # Translate LSL names to storage names
-                if key == "labels":
-                    key = "channel_labels"
-                elif key == "sample_rate":
-                    key = "sampling_frequency"
-                self._safe_set_attribute(dataset.attrs, key, value)
+            # Write full stream config metadata
+            stream_cfg = self._stream_configs.get(modality)
+            if stream_cfg:
+                skip = {"channel_count", "version", "labels", "sample_rate"}
+                for key, value in stream_cfg.model_dump().items():
+                    if key in skip or key in dataset.attrs:
+                        continue
+                    self._safe_set_attribute(dataset.attrs, key, value)
 
             self.logger.info(f"Created {modality} dataset with {channel_count} channels")
             return dataset
@@ -306,52 +339,43 @@ class DataSaver(Process):
             self.logger.error(f"Error creating event dataset: {e}")
             raise
 
-    def _write_timeseries_chunk(self, h5f: h5py.File, modality: str) -> None:
+    def _write_timeseries_chunk(self, h5f: h5py.File, stream_type: str) -> None:
         """Write a chunk of timeseries data to dataset."""
-        if modality not in self.data_buffers or not self.data_buffers[modality]:
+        buf = self.data_buffers.get(stream_type)
+        if not buf or not buf["data"]:
             return
 
         try:
-            records = self.data_buffers[modality]
-            dataset = self.datasets[modality]
+            data = np.concatenate(buf["data"])  # (n_samples, n_channels)
+            timestamps = np.concatenate(buf["timestamps"])  # LSL clock-synced
+            local_timestamps = np.concatenate(buf["local_timestamps"])  # LSL local_clock()
+            receive_timestamps = np.concatenate(buf["receive_timestamps"])  # time.time_ns()
+
+            dataset = self.datasets[stream_type]
             structured_dtype = dataset.dtype
+            ts_fields = {"timestamp", "local_timestamp", "receive_timestamp"}
+            field_names = [n for n in structured_dtype.names if n not in ts_fields]
 
-            field_names = [
-                name
-                for name in structured_dtype.names
-                if name not in ["timestamp", "local_timestamp"]
-            ]
-            expected_channels = len(field_names)
+            n_samples = len(data)
+            chunk_array = np.zeros(n_samples, dtype=structured_dtype)
 
-            chunk_size = len(records)
-            chunk_array = np.zeros(chunk_size, dtype=structured_dtype)
-
-            for i, record in enumerate(records):
-                if isinstance(record.sample, (list, np.ndarray)):
-                    sample = np.asarray(record.sample)
-                else:
-                    sample = np.full(expected_channels, record.sample)
-
-                if len(sample) != expected_channels:
-                    sample = self._adjust_sample_size(sample, expected_channels, record.modality)
-
-                for j, field_name in enumerate(field_names):
-                    if j < len(sample):
-                        chunk_array[i][field_name] = sample[j]
-
-                chunk_array[i]["timestamp"] = record.timestamp
-                chunk_array[i]["local_timestamp"] = record.local_timestamp
+            for j, field_name in enumerate(field_names):
+                chunk_array[field_name] = data[:, j]
+            chunk_array["timestamp"] = timestamps
+            chunk_array["local_timestamp"] = local_timestamps
+            chunk_array["receive_timestamp"] = receive_timestamps
 
             current_size = dataset.shape[0]
-            new_size = current_size + chunk_size
+            new_size = current_size + n_samples
             dataset.resize(new_size, axis=0)
             dataset[current_size:new_size] = chunk_array
 
             h5f.flush()
-            self.data_buffers[modality].clear()
+            for v in buf.values():
+                v.clear()
 
         except (ValueError, TypeError, KeyError, OSError) as e:
-            self.logger.error(f"Error writing timeseries chunk for {modality}: {e}")
+            self.logger.error(f"Error writing timeseries chunk for {stream_type}: {e}")
 
     def _write_event_chunk(self, h5f: h5py.File) -> None:
         """Write a chunk of event data to dataset."""
@@ -379,6 +403,7 @@ class DataSaver(Process):
                     event_type,
                     float(record.timestamp),
                     float(record.local_timestamp),
+                    float(record.receive_timestamp),
                     extra_vars_json,
                 )
                 chunk_data.append(event_record)
@@ -392,16 +417,14 @@ class DataSaver(Process):
             h5f.flush()
             self.event_buffer.clear()
 
-        except (ValueError, TypeError) as e:
-            self.logger.error(f"Error processing event chunk: {e}")
-        except (KeyError, OSError) as e:
+        except (ValueError, TypeError, KeyError, OSError) as e:
             self.logger.error(f"Error writing event chunk: {e}")
 
     def _flush_all_buffers(self, h5f: h5py.File) -> None:
         try:
-            for modality in list(self.data_buffers.keys()):
-                if self.data_buffers[modality]:
-                    self._write_timeseries_chunk(h5f, modality)
+            for stream_type in list(self.data_buffers.keys()):
+                if self.data_buffers[stream_type]["data"]:
+                    self._write_timeseries_chunk(h5f, stream_type)
 
             if self.event_buffer:
                 self._write_event_chunk(h5f)
@@ -411,15 +434,10 @@ class DataSaver(Process):
         except Exception as e:
             self.logger.error(f"Error flushing buffers: {e}")
 
-    def _get_dtype_from_metadata(self, metadata: dict) -> np.dtype:
-        channel_format = metadata.get("channel_format", "float64")
-        return self.DTYPE_MAP.get(channel_format, np.float64)
-
     def _build_structured_dtype(self, metadata: dict) -> np.dtype:
         """Build a structured dtype for timeseries data."""
         channel_labels = metadata.get("labels", [])
         channel_count = metadata.get("channel_count", len(channel_labels))
-        base_dtype = self._get_dtype_from_metadata(metadata)
 
         dtype_list = []
 
@@ -432,30 +450,13 @@ class DataSaver(Process):
                     field_name = f"{field_name}_{i}"
             else:
                 field_name = f"ch{i + 1}"
-            dtype_list.append((field_name, base_dtype))
+            dtype_list.append((field_name, np.float32))
 
         dtype_list.append(("timestamp", np.float64))
         dtype_list.append(("local_timestamp", np.float64))
+        dtype_list.append(("receive_timestamp", np.float64))
 
         return np.dtype(dtype_list)
-
-    def _adjust_sample_size(
-        self, sample: np.ndarray, expected_channels: int, modality: str
-    ) -> np.ndarray:
-        """Adjust sample size to match expected channel count."""
-        if len(sample) < expected_channels:
-            padding = np.zeros(expected_channels - len(sample), dtype=sample.dtype)
-            adjusted_sample = np.concatenate([sample, padding])
-            self.logger.warning(
-                f"Padded {modality} sample from {len(sample)} to {expected_channels} channels"
-            )
-        else:
-            adjusted_sample = sample[:expected_channels]
-            self.logger.warning(
-                f"Truncated {modality} sample from {len(sample)} to {expected_channels} channels"
-            )
-
-        return adjusted_sample
 
     def _safe_set_attribute(self, attrs: h5py.AttributeManager, key: str, value: Any) -> None:
         try:

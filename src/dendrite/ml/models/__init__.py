@@ -37,11 +37,11 @@ from .braindecode_adapter import (
     BDEEGNet,
     BDShallowNet,
 )
-from .classical import CSPModel, LDAModel, SVMModel
+from .classical import LDAModel, SVMModel
 from .eegnet import EEGNet
 from .eegnet_plus import EEGNetPP
 from .linear import LinearEEG
-from .model_configs import (
+from .model_schemas import (
     BDATCNetConfig,
     BDDeep4NetConfig,
     BDEEGConformerConfig,
@@ -88,8 +88,8 @@ def create_model(model_type: str, num_classes: int, input_shape: tuple[int, int]
     model_info = MODEL_REGISTRY[model_type]
     model_class = model_info["class"]
 
-    # Classical models (config=None) don't use shape params
-    if model_info["config"] is None:
+    # Classical models (sklearn-based) don't use shape params
+    if model_info.get("classical"):
         return model_class(**kwargs)
 
     n_channels, n_times = input_shape

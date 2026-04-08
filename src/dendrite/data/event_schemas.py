@@ -16,12 +16,13 @@ class EventData(BaseModel):
     for event_id. Extra fields are allowed and preserved for custom event data.
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
+    model_config = ConfigDict(extra="allow")
 
-    event_id: float = Field(..., description="Event identifier (numeric)")
+    event_id: float = Field(
+        ...,
+        description="Event identifier (numeric). Float because LSL transmits floats; "
+        "use int() for event_mapping comparison.",
+    )
     event_type: str = Field(..., description="Event type label")
 
     @field_validator("event_id", mode="before")
