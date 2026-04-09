@@ -30,15 +30,6 @@ Source: `src/dendrite/ml/training/trainer.py`
 
 Optuna-based search (`src/dendrite/ml/search/`). Search spaces are auto-generated from Pydantic config `hpo` field metadata across optimizer, regularization, and augmentation categories. Profiles (`Quick`/`Balanced`/`Full`) scope the number of trials and which categories to search. Early stopping halts search after `n_trials / 3` consecutive non-improving trials.
 
----
-
-## Background Optimizer
-
-Continuous Optuna search during live recording (`src/dendrite/ml/search/optuna_runner.py`, managed by `ml_service.py`).
-
-Runs as an `asyncio.Task` per mode during live recording. Loads fresh session data from SWMR HDF5, stratified holdout (80/20), one trial per iteration. Searches within the mode's configured model type (does not switch architectures). Trials beating baseline by `promotion_threshold` (default 5%) trigger decoder hot-swap via SharedState, with a cooldown between promotions.
-
-Source: `src/dendrite/ml/search/optuna_runner.py` (`TrialResult`, `run_optuna_search()`)
 
 ---
 

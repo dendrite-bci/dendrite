@@ -10,7 +10,7 @@ from dendrite.data.loaders import (
 )
 
 
-class TestMOAABDiscovery:
+class TestMOABBDiscovery:
     def test_discover_returns_dicts(self):
         """discover_moabb_datasets returns non-empty list of dicts."""
         datasets = discover_moabb_datasets(cache=False)

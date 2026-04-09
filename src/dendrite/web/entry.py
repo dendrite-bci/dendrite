@@ -1,5 +1,5 @@
 """
-Console script entry point for dendrite-web.
+Console script entry point for dendrite.
 """
 
 import argparse

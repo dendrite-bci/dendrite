@@ -23,7 +23,7 @@ def load_moabb_for_training(
     - use_paradigm_epochs=False (default): load continuous → RawData → our pipeline
       (custom preprocessing, consistent with recordings)
     """
-    from .moabb_loader import MOAABLoader, MoabbConfig
+    from .moabb_loader import MOABBLoader, MoabbConfig
 
     step = broadcast_step or (lambda s: None)
 
@@ -32,7 +32,7 @@ def load_moabb_for_training(
     paradigm_name = config.get("paradigm", "MotorImagery")
 
     step(f"Downloading & loading {dataset_code} (subject {subject})...")
-    loader = MOAABLoader(MoabbConfig(dataset=dataset_code, paradigm=paradigm_name))
+    loader = MOABBLoader(MoabbConfig(dataset=dataset_code, paradigm=paradigm_name))
 
     if config.get("use_paradigm_epochs", False):
         step("Using paradigm preprocessing...")

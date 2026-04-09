@@ -45,7 +45,7 @@ def _get_moabb_paradigm(paradigm_name: str, **kwargs):
 
 @dataclass
 class MoabbConfig:
-    """Lightweight config for MOAABLoader."""
+    """Lightweight config for MOABBLoader."""
 
     dataset: str
     paradigm: str
@@ -55,11 +55,11 @@ class MoabbConfig:
     event_filter: list[str] | None = None
 
 
-class MOAABLoader:
+class MOABBLoader:
     """Load data from MOABB benchmark datasets as RawData.
 
     Example:
-        loader = MOAABLoader(MoabbConfig(dataset="BNCI2014_001", paradigm="MotorImagery"))
+        loader = MOABBLoader(MoabbConfig(dataset="BNCI2014_001", paradigm="MotorImagery"))
         raw = loader.load_as_raw(subject_id=1)
     """
 

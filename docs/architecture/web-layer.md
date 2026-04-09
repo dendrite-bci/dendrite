@@ -31,7 +31,7 @@ SharedState ──────────► run_telemetry_poller() ──► Q
 
 | Channel | Format | Rate | Content |
 |---------|--------|------|---------|
-| `/ws/visualization` | msgpack | ~100Hz | Raw signal data (decimated 5×, preprocessed) |
+| `/ws/visualization` | msgpack | ~100Hz | Raw signal data (decimated to ~100 Hz, preprocessed) |
 | `/ws/telemetry` | JSON | 1Hz | CPU, memory, stream latency, mode metrics, channel quality |
 | `/ws/mode_data` | msgpack | event-driven | Mode output data (predictions, ERP, band power) |
 | `/ws/training` | JSON | per-epoch | Training progress, completion, errors |
@@ -53,7 +53,7 @@ SharedState ──────────► run_telemetry_poller() ──► Q
 
 ### Views & Components
 
-Three routed views: **ControlView** (`/`), **DataExplorerView** (`/data`), **MLWorkbenchView** (`/ml`). ControlView embeds `DashboardView` as the live monitoring panel. Components are organized in feature-based subdirectories: `common/`, `config/`, `dashboard/`, `data/`, `display/`, `layout/`, `ml/`, `stream-manager/`.
+Three routed views: **ControlView** (`/`), **DataExplorerView** (`/data`), **MLWorkbenchView** (`/ml`). ControlView embeds `DashboardView` as the live monitoring panel. Components are organized in feature-based subdirectories: `common/`, `config/`, `dashboard/`, `data/`, `layout/`, `ml/`, `stream-manager/`.
 
 ### Data Flow
 

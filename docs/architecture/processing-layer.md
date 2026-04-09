@@ -133,7 +133,7 @@ Sliding windows with Welch's method per channel, extracting power in configurabl
 1. Reads from stream ring buffer (zero-copy)
 2. Applies CAR + bandpass
 3. Publishes channel quality to SharedState every 2s
-4. Decimates 5x before WebSocket broadcast
+4. Decimates to ~100 Hz before WebSocket broadcast
 5. Events bypass decimation to preserve timing
 
 **Mode Output Path:**

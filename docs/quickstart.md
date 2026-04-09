@@ -63,7 +63,7 @@ npm run build
 ## 3. Start the Server
 
 ```bash
-uv run uvicorn dendrite.web.app:create_app --factory --host 0.0.0.0 --port 8321
+uv run dendrite --host 0.0.0.0 --port 8321
 ```
 
 Open `http://localhost:8321`. LAN access at `http://<your-ip>:8321`. API docs at `/docs`.

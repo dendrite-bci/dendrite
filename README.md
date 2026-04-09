@@ -20,14 +20,8 @@ See the [Quickstart guide](https://dendrite-bci.github.io/dendrite/quickstart) f
 
 ## Documentation
 
-- [Quickstart](https://dendrite-bci.github.io/dendrite/quickstart)
 - [Guides](https://dendrite-bci.github.io/dendrite/guides/)
 - [Architecture](https://dendrite-bci.github.io/dendrite/architecture/)
-## Tests
-
-```bash
-uv run pytest
-```
 
 ## License
 

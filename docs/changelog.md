@@ -12,7 +12,7 @@ Full platform migration from PyQt6 desktop app to FastAPI + Vue 3 SPA. All four 
 
 - FastAPI backend with REST API for configuration/control and WebSocket for real-time data
 - Vue 3 SPA with Pinia stores, Tailwind CSS, dark theme with custom design tokens
-- Four WS channels: `/ws/telemetry` (1Hz JSON), `/ws/visualization` (30fps msgpack), `/ws/mode_data` (msgpack), `/ws/training` (JSON)
+- Four WS channels: `/ws/telemetry` (1Hz JSON), `/ws/visualization` (~100 Hz msgpack), `/ws/mode_data` (msgpack), `/ws/training` (JSON)
 - Singleton service layer (`deps.py`) with dependency injection
 - `QueueBridge` drains multiprocessing queues and fans out to WebSocket subscribers
 - Single-port production deployment (FastAPI serves built frontend static files)

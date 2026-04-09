@@ -19,7 +19,7 @@ import numpy as np
 from pylsl import local_clock
 
 from dendrite.data.loaders import (
-    MOAABLoader,
+    MOABBLoader,
     get_moabb_dataset_info,
     is_supported_format,
     load_file,
@@ -155,7 +155,7 @@ class ReplayStreamer(Process):
         if not info:
             raise ValueError(f"Unknown MOABB dataset: {self.moabb_preset}")
 
-        loader = MOAABLoader(info["config"])
+        loader = MOABBLoader(info["config"])
         self.logger.info(
             f"Loading MOABB: {self.moabb_preset}, subject {self.moabb_subject}, session {self.moabb_session}"
         )

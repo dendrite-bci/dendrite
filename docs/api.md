@@ -53,7 +53,7 @@ Dendrite exposes a REST API for configuration and control, and WebSocket channel
 
 | Endpoint | Format | Description |
 |----------|--------|-------------|
-| `/ws/visualization` | msgpack (~100Hz) | Raw signal data (decimated 5×, preprocessed) |
+| `/ws/visualization` | msgpack (~100Hz) | Raw signal data (decimated to ~100 Hz, preprocessed) |
 | `/ws/telemetry` | JSON (1Hz) | CPU, memory, stream health, latency, channel quality |
 | `/ws/mode_data` | msgpack | Mode output data (predictions, ERP, band power) |
 | `/ws/training` | JSON | Decoder training progress |
