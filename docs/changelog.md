@@ -19,6 +19,8 @@ Full platform migration from PyQt6 desktop app to FastAPI + Vue 3 SPA. All four 
 
 ### Processing Pipeline
 
+- Dynamic mode control: REST API for adding, removing, starting, and stopping modes at runtime without restarting the pipeline
+- Online bad channel interpolation via correlation-based weighting (no electrode positions required)
 - `SharedRingBuffer` replaces per-mode queues — all consumers read shared memory directly (zero-copy, no pickle overhead)
 - Per-mode lazy-init preprocessing (`BaseMode._setup_preprocessor()`, `SamplePreprocessor`)
 - Visualization bridge reads ring buffer directly, applies preprocessing + channel quality monitoring
