@@ -1,1 +1,0 @@
-import{_ as d,o as e,c as a,ag as r}from"./chunks/framework.CvgP6Fyv.js";const m=JSON.parse('{"title":"API Reference","description":"","frontmatter":{},"headers":[],"relativePath":"api.md","filePath":"api.md"}'),o={name:"api.md"};function i(c,t,n,s,l,p){return e(),a("div",null,[...t[0]||(t[0]=[r("",20)])])}const b=d(o,[["render",i]]);export{m as __pageData,b as default};
