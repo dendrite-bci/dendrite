@@ -3,48 +3,31 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 
-A Python application for brain-computer interface research and development. Handles signal acquisition, real-time processing, and decoder training while external applications drive paradigm design via network events. Three composable processing modes can be configured through a GUI. Runs on Windows, macOS, and Linux.
+An open-source platform for BCI research and development. Handles signal acquisition, real-time processing, and decoder training via a web interface. External applications drive paradigm design via network events. 
 
 ## Features
 
 - **Three Processing Modes** - Trial-based training (synchronous), continuous inference (asynchronous), and neurofeedback - run individually or combined for hybrid paradigms
 - **Hardware-Agnostic** - Connect to any LSL-compatible amplifier or custom hardware
 - **Multimodal & Multi-Rate** - Synchronized acquisition across EEG, EMG, and other modalities at native sampling rates
-- **Research-to-Deployment** - Train with 36+ MOABB datasets, optimize with Optuna, deploy to real-time inference
 - **Multiple Output Protocols** - LSL, ROS2, TCP/UDP, ZeroMQ for games, robotics, and distributed systems
-- **Integrated Storage** - HDF5 for signals, SQLite for experiment tracking and decoder versioning
+- **Integrated Storage** - HDF5 for signals, SQLite for experiment tracking 
+- **Web Architecture** - FastAPI backend + Vue 3 SPA frontend, accessible from any device on the network
 
 ## Quick Start
 
-### Prerequisites
-
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- [LSL binaries](https://github.com/sccn/liblsl/releases) (liblsl)
-
-### Installation
-
-```bash
-# Install uv (if not installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone and install
-git clone https://github.com/dendrite-bci/dendrite.git
-cd dendrite
-uv sync
-```
-
-### Launch
-
-```bash
-uv run python main.py
-```
+See the [Quickstart guide](https://dendrite-bci.github.io/dendrite/quickstart) for installation and setup.
 
 ## Documentation
 
-- [Quickstart](https://dendrite-bci.github.io/dendrite/docs/quickstart)
-- [Introduction](https://dendrite-bci.github.io/dendrite/docs/)
-- [Guides](https://dendrite-bci.github.io/dendrite/docs/guides)
-- [API Reference](https://dendrite-bci.github.io/dendrite/docs/api)
+- [Quickstart](https://dendrite-bci.github.io/dendrite/quickstart)
+- [Guides](https://dendrite-bci.github.io/dendrite/guides/)
+- [Architecture](https://dendrite-bci.github.io/dendrite/architecture/)
+## Tests
+
+```bash
+uv run pytest
+```
 
 ## License
 
