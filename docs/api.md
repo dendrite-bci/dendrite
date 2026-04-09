@@ -1,6 +1,6 @@
 # API Reference
 
-Dendrite exposes a REST API for configuration and control, and WebSocket channels for real-time data. When the backend is running, interactive API docs are available at [`/docs`](http://localhost:8321/docs) (Swagger UI).
+Dendrite exposes a REST API for configuration and control, and WebSocket channels for real-time data. When the backend is running, interactive API docs are available at `/docs` (Swagger UI).
 
 ## Pipeline
 
