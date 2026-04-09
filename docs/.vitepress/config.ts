@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  base: '/dendrite/',
   title: 'Dendrite',
   description: 'Open-source platform for multimodal signal acquisition, real-time processing, and decoder training via LSL',
 
