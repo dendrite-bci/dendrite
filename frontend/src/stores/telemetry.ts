@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useWebSocket } from '../composables/useWebSocket'
 import type { TelemetryData } from '../types/api'
+import { apiFetch } from '../utils/api'
 
 const SPARKLINE_HISTORY = 30
 
@@ -65,12 +66,14 @@ export const useTelemetryStore = defineStore('telemetry', () => {
     if (currentFlagged[modality].length === 0) delete currentFlagged[modality]
     if (currentUnflagged[modality].length === 0) delete currentUnflagged[modality]
 
-    const res = await fetch('/api/pipeline/channel-flags', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ flagged: currentFlagged, unflagged: currentUnflagged }),
-    })
-    if (!res.ok) return
+    try {
+      await apiFetch('/api/pipeline/channel-flags', {
+        method: 'PUT',
+        json: { flagged: currentFlagged, unflagged: currentUnflagged },
+      })
+    } catch {
+      // toast surfaced by apiFetch
+    }
   }
 
   return { data, connected, latencyHistory, toggleChannelFlag }

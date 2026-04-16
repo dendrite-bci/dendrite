@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { makeAxis } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import { useDataStore } from '../../stores/data'
 import { CHART_COLORS } from '../../utils/colors'
 
@@ -26,9 +27,8 @@ const selectedEvent = ref<string | null>(null)
 const channelPage = ref(0)
 
 // Chart
-const chartEl = ref<HTMLElement | null>(null)
-let plot: uPlot | null = null
-let resizeObs: ResizeObserver | null = null
+const chartEl = ref<HTMLDivElement | null>(null)
+const { create } = useUPlot(chartEl)
 
 const erp = computed(() => data.erpPreview)
 const eventNames = computed(() => erp.value ? Object.keys(erp.value.erp_by_event) : [])
@@ -68,8 +68,7 @@ async function fetchERP() {
 }
 
 function buildChart() {
-  if (!chartEl.value || !erp.value || !currentErp.value) return
-  if (plot) { plot.destroy(); plot = null }
+  if (!erp.value || !currentErp.value) return
 
   const timeAxis = erp.value.time_axis
   const start = channelPage.value * MAX_CHANNELS
@@ -90,8 +89,7 @@ function buildChart() {
     ...channels.map(ch => new Float64Array(ch)),
   ]
 
-  const width = chartEl.value.clientWidth || 500
-  const opts: uPlot.Options = {
+  create(({ width }) => ({
     width,
     height: 300,
     cursor: { show: true, drag: { x: true, y: false } },
@@ -102,9 +100,7 @@ function buildChart() {
     ],
     series,
     plugins: [zeroLinePlugin()],
-  }
-
-  plot = new uPlot(opts, uData, chartEl.value)
+  }), uData)
 }
 
 function zeroLinePlugin(): uPlot.Plugin {
@@ -134,18 +130,7 @@ function zeroLinePlugin(): uPlot.Plugin {
 watch(selectedEvent, () => { channelPage.value = 0; buildChart() })
 watch(channelPage, () => buildChart())
 
-onMounted(() => {
-  fetchERP()
-  if (chartEl.value) {
-    resizeObs = new ResizeObserver(() => { if (plot && chartEl.value) plot.setSize({ width: chartEl.value.clientWidth, height: 300 }) })
-    resizeObs.observe(chartEl.value)
-  }
-})
-
-onUnmounted(() => {
-  if (plot) plot.destroy()
-  if (resizeObs) resizeObs.disconnect()
-})
+onMounted(() => { fetchERP() })
 </script>
 
 <template>

@@ -37,7 +37,7 @@ def jsonify(obj: Any) -> dict | list | str | int | float | bool | None:
     elif isinstance(obj, bytes):
         return obj.decode("utf-8")
     elif hasattr(obj, "model_dump") and callable(obj.model_dump):
-        return obj.model_dump()
+        return obj.model_dump()  # type: ignore[no-any-return]
     elif isinstance(obj, (int, float, str, bool, type(None))):
         return obj
     else:

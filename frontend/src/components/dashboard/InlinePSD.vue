@@ -3,25 +3,22 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { makeAxis, CURSOR_HIDDEN, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import { getModalityColor } from '../../utils/colors'
 import { useVisualizationStore, vizDirty } from '../../stores/visualization'
 
 const props = defineProps<{ modality: string }>()
 
 const viz = useVisualizationStore()
-const container = ref<HTMLElement>()
-let plot: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
+const container = ref<HTMLDivElement | null>(null)
+const { create, setData } = useUPlot(container)
 
 const color = getModalityColor(props.modality)
 
 function createPlot() {
-  if (!container.value) return
-  const el = container.value
-
-  const opts: uPlot.Options = {
-    width: el.clientWidth,
-    height: el.clientHeight,
+  create(({ width, height }) => ({
+    width,
+    height,
     cursor: CURSOR_HIDDEN,
     legend: LEGEND_HIDDEN,
     series: [
@@ -53,16 +50,13 @@ function createPlot() {
         },
       },
     },
-  }
-
-  plot = new uPlot(opts, [[0], [0]], el)
+  }), [[0], [0]])
 }
 
 function updatePlot() {
-  if (!plot) return
   const d = viz.psdData[props.modality]
   if (!d || d.freqs.length === 0) return
-  plot.setData([d.freqs, d.power])
+  setData([d.freqs, d.power])
 }
 
 let lastPsdVersion = 0
@@ -71,14 +65,6 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   createPlot()
   updatePlot()
-  if (container.value) {
-    resizeObserver = new ResizeObserver(() => {
-      if (plot && container.value) {
-        plot.setSize({ width: container.value.clientWidth, height: container.value.clientHeight })
-      }
-    })
-    resizeObserver.observe(container.value)
-  }
   // Poll dirty flag instead of watching reactive ref (avoids 1Hz re-render flicker)
   pollTimer = setInterval(() => {
     const v = vizDirty.psdVersion || 0
@@ -91,8 +77,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
-  resizeObserver?.disconnect()
-  plot?.destroy()
 })
 </script>
 

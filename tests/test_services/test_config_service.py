@@ -1,7 +1,8 @@
 """Tests for ConfigService — config aggregation and roundtrips."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from dendrite.web.services.config_service import ConfigService
 from dendrite.web.services.mode_service import ModeService

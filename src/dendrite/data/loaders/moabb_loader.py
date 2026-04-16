@@ -145,7 +145,7 @@ class MOABBLoader:
         events = list(zip(event_times, event_labels, strict=True))
 
         return RawData(
-            data=raw.get_data(),
+            data=np.asarray(raw.get_data()),
             channel_names=list(raw.ch_names),
             channel_types=raw.get_channel_types(),
             sample_rate=float(raw.info["sfreq"]),
@@ -171,7 +171,7 @@ class MOABBLoader:
             runs = list(subj_data[session].values())
             if len(runs) == 1:
                 return runs[0]
-            return mne.concatenate_raws(runs)
+            return mne.concatenate_raws(runs)  # type: ignore[return-value]
 
         return subj_data[session][run]
 
@@ -182,7 +182,9 @@ class MOABBLoader:
         events_array, event_id = mne.events_from_annotations(raw, verbose=False)
         code_to_name = {code: name for name, code in event_id.items()}
 
-        label_map = self.config.events if self.config.events else dict(event_id)
+        label_map: dict[str, int] = (
+            dict(self.config.events) if self.config.events else dict(event_id)
+        )
 
         # Marker channel uses 0 as "no event" sentinel — shift codes to start at 1
         if 0 in label_map.values():

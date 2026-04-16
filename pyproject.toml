@@ -76,10 +76,27 @@ ignore = ["E501", "E402", "E741", "RUF001", "RUF005", "RUF012", "RUF015", "RUF02
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Form",
+    "fastapi.File",
+]
+
 [tool.pyright]
-typeCheckingMode = "off"
+typeCheckingMode = "basic"
 pythonVersion = "3.12"
 include = ["src"]
-exclude = ["tests", ".venv", "docs"]
+exclude = [
+    "tests",
+    ".venv",
+    "docs",
+    "src/dendrite/data/streaming/ros2.py",
+    "src/dendrite/data/streaming/zmq.py",
+]
 reportMissingImports = "warning"
 reportUndefinedVariable = true

@@ -239,7 +239,6 @@ def _add_recording_with_metrics(svc, tmp_path, monkeypatch):
     Returns (recording_id, raw_dir, metrics_dir, file_id).
     """
     import os
-    from pathlib import Path
 
     study_name = "test_study_metrics"
     file_id = "task-rec1_run-01_20240101_120000"

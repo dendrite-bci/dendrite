@@ -4,6 +4,8 @@ The web layer connects the Vue 3 frontend to the processing pipeline via FastAPI
 
 ## Backend Services
 
+Source: `src/dendrite/web/deps.py` (singleton wiring), `src/dendrite/web/services/`.
+
 Services are singletons created at startup and manage distinct concerns:
 
 | Service | Responsibility |
@@ -20,6 +22,8 @@ Services are singletons created at startup and manage distinct concerns:
 Services communicate through direct references. `ConfigService` aggregates state from `StreamService` and `ModeService` to build the pipeline configuration.
 
 ## WebSocket Channels
+
+Source: `src/dendrite/web/ws/` (handlers, `QueueBridge`, viz/telemetry bridges).
 
 Real-time data flows from the pipeline to browser clients via `QueueBridge`:
 
@@ -38,6 +42,8 @@ SharedState ──────────► run_telemetry_poller() ──► Q
 
 **QueueBridge** (`ws/bridge.py`) drains multiprocessing queues from a thread pool and fans out to WebSocket subscribers. Slow clients get frames dropped (no backpressure). `enable_history()` lets new subscribers receive recent frames on connect.
 
+Three long-lived background tasks run in the FastAPI event loop (not inside the pipeline subprocess) so they can serve HTTP/WebSocket clients and touch SQLite while the pipeline runs independently — heavy lifting (model training, HPO trials) is still offloaded to subprocesses from within them, so a runaway training job can't freeze the API or the UI.
+
 **`run_visualization_bridge()`** (`ws/visualization_bridge.py`) — async task spawned/cancelled on recording start/stop. Reads raw signal data from the primary stream's ring buffer, applies preprocessing (CAR + bandpass), monitors channel quality, broadcasts via QueueBridge. Mode outputs drained from `visualization_queue` to `mode_data` channel.
 
 **Online Training Task** (`app.py`) -- Background task that waits for recording start, then drains `training_queue` (from SynchronousMode or manual requests). MLService loads data from SWMR HDF5, trains in a subprocess, publishes decoder path to SharedState for hot-swap.
@@ -48,7 +54,7 @@ SharedState ──────────► run_telemetry_poller() ──► Q
 
 - **Pinia stores**: config, pipeline, streams, modes, data, ml, streamManager, telemetry, visualization
 - **Composables**: `useWebSocket`, `useRingBuffer`, `useToast`, `useDecoderPicker`, `useSessionEvents`
-- **uPlot**: real-time signal visualization at 30fps
+- **uPlot**: real-time signal visualization. The backend broadcasts `/ws/visualization` at ~100 Hz; the browser coalesces incoming frames into ~30 fps paints via `requestAnimationFrame`, so extra samples buffer in a ring between frames rather than triggering per-sample re-renders.
 - **PrimeIcons**, **Tailwind CSS**
 
 ### Views & Components

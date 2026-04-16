@@ -3,13 +3,13 @@
 import pytest
 import torch
 
-from dendrite.ml.models import MODEL_REGISTRY, create_model, get_available_models
 from dendrite.ml.decoders.registry import (
+    check_decoder_compatibility,
     get_available_decoders,
     get_decoder_capabilities,
     get_decoder_entry,
-    check_decoder_compatibility,
 )
+from dendrite.ml.models import MODEL_REGISTRY, create_model, get_available_models
 
 # Neural models only (exclude classical classifiers which are sklearn estimators)
 NEURAL_MODEL_NAMES = [
@@ -34,7 +34,7 @@ class TestModelRegistry:
         assert len(models) > 0
 
     def test_all_models_have_info(self):
-        for name, entry in MODEL_REGISTRY.items():
+        for _name, entry in MODEL_REGISTRY.items():
             model_class = entry["class"]
             if hasattr(model_class, "get_model_info"):
                 info = model_class.get_model_info()

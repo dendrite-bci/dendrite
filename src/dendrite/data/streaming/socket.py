@@ -4,9 +4,9 @@ Socket-based streamer for TCP/UDP output.
 
 import ipaddress
 import json
-import multiprocessing
 import socket
 import threading
+from multiprocessing.queues import Queue as MpQueue
 from multiprocessing.synchronize import Event
 from typing import Any
 
@@ -18,7 +18,7 @@ class SocketStreamer(BaseOutputStreamer):
 
     def __init__(
         self,
-        input_queue: multiprocessing.Queue,
+        input_queue: MpQueue[Any],
         stop_event: Event | None = None,
         socket_config: dict[str, Any] | None = None,
         shared_state: Any | None = None,

@@ -20,6 +20,8 @@ class QueueBridge:
     channel and receives items via an asyncio.Queue.
     """
 
+    _viz_drain_task_count: int = 0
+
     def __init__(self):
         self.logger = get_logger("QueueBridge")
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
@@ -27,10 +29,10 @@ class QueueBridge:
         self._drop_counts: dict[str, int] = {}
         self._history: dict[str, deque] = {}
 
-    def enable_history(self, channel: str) -> None:
+    def enable_history(self, channel: str, maxlen: int = 500) -> None:
         """Enable history buffer for a channel. New subscribers receive a snapshot."""
-        self._history[channel] = deque()
-        self.logger.info(f"History enabled for '{channel}' (unbounded)")
+        self._history[channel] = deque(maxlen=maxlen)
+        self.logger.info(f"History enabled for '{channel}' (maxlen={maxlen})")
 
     def clear_history(self, channel: str | None = None) -> None:
         """Clear history buffer(s). If channel is None, clear all."""

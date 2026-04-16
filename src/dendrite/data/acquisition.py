@@ -314,7 +314,7 @@ class DataAcquisition(Process):
         while not self.stop_event.is_set():
             try:
                 sample, timestamp = inlet.pull_sample(timeout=SAMPLE_PULL_TIMEOUT)
-                if sample is None:
+                if sample is None or timestamp is None:
                     continue
 
                 local_time = local_clock()
@@ -364,7 +364,7 @@ class DataAcquisition(Process):
         while not self.stop_event.is_set():
             try:
                 sample, timestamp = inlet.pull_sample(timeout=SAMPLE_PULL_TIMEOUT)
-                if sample is None:
+                if sample is None or timestamp is None:
                     continue
 
             except LostError:
@@ -409,7 +409,7 @@ class DataAcquisition(Process):
         while not self.stop_event.is_set():
             try:
                 sample, timestamp = inlet.pull_sample(timeout=SAMPLE_PULL_TIMEOUT)
-                if sample is None:
+                if sample is None or timestamp is None:
                     continue
 
                 local_time = local_clock()

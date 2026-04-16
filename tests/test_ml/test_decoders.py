@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from dendrite.ml import (
     Decoder,
@@ -306,13 +307,13 @@ class TestDecoderConfig:
         assert config.validation_split == 0.2
 
     def test_config_validation_epochs(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DecoderConfig(epochs=0)
 
     def test_config_validation_lr(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DecoderConfig(learning_rate=0)
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DecoderConfig(learning_rate=-0.01)
 
     def test_effective_sample_rate(self):
@@ -387,8 +388,9 @@ class TestClassicalDecoders:
         )
         decoder.fit(X, y)
 
-        import dendrite.ml.decoders.decoder as dec_mod
         import os
+
+        import dendrite.ml.decoders.decoder as dec_mod
 
         original_fn = dec_mod.get_study_paths
         dec_mod.get_study_paths = lambda study: {"decoders": tmp_path}

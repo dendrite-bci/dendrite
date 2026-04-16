@@ -3,6 +3,8 @@
 import multiprocessing
 import queue
 import uuid
+from multiprocessing.queues import Queue as MpQueue
+from multiprocessing.synchronize import Event as MpEvent
 from typing import Any
 
 from dendrite.data.loaders import is_supported_format
@@ -19,8 +21,8 @@ class StreamManagerService:
         self.logger = get_logger("StreamManagerService")
         self._recording_repo = recording_repo
         self._streamers: dict[str, ReplayStreamer] = {}
-        self._stop_events: dict[str, multiprocessing.Event] = {}
-        self._info_queues: dict[str, multiprocessing.Queue] = {}
+        self._stop_events: dict[str, MpEvent] = {}
+        self._info_queues: dict[str, MpQueue[Any]] = {}
         self._progress: dict[str, float] = {}
         self._configs: dict[str, dict] = {}  # store config for status display
 

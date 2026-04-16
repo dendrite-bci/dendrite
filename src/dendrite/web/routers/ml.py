@@ -30,9 +30,9 @@ async def load_moabb_dataset(req: MoabbLoadRequest):
     try:
         return await get_ml_service().load_moabb_dataset(req.model_dump())
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
     except Exception as e:
-        raise HTTPException(500, f"Failed to load MOABB dataset: {e}")
+        raise HTTPException(500, f"Failed to load MOABB dataset: {e}") from e
 
 
 
@@ -96,7 +96,7 @@ async def start_training(req: TrainingStartRequest):
     try:
         return await get_ml_service().start_training(req.model_dump())
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
 
 
 @router.post("/train/{job_id}/cancel")

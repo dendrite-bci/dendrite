@@ -50,7 +50,6 @@ async function handleSubmit() {
     }
   } catch (e: any) {
     errorMsg.value = e.message || 'Failed'
-    toast.error(e.message || 'Study creation failed')
   } finally {
     loading.value = false
   }

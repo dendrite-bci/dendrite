@@ -1,7 +1,6 @@
 """Tests for MNE export utilities."""
 
 import numpy as np
-import pytest
 
 from dendrite.data.io.mne_export import guess_channel_type, to_mne_raw
 

@@ -37,7 +37,7 @@ class Database:
         """Context manager for database connections with WAL mode."""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.row_factory = _dict_factory
+        conn.row_factory = _dict_factory  # type: ignore[assignment]
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA busy_timeout = 10000")

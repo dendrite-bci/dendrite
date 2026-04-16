@@ -2,6 +2,7 @@ import logging
 import queue
 import time
 from collections import deque
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -38,7 +39,7 @@ class Buffer:
 
         self.logger.info(f"Buffer initialized: {modalities}, size={buffer_size}")
 
-    def add_sample(self, sample: dict) -> bool:
+    def add_sample(self, sample: Mapping[str, Any]) -> bool:
         """Add sample to all buffers."""
         for modality in self.modalities:
             if modality not in sample:
@@ -162,7 +163,7 @@ def extract_event_mapping(instance_config: dict[str, Any]) -> dict[int, str]:
     return {int(k): v for k, v in raw_mapping.items()}
 
 
-def extract_event_code(sample: dict) -> int:
+def extract_event_code(sample: Mapping[str, Any]) -> int:
     """Extract event code from sample dict, or -1 if no valid marker."""
     event_code = sample.get("markers")
     if event_code is None:
@@ -359,7 +360,7 @@ class SamplePreprocessor:
             return
         new_bad = quality.get("bad_channels", {})
         if new_bad != self._bad_channels:
-            self._logger.info(f"Bad channels updated: {self._bad_channels} -> {new_bad}")
+            self._logger.debug(f"Bad channels updated: {self._bad_channels} -> {new_bad}")
             self._bad_channels = new_bad
 
         interp_version = quality.get("interp_version", 0)
@@ -427,15 +428,15 @@ class SamplePreprocessor:
             k for k in sample
             if not k.startswith("_") and k not in ("lsl_timestamp", "markers")
         }
-        data_dict = {k: sample[k] for k in data_keys}
-        metadata = {k: v for k, v in sample.items() if k not in data_keys}
+        data_dict: dict[str, np.ndarray] = {k: sample[k] for k in data_keys}
+        metadata: dict[str, Any] = {k: v for k, v in sample.items() if k not in data_keys}
 
         self._ensure_preprocessor(data_dict)
         if not self._preprocessor:
             return sample
 
         # Stash markers before preprocessing (may be lost during downsample accumulation)
-        markers = metadata.pop("markers", None)
+        markers: np.ndarray | None = metadata.pop("markers", None)
         if markers is not None and np.any(markers > 0):
             self._stashed_marker = markers
 
@@ -464,7 +465,7 @@ class SamplePreprocessor:
                     processed[mod] = processed[mod][indices, :]
 
         # Reattach stashed markers
-        result = {**metadata, **processed}
+        result: Sample = {**metadata, **processed}
         if self._stashed_marker is not None:
             result["markers"] = self._stashed_marker
             self._stashed_marker = None

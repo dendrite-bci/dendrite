@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, type Ref } from 'vue'
 import type { Study, StudyDetail, Recording, Decoder, DecoderMetadata, H5FileInfo, ChannelInfo, SignalPreview, ERPPreview, EventSummary, SessionSummary, RecordingTelemetry, ModePerformance } from '../types/api'
+import { apiFetch, apiFetchOrNull } from '../utils/api'
 
 export const useDataStore = defineStore('data', () => {
   // --- State ---
@@ -45,44 +46,42 @@ export const useDataStore = defineStore('data', () => {
   // --- Studies ---
 
   async function fetchStudies() {
-    const res = await fetch('/api/data/studies')
-    if (res.ok) studies.value = await res.json()
+    const data = await apiFetchOrNull<Study[]>('/api/data/studies')
+    if (data) studies.value = data
   }
 
   async function fetchStudyDetail(studyId: number) {
-    const res = await fetch(`/api/data/studies/${studyId}`)
-    if (res.ok) selectedStudyDetail.value = await res.json()
+    const data = await apiFetchOrNull<StudyDetail>(`/api/data/studies/${studyId}`)
+    if (data) selectedStudyDetail.value = data
   }
 
   async function createStudy(name: string, description?: string) {
-    const res = await fetch('/api/data/studies', {
+    const data = await apiFetch('/api/data/studies', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ study_name: name, description }),
+      json: { study_name: name, description },
+      fallbackMessage: 'Failed to create study',
     })
-    if (res.ok) {
-      await fetchStudies()
-      return await res.json()
-    }
-    return null
+    await fetchStudies()
+    return data
   }
 
   async function updateStudy(studyId: number, description?: string) {
-    const res = await fetch(`/api/data/studies/${studyId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description }),
-    })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/data/studies/${studyId}`, {
+        method: 'PUT',
+        json: { description },
+      })
       await fetchStudies()
       await fetchStudyDetail(studyId)
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   async function deleteStudy(studyId: number) {
-    const res = await fetch(`/api/data/studies/${studyId}`, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/data/studies/${studyId}`, { method: 'DELETE' })
       await fetchStudies()
       if (selectedStudyDetail.value?.study_id === studyId) {
         selectedStudyDetail.value = null
@@ -91,8 +90,10 @@ export const useDataStore = defineStore('data', () => {
         expandedStudyId.value = null
         recordings.value = []
       }
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   // --- Study expand (tree) ---
@@ -105,8 +106,8 @@ export const useDataStore = defineStore('data', () => {
       return
     }
     expandedStudyId.value = studyId
-    const res = await fetch(`/api/data/recordings?study_id=${studyId}`)
-    if (res.ok) recordings.value = await res.json()
+    const data = await apiFetchOrNull<Recording[]>(`/api/data/recordings?study_id=${studyId}`)
+    if (data) recordings.value = data
     fetchDecoders(studyId)
   }
 
@@ -138,8 +139,7 @@ export const useDataStore = defineStore('data', () => {
     selectedStudyDetail.value = null
     selectedDecoder.value = null
     decoderMetadata.value = null
-    const res = await fetch(`/api/data/recordings/${recordingId}`)
-    if (res.ok) selectedRecording.value = await res.json()
+    selectedRecording.value = await apiFetchOrNull<Recording>(`/api/data/recordings/${recordingId}`)
     resetRecordingDetail()
     if (selectedRecording.value) {
       const id = selectedRecording.value.recording_id
@@ -151,29 +151,27 @@ export const useDataStore = defineStore('data', () => {
   }
 
   async function deleteRecording(recordingId: number) {
-    const res = await fetch(`/api/data/recordings/${recordingId}`, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/data/recordings/${recordingId}`, { method: 'DELETE' })
       if (selectedRecording.value?.recording_id === recordingId) {
         selectedRecording.value = null
         resetRecordingDetail()
       }
-      // Refresh recordings for expanded study
       if (expandedStudyId.value) {
-        const r = await fetch(`/api/data/recordings?study_id=${expandedStudyId.value}`)
-        if (r.ok) recordings.value = await r.json()
+        const data = await apiFetchOrNull<Recording[]>(`/api/data/recordings?study_id=${expandedStudyId.value}`)
+        if (data) recordings.value = data
       }
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   async function _fetchDetail(url: string, target: Ref<any>) {
     loading.value = true
-    try {
-      const res = await fetch(url)
-      if (res.ok) target.value = await res.json()
-    } finally {
-      loading.value = false
-    }
+    const data = await apiFetchOrNull(url)
+    if (data !== null) target.value = data
+    loading.value = false
   }
 
   const fetchRecordingFileInfo = (id: number) => _fetchDetail(`/api/data/recordings/${id}/file-info`, recordingFileInfo)
@@ -188,19 +186,16 @@ export const useDataStore = defineStore('data', () => {
     epoch_tmin?: number, epoch_tmax?: number, lowcut?: number, highcut?: number, apply_rereferencing?: boolean
   }) {
     loading.value = true
-    try {
-      const q = new URLSearchParams()
-      if (params?.epoch_tmin != null) q.set('epoch_tmin', String(params.epoch_tmin))
-      if (params?.epoch_tmax != null) q.set('epoch_tmax', String(params.epoch_tmax))
-      if (params?.lowcut != null) q.set('lowcut', String(params.lowcut))
-      if (params?.highcut != null) q.set('highcut', String(params.highcut))
-      if (params?.apply_rereferencing != null) q.set('apply_rereferencing', String(params.apply_rereferencing))
-      const qs = q.toString() ? `?${q}` : ''
-      const res = await fetch(`/api/data/recordings/${recordingId}/erp${qs}`)
-      if (res.ok) erpPreview.value = await res.json()
-    } finally {
-      loading.value = false
-    }
+    const q = new URLSearchParams()
+    if (params?.epoch_tmin != null) q.set('epoch_tmin', String(params.epoch_tmin))
+    if (params?.epoch_tmax != null) q.set('epoch_tmax', String(params.epoch_tmax))
+    if (params?.lowcut != null) q.set('lowcut', String(params.lowcut))
+    if (params?.highcut != null) q.set('highcut', String(params.highcut))
+    if (params?.apply_rereferencing != null) q.set('apply_rereferencing', String(params.apply_rereferencing))
+    const qs = q.toString() ? `?${q}` : ''
+    const data = await apiFetchOrNull<ERPPreview>(`/api/data/recordings/${recordingId}/erp${qs}`)
+    if (data) erpPreview.value = data
+    loading.value = false
   }
 
   // --- Decoders ---
@@ -209,8 +204,8 @@ export const useDataStore = defineStore('data', () => {
     const params = new URLSearchParams()
     if (studyId) params.set('study_id', String(studyId))
     const qs = params.toString()
-    const res = await fetch(`/api/data/decoders${qs ? '?' + qs : ''}`)
-    if (res.ok) decoders.value = await res.json()
+    const data = await apiFetchOrNull<Decoder[]>(`/api/data/decoders${qs ? '?' + qs : ''}`)
+    if (data) decoders.value = data
   }
 
   async function selectDecoder(decoderId: number) {
@@ -218,24 +213,20 @@ export const useDataStore = defineStore('data', () => {
     selectedRecording.value = null
     decoderMetadata.value = null
     resetRecordingDetail()
-    const res = await fetch(`/api/data/decoders/${decoderId}`)
-    if (res.ok) {
-      selectedDecoder.value = await res.json()
-      // Load rich metadata from the decoder JSON file
-      const metaRes = await fetch(`/api/data/decoders/${decoderId}/metadata`)
-      if (metaRes.ok) decoderMetadata.value = await metaRes.json()
-      // Ensure recordings are loaded for provenance links
-      const sid = selectedDecoder.value?.study_id
-      if (sid) {
-        const recRes = await fetch(`/api/data/recordings?study_id=${sid}`)
-        if (recRes.ok) recordings.value = await recRes.json()
-      }
+    const decoder = await apiFetchOrNull<Decoder>(`/api/data/decoders/${decoderId}`)
+    if (!decoder) return
+    selectedDecoder.value = decoder
+    decoderMetadata.value = await apiFetchOrNull<DecoderMetadata>(`/api/data/decoders/${decoderId}/metadata`)
+    // Ensure recordings are loaded for provenance links
+    if (decoder.study_id) {
+      const recs = await apiFetchOrNull<Recording[]>(`/api/data/recordings?study_id=${decoder.study_id}`)
+      if (recs) recordings.value = recs
     }
   }
 
   async function deleteDecoder(decoderId: number) {
-    const res = await fetch(`/api/data/decoders/${decoderId}`, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/data/decoders/${decoderId}`, { method: 'DELETE' })
       if (selectedDecoder.value?.decoder_id === decoderId) {
         selectedDecoder.value = null
         decoderMetadata.value = null
@@ -244,8 +235,10 @@ export const useDataStore = defineStore('data', () => {
       if (selectedStudyDetail.value) {
         await fetchDecoders(selectedStudyDetail.value.study_id)
       }
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   // --- Helpers ---
@@ -259,25 +252,18 @@ export const useDataStore = defineStore('data', () => {
   }
 
   async function importStudyFolder(config: { folder_path: string; study_name: string; description?: string }) {
-    const res = await fetch('/api/data/studies/import-folder', {
+    const result = await apiFetch('/api/data/studies/import-folder', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
+      json: config,
+      fallbackMessage: 'Failed to import study folder',
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Import failed' }))
-      throw new Error(err.detail || 'Import failed')
-    }
-    const result = await res.json()
     await fetchStudies()
     return result
   }
 
   async function pickFolder(): Promise<string | null> {
-    const res = await fetch('/api/data/studies/pick-folder', { method: 'POST' })
-    if (!res.ok) return null
-    const { path } = await res.json()
-    return path ?? null
+    const data = await apiFetchOrNull<{ path?: string }>('/api/data/studies/pick-folder', { method: 'POST' })
+    return data?.path ?? null
   }
 
   return {

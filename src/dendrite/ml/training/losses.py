@@ -13,7 +13,10 @@ class FocalLoss(nn.Module):
     """
 
     def __init__(
-        self, gamma: float = 2.0, weight: torch.Tensor = None, label_smoothing: float = 0.0
+        self,
+        gamma: float = 2.0,
+        weight: torch.Tensor | None = None,
+        label_smoothing: float = 0.0,
     ):
         super().__init__()
         self.gamma = gamma

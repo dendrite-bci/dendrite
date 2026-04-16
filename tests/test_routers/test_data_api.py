@@ -1,6 +1,5 @@
 """Tests for data explorer REST endpoints."""
 
-from dendrite.web.deps import get_data_service
 
 
 # --- Studies ---

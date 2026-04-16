@@ -195,7 +195,11 @@ class RawData:
         import mne
 
         types = [self._MNE_TYPE_MAP.get(t, t) for t in self.channel_types]
-        info = mne.create_info(self.channel_names, self.sample_rate, ch_types=types)
+        info = mne.create_info(
+            self.channel_names,
+            self.sample_rate,
+            ch_types=types,  # type: ignore[arg-type]
+        )
         raw = mne.io.RawArray(self.data, info, verbose=False)
         if self.events:
             raw.set_annotations(mne.Annotations(

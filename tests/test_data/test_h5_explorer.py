@@ -51,7 +51,6 @@ def sample_h5(tmp_path):
 class TestH5IO:
     def test_save_and_load_roundtrip(self, sample_h5):
         """save_dataset then load_dataset preserves data."""
-        import h5py
 
         df_out = pd.DataFrame(
             {"A": [1.0, 2.0, 3.0], "B": [4.0, 5.0, 6.0]},

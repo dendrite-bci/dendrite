@@ -24,6 +24,8 @@ class TransformerEEG(ModelBase):
     _modalities = ["eeg"]
     _description = "Transformer-based architecture for EEG sequence modeling"
 
+    pos_enc: torch.Tensor  # registered buffer
+
     def __init__(
         self,
         n_channels,

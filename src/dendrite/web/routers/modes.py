@@ -55,7 +55,7 @@ async def add_mode(request: ModeInstanceRequest):
         if not service.add_instance(name, config):
             raise HTTPException(409, f"Instance '{name}' already exists")
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
 
     return {"name": name, "config": service.get_instance(name)}
 
@@ -82,7 +82,7 @@ async def update_mode(name: str, request: ModeInstanceRequest):
         if not service.update_instance(name, config):
             raise HTTPException(404, f"Instance '{name}' not found")
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
 
     return service.get_instance(name)
 

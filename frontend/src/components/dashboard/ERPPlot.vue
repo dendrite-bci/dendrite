@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
+import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { makeAxis, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import { useVisualizationStore } from '../../stores/visualization'
 import { useTelemetryStore } from '../../stores/telemetry'
 
@@ -13,9 +14,8 @@ const props = withDefaults(defineProps<{
 
 const viz = useVisualizationStore()
 const telemetry = useTelemetryStore()
-const container = ref<HTMLElement | null>(null)
-let plot: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
+const container = ref<HTMLDivElement | null>(null)
+const { create, setData, getPlot } = useUPlot(container)
 
 const EVENT_COLORS = ['#66B2FF', '#FF6B6B', '#4ECB71', '#E8B44C', '#B088F9', '#FF85B3']
 const CH_COLORS = [
@@ -121,8 +121,7 @@ function seriesColor(index: number): string {
 }
 
 function buildPlot() {
-  if (!container.value || !hasData.value) return
-  if (plot) { plot.destroy(); plot = null }
+  if (!hasData.value) return
 
   const result = props.detail && selectedEvent.value ? buildChannelData() : buildGrandAvgData()
   if (!result) return
@@ -139,9 +138,9 @@ function buildPlot() {
     })
   }
 
-  const opts: uPlot.Options = {
-    width: container.value.clientWidth,
-    height: container.value.clientHeight,
+  create(({ width, height }) => ({
+    width,
+    height,
     cursor: { show: props.detail },
     legend: LEGEND_HIDDEN,
     series: seriesOpts,
@@ -150,9 +149,7 @@ function buildPlot() {
       makeAxis({ size: 35 }),
     ],
     scales: { x: { time: false } },
-  }
-
-  plot = new uPlot(opts, seriesData as any, container.value)
+  }), seriesData as any)
   lastSeriesCount = seriesData.length
   rebuildNeeded = false
 }
@@ -160,12 +157,11 @@ function buildPlot() {
 let lastSeriesCount = 0
 
 function updatePlot() {
-  if (rebuildNeeded || !plot || !hasData.value) { buildPlot(); return }
+  if (rebuildNeeded || !getPlot() || !hasData.value) { buildPlot(); return }
   const result = props.detail && selectedEvent.value ? buildChannelData() : buildGrandAvgData()
   if (!result) return
-  // Rebuild if series count changed (new event class appeared)
   if (result.seriesData.length !== lastSeriesCount) { buildPlot(); return }
-  try { plot.setData(result.seriesData as any) } catch { buildPlot() }
+  try { setData(result.seriesData as any) } catch { buildPlot() }
 }
 
 // Reactive: store replaces modeERPs.value with a new Record on change
@@ -178,18 +174,6 @@ onMounted(() => {
     selectedEvent.value = selectedEvent.value || Object.keys(erpData.value)[0] || ''
     nextTick(buildPlot)
   }
-  if (container.value) {
-    resizeObserver = new ResizeObserver(() => {
-      if (plot && container.value) {
-        plot.setSize({ width: container.value.clientWidth, height: container.value.clientHeight })
-      }
-    })
-    resizeObserver.observe(container.value)
-  }
-})
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  plot?.destroy()
 })
 </script>
 

@@ -1,4 +1,4 @@
-"""Shared test fixtures for dendrite v2."""
+"""Shared test fixtures for dendrite."""
 
 import os
 from pathlib import Path

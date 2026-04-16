@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useMLStore, evalDirty } from '../../stores/ml'
 import { formatPercent } from '../../utils/format'
 import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import { predClassColor } from '../../utils/colors'
 import ConfusionMatrix from './ConfusionMatrix.vue'
 import MetricBadge from './MetricBadge.vue'
@@ -63,18 +64,10 @@ const classNames = computed(() => {
 
 // --- Timeline chart (rAF loop like AsyncPredictionPlot) ---
 const chartEl = ref<HTMLDivElement | null>(null)
-let chart: uPlot | null = null
-let resizeObs: ResizeObserver | null = null
+const { create, setData } = useUPlot(chartEl)
 let animFrame: number | null = null
-const CHART_H = 300
 
 function createChart() {
-  if (!chartEl.value) return
-  chart?.destroy()
-  resizeObs?.disconnect()
-
-  const width = chartEl.value.clientWidth || 400
-
   // Draw plugin reads CURRENT data at draw time (works for both live + final)
   const drawPlugin: uPlot.Plugin = {
     hooks: {
@@ -189,8 +182,8 @@ function createChart() {
     },
   }
 
-  chart = new uPlot({
-    width, height: CHART_H,
+  create(({ width }) => ({
+    width, height: 300,
     cursor: { ...CURSOR_INTERACTIVE, drag: { x: true, y: false } },
     legend: LEGEND_HIDDEN,
     scales: { x: { time: false }, y: { range: [0, 1.05] } },
@@ -203,19 +196,13 @@ function createChart() {
       { label: 'Confidence', stroke: '#818cf8', width: 2, fill: 'rgba(129, 140, 248, 0.15)', points: { show: false } },
     ],
     plugins: [drawPlugin],
-  }, [[0], [0]], chartEl.value)
-
-  resizeObs = new ResizeObserver(() => {
-    if (chartEl.value && chart) chart.setSize({ width: chartEl.value.clientWidth, height: CHART_H })
-  })
-  resizeObs.observe(chartEl.value)
+  }), [[0], [0]])
 }
 
 function updateChartData() {
-  if (!chart) return
   const tl = getTimeline()
   if (tl.length === 0) return
-  chart.setData([tl.map(p => p.time_s), tl.map(p => p.confidence)])
+  setData([tl.map(p => p.time_s), tl.map(p => p.confidence)])
 }
 
 // rAF render loop — polls dirty flag (same pattern as AsyncPredictionPlot)
@@ -249,8 +236,6 @@ watch(() => ml.evalMetrics, (m) => {
 
 onUnmounted(() => {
   if (animFrame) cancelAnimationFrame(animFrame)
-  resizeObs?.disconnect()
-  chart?.destroy()
 })
 </script>
 

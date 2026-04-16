@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { apiFetch, apiFetchOrNull } from '../utils/api'
 
 interface ManagedStream {
   id: string
@@ -44,14 +45,13 @@ export const useStreamManagerStore = defineStore('streamManager', () => {
   let prevIds = new Set<string>()
 
   async function fetchStatus() {
-    const res = await fetch('/api/stream-manager/status')
-    if (!res.ok) return
-    const data = await res.json()
-    const active: ManagedStream[] = data.streams ?? []
+    const data = await apiFetchOrNull<{ streams?: Record<string, any>[] }>('/api/stream-manager/status')
+    if (!data) return
+    const active: ManagedStream[] = (data.streams ?? []) as ManagedStream[]
     const activeIds = new Set(active.map(s => s.id))
 
     // Hydrate configs from backend for streams we don't know about (e.g. after page refresh)
-    for (const raw of (data.streams ?? []) as Record<string, any>[]) {
+    for (const raw of data.streams ?? []) {
       if (raw.id && !streamConfigs.value[raw.id]) {
         const { id: _id, running: _r, progress: _p, ...cfg } = raw
         streamConfigs.value[raw.id] = cfg
@@ -76,12 +76,10 @@ export const useStreamManagerStore = defineStore('streamManager', () => {
   async function startStream(config: Record<string, any>, label?: string) {
     loading.value = true
     try {
-      const res = await fetch('/api/stream-manager/start', {
+      const data = await apiFetch('/api/stream-manager/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
+        json: config,
       })
-      const data = await res.json()
       if (data.id) {
         if (label) streamLabels.value[data.id] = label
         streamConfigs.value[data.id] = config
@@ -89,13 +87,16 @@ export const useStreamManagerStore = defineStore('streamManager', () => {
       await fetchStatus()
       startPolling()
       return data.id
+    } catch {
+      // toast surfaced by apiFetch
+      return null
     } finally {
       loading.value = false
     }
   }
 
   async function stopStream(id: string) {
-    await fetch(`/api/stream-manager/stop/${id}`, { method: 'POST' })
+    await apiFetchOrNull(`/api/stream-manager/stop/${id}`, { method: 'POST' })
     delete streamLabels.value[id]
     await fetchStatus()
   }
@@ -119,9 +120,7 @@ export const useStreamManagerStore = defineStore('streamManager', () => {
   async function fetchMoabb() {
     loading.value = true
     try {
-      const res = await fetch('/api/stream-manager/moabb')
-      if (!res.ok) { moabbDatasets.value = []; return }
-      const data = await res.json()
+      const data = await apiFetch('/api/stream-manager/moabb')
       moabbDatasets.value = data.datasets
     } catch {
       moabbDatasets.value = []
@@ -131,13 +130,14 @@ export const useStreamManagerStore = defineStore('streamManager', () => {
   }
 
   async function fetchFileInfo(path: string): Promise<FileInfo | null> {
-    const res = await fetch('/api/stream-manager/file-info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
-    })
-    if (!res.ok) return null
-    return await res.json()
+    try {
+      return await apiFetch<FileInfo>('/api/stream-manager/file-info', {
+        method: 'POST',
+        json: { path },
+      })
+    } catch {
+      return null
+    }
   }
 
   function startPolling() {

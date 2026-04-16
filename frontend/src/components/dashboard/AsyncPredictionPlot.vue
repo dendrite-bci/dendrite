@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { predClassColor } from '../../utils/colors'
 import { useVisualizationStore } from '../../stores/visualization'
+import { useUPlot } from '../../composables/useUPlot'
 import { makeAxis, LEGEND_HIDDEN } from '../../utils/chartDefaults'
 
 const props = defineProps<{
@@ -11,9 +12,8 @@ const props = defineProps<{
 }>()
 
 const viz = useVisualizationStore()
-const container = ref<HTMLElement>()
-let plot: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
+const container = ref<HTMLDivElement | null>(null)
+const { create, setData, getPlot } = useUPlot(container)
 
 const hasData = computed(() => {
   const h = viz.modePredictionHistory[props.modeName]
@@ -34,8 +34,6 @@ function classColor(className: string): string {
 }
 
 function createPlot() {
-  if (!container.value) return
-
   // Draw plugin: detection markers as vertical lines
   const drawPlugin: uPlot.Plugin = {
     hooks: {
@@ -69,9 +67,9 @@ function createPlot() {
     },
   }
 
-  plot = new uPlot({
-    width: container.value.clientWidth,
-    height: container.value.clientHeight,
+  create(({ width, height }) => ({
+    width,
+    height,
     cursor: { show: false },
     legend: LEGEND_HIDDEN,
     series: [
@@ -93,19 +91,20 @@ function createPlot() {
       y: { range: [0, 1.05] },
     },
     plugins: [drawPlugin],
-  }, [[0], [0]], container.value)
+  }), [[0], [0]])
 }
 
 function updatePlot() {
+  let plot = getPlot()
   if (!plot) {
     createPlot()
+    plot = getPlot()
     if (!plot) return
   }
   const hist = viz.modePredictionHistory[props.modeName]
   if (!hist || hist.length === 0) return
 
   const len = hist.length
-  // Update line color to match latest prediction class
   const latest = hist[len - 1]!
   const color = classColor(latest.eventName)
   plot.series[1]!.stroke = () => color
@@ -114,7 +113,7 @@ function updatePlot() {
   const xAxis = new Array(len)
   const conf = new Array(len)
   for (let i = 0; i < len; i++) { xAxis[i] = i + 1; conf[i] = hist[i]!.confidence }
-  plot.setData([xAxis, conf])
+  setData([xAxis, conf])
 }
 
 // Reactive: store replaces modePredictionHistory.value with a new Record on change
@@ -125,19 +124,6 @@ watch(() => viz.modePredictionHistory, () => {
 onMounted(() => {
   createPlot()
   if (hasData.value) updatePlot()
-  if (container.value) {
-    resizeObserver = new ResizeObserver(() => {
-      if (plot && container.value) {
-        plot.setSize({ width: container.value.clientWidth, height: container.value.clientHeight })
-      }
-    })
-    resizeObserver.observe(container.value)
-  }
-})
-
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  plot?.destroy()
 })
 </script>
 

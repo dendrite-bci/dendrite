@@ -113,13 +113,10 @@ async function spawnAsyncFromSync(name: string, instance: ModeInstance) {
     step_size_ms: 100,
   }
   const ok = await modes.addInstance('asynchronous', config, asyncName)
-  if (ok) {
-    toast.success(`Async mode "${asyncName}" created`)
-    const newInstance = modes.instances[asyncName]
-    if (newInstance) openModeDialog(asyncName, newInstance)
-  } else {
-    toast.error('Failed to create async mode')
-  }
+  if (!ok) return
+  toast.success(`Async mode "${asyncName}" created`)
+  const newInstance = modes.instances[asyncName]
+  if (newInstance) openModeDialog(asyncName, newInstance)
 }
 
 </script>

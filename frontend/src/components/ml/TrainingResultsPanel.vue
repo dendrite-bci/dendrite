@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useMLStore } from '../../stores/ml'
 import { useToast } from '../../composables/useToast'
+import { useUPlot } from '../../composables/useUPlot'
 import { formatPercent } from '../../utils/format'
 import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN } from '../../utils/chartDefaults'
 import ConfusionMatrix from './ConfusionMatrix.vue'
@@ -22,9 +23,8 @@ function applyBestParams() {
 
 const lossChartEl = ref<HTMLDivElement | null>(null)
 const accChartEl = ref<HTMLDivElement | null>(null)
-let lossChart: uPlot | null = null
-let accChart: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
+const { create: createLossChart, setData: setLossData } = useUPlot(lossChartEl)
+const { create: createAccChart, setData: setAccData } = useUPlot(accChartEl)
 
 const currentDecoder = computed(() =>
   ml.models.find(m => m.model_type === ml.selectedJob?.model_type)
@@ -246,21 +246,14 @@ const optunaBestParams = computed(() => {
   return optunaResult.value.best_params as Record<string, any>
 })
 
-// --- Optuna convergence chart ---
 const optunaChartEl = ref<HTMLDivElement | null>(null)
-let optunaChart: uPlot | null = null
-let optunaResizeObs: ResizeObserver | null = null
+const { create: createOptunaChart_, setData: setOptunaData, destroy: destroyOptunaChart } = useUPlot(optunaChartEl)
+const optunaChartActive = ref(false)
 
 function createOptunaChart() {
-  if (!optunaChartEl.value) return
-  optunaChart?.destroy()
-  optunaResizeObs?.disconnect()
-
-  const CHART_H = 180
-  const width = optunaChartEl.value.clientWidth || 400
-
-  optunaChart = new uPlot({
-    width, height: CHART_H,
+  optunaChartActive.value = true
+  createOptunaChart_(({ width }) => ({
+    width, height: 180,
     cursor: CURSOR_INTERACTIVE,
     legend: LEGEND_HIDDEN,
     scales: { x: { time: false }, y: { range: [0, 1.05] } },
@@ -273,33 +266,18 @@ function createOptunaChart() {
       { label: 'Best Acc', stroke: '#34d399', width: 2, fill: 'rgba(52, 211, 153, 0.15)',
         paths: uPlot.paths.stepped!({ align: 1 }) },
     ],
-  } as uPlot.Options, [[], []], optunaChartEl.value)
-
-  optunaResizeObs = new ResizeObserver(() => {
-    if (optunaChartEl.value && optunaChart)
-      optunaChart.setSize({ width: optunaChartEl.value.clientWidth, height: CHART_H })
-  })
-  optunaResizeObs.observe(optunaChartEl.value)
+  } as uPlot.Options), [[], []])
 }
 
 function updateOptunaChart() {
-  if (!optunaChart) return
   const c = optunaConvergence.value
-  if (c.x.length > 0) optunaChart.setData([c.x, c.y])
+  if (c.x.length > 0) setOptunaData([c.x, c.y])
 }
 
 function createCharts() {
-  if (!lossChartEl.value || !accChartEl.value) return
-
-  lossChart?.destroy()
-  accChart?.destroy()
-  resizeObserver?.disconnect()
-
-  const CHART_H = 250
-
-  const baseOpts: Partial<uPlot.Options> = {
-    width: lossChartEl.value.clientWidth,
-    height: CHART_H,
+  const baseOpts = (width: number): Partial<uPlot.Options> => ({
+    width,
+    height: 250,
     cursor: CURSOR_INTERACTIVE,
     legend: LEGEND_HIDDEN,
     scales: { x: { time: false } },
@@ -307,44 +285,33 @@ function createCharts() {
       makeAxis({ label: 'Epoch', size: 28 }),
       makeAxis({ size: 45 }),
     ],
-  }
+  })
 
   const areaFill = (color: string) => `${color}18`
 
-  lossChart = new uPlot({
-    ...baseOpts,
+  createLossChart(({ width }) => ({
+    ...baseOpts(width),
     series: [
       { label: 'Epoch' },
       { label: 'Train', stroke: '#818cf8', width: 2, fill: areaFill('#818cf8') },
       { label: 'Val', stroke: '#fbbf24', width: 2, dash: [5, 3], fill: areaFill('#fbbf24') },
     ],
-  } as uPlot.Options, [[], [], []], lossChartEl.value)
+  } as uPlot.Options), [[], [], []])
 
-  accChart = new uPlot({
-    ...baseOpts,
+  createAccChart(({ width }) => ({
+    ...baseOpts(width),
     series: [
       { label: 'Epoch' },
       { label: 'Train', stroke: '#34d399', width: 2, fill: areaFill('#34d399') },
       { label: 'Val', stroke: '#f87171', width: 2, dash: [5, 3], fill: areaFill('#f87171') },
     ],
-  } as uPlot.Options, [[], [], []], accChartEl.value)
-
-  resizeObserver = new ResizeObserver(() => {
-    if (lossChartEl.value && lossChart) {
-      lossChart.setSize({ width: lossChartEl.value.clientWidth, height: CHART_H })
-    }
-    if (accChartEl.value && accChart) {
-      accChart.setSize({ width: accChartEl.value.clientWidth, height: CHART_H })
-    }
-  })
-  resizeObserver.observe(lossChartEl.value)
+  } as uPlot.Options), [[], [], []])
 }
 
 function updateCharts() {
-  if (!lossChart || !accChart) return
   const h = epochHistory.value
-  lossChart.setData([h.epochs, h.trainLoss, h.valLoss])
-  accChart.setData([h.epochs, h.trainAcc, h.valAcc])
+  setLossData([h.epochs, h.trainLoss, h.valLoss])
+  setAccData([h.epochs, h.trainAcc, h.valAcc])
 }
 
 watch(progress, (p) => {
@@ -372,7 +339,7 @@ watch(progress, (p) => {
         elapsed: p.elapsed_seconds ?? 0,
       })
       nextTick(() => {
-        if (!optunaChart) createOptunaChart()
+        if (!optunaChartActive.value) createOptunaChart()
         updateOptunaChart()
       })
     }
@@ -383,8 +350,8 @@ watch(() => ml.selectedJob?.job_id, async () => {
   epochHistory.value = { epochs: [], trainLoss: [], valLoss: [], trainAcc: [], valAcc: [] }
   optunaTrials.value = []
   saved.value = false
-  optunaChart?.destroy()
-  optunaChart = null
+  destroyOptunaChart()
+  optunaChartActive.value = false
 
   // Restore epoch history from saved result_json for completed jobs
   if (ml.selectedJob?.status === 'completed' && parsedResult.value) {
@@ -425,13 +392,6 @@ async function handleSave() {
   if (res) saved.value = true
 }
 
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  optunaResizeObs?.disconnect()
-  lossChart?.destroy()
-  accChart?.destroy()
-  optunaChart?.destroy()
-})
 </script>
 
 <template>

@@ -4,19 +4,17 @@ Train decoders for real-time BCI using the ML Workbench.
 
 ## Data Sources
 
-The **Data** tab offers three sources:
-
-### MOABB Public Datasets
-
-Browse public BCI datasets from [MOABB](https://moabb.neurotechx.com). Select a dataset, choose a subject, and click to load. Data downloads automatically on first use.
-
-### Internal Datasets
-
-Import your own recordings via the Data Explorer (**Data** page → **Datasets** tab → **Import**). Supports `.fif`, `.h5`, and `.hdf5` files. After importing, datasets appear in the ML Workbench for loading.
+The ML Workbench's left data panel offers two sources, chosen via the **Recordings** / **MOABB** tabs at the top:
 
 ### Recordings
 
-Browse recordings in the **Recordings** tab. Select a recording and click **Load** to epoch with the configured preprocessing. Toggle event chips to select classes for training.
+Recordings owned by a study — either autosaved from a live Dendrite session or imported as existing `.h5` files. To import, open the Data Explorer (`/data`), select a study, and use **Import folder** to scan a directory: the importer walks the folder recursively and registers every `*.h5` file it finds. Only `.h5` is supported on this path — `.fif`, `.hdf5`, and other formats are not picked up.
+
+In the **Recordings** tab, filter by study, select one or more recordings, and click **Load Data**. With a single recording you get an eval-split slider; with multiple recordings, click a chip to flip any between *train* and *eval*.
+
+### MOABB Public Datasets
+
+Browse public BCI datasets from [MOABB](https://moabb.neurotechx.com). Pick a dataset, choose a subject, and click **Load Dataset** — data downloads on first use. Toggle **Use paradigm preprocessing** to apply the dataset's published bandpass and epoch window.
 
 ## Preprocessing
 

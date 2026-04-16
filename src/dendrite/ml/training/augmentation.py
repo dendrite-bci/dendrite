@@ -235,7 +235,9 @@ class CompositeAugmentation(BaseAugmentationStrategy):
 
         # Randomly select which strategies to apply
         applied_count = 0
-        for strategy in np.random.permutation(self.strategies):
+        shuffled_indices = np.random.permutation(len(self.strategies))
+        for idx in shuffled_indices:
+            strategy = self.strategies[idx]
             if applied_count >= self.max_strategies:
                 break
 

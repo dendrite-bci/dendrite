@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { Decoder, Study } from '../../types/api'
+import { apiFetchOrNull } from '../../utils/api'
 import { relativeTime } from '../../utils/format'
 
 const props = defineProps<{
@@ -21,21 +22,18 @@ const loading = ref(false)
 
 async function fetchDecoderList() {
   loading.value = true
-  try {
-    const params = new URLSearchParams()
-    if (filterStudyId.value) params.set('study_id', String(filterStudyId.value))
-    if (search.value) params.set('search', search.value)
-    const qs = params.toString()
-    const res = await fetch(`/api/data/decoders${qs ? '?' + qs : ''}`)
-    if (res.ok) decoders.value = await res.json()
-  } finally {
-    loading.value = false
-  }
+  const params = new URLSearchParams()
+  if (filterStudyId.value) params.set('study_id', String(filterStudyId.value))
+  if (search.value) params.set('search', search.value)
+  const qs = params.toString()
+  const data = await apiFetchOrNull<Decoder[]>(`/api/data/decoders${qs ? '?' + qs : ''}`)
+  if (data) decoders.value = data
+  loading.value = false
 }
 
 async function fetchStudyList() {
-  const res = await fetch('/api/data/studies')
-  if (res.ok) studies.value = await res.json()
+  const data = await apiFetchOrNull<Study[]>('/api/data/studies')
+  if (data) studies.value = data
 }
 
 const grouped = computed(() => {

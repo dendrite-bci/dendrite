@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { ModeInstance } from '../types/api'
+import { apiFetch, apiFetchOrNull, ApiError } from '../utils/api'
 import { usePipelineStore } from './pipeline'
 
 export const useModesStore = defineStore('modes', () => {
@@ -21,69 +22,71 @@ export const useModesStore = defineStore('modes', () => {
   })
 
   async function fetchAll() {
-    const res = await fetch('/api/modes')
-    if (!res.ok) return
-    const data = await res.json()
-    instances.value = data.instances
+    const data = await apiFetchOrNull<{ instances: Record<string, ModeInstance> }>('/api/modes')
+    if (data) instances.value = data.instances
   }
 
   async function addInstance(mode: string, config: Record<string, any> = {}, name?: string) {
-    const res = await fetch('/api/modes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, mode, config }),
-    })
-    if (res.ok) {
-      const saved = await res.json()
+    try {
+      const saved = await apiFetch('/api/modes', {
+        method: 'POST',
+        json: { name, mode, config },
+      })
       if (saved.instances) {
         instances.value = saved.instances
       } else {
         await fetchAll()
       }
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   async function updateInstance(name: string, mode: string, config: Record<string, any>): Promise<{ data?: any; error?: string }> {
-    const res = await fetch(`/api/modes/${encodeURIComponent(name)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, mode, config }),
-    })
-    if (res.ok) {
-      const saved = await res.json()
+    try {
+      const saved = await apiFetch(`/api/modes/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        json: { name, mode, config },
+        silent: true,
+      })
       instances.value[name] = { ...instances.value[name], ...saved, ...config }
       instances.value = { ...instances.value }
       return { data: saved }
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const msg = typeof e.detail === 'string' ? e.detail : `Save failed (${e.status})`
+        return { error: msg }
+      }
+      return { error: 'Save failed' }
     }
-    const err = await res.json().catch(() => ({}))
-    return { error: typeof err.detail === 'string' ? err.detail : `Save failed (${res.status})` }
   }
 
   async function removeInstance(name: string) {
-    const res = await fetch(`/api/modes/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-    })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/modes/${encodeURIComponent(name)}`, { method: 'DELETE' })
       const { [name]: _, ...rest } = instances.value
       instances.value = rest
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   async function renameInstance(oldName: string, newName: string) {
-    const res = await fetch(`/api/modes/${encodeURIComponent(oldName)}/rename`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_name: newName }),
-    })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/modes/${encodeURIComponent(oldName)}/rename`, {
+        method: 'POST',
+        json: { new_name: newName },
+      })
       const inst = instances.value[oldName]
-      if (!inst) return
+      if (!inst) return true
       const { [oldName]: _, ...rest } = instances.value
       instances.value = { ...rest, [newName]: { ...inst, name: newName } }
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   async function toggleInstance(name: string) {
@@ -105,26 +108,21 @@ export const useModesStore = defineStore('modes', () => {
     return addInstance(mode, config, cloneName)
   }
 
-  async function _extractError(res: Response, fallback: string): Promise<string> {
-    const data = await res.json()
-    return typeof data.detail === 'string' ? data.detail : fallback
-  }
-
   async function _modeAction(name: string, endpoint: string, errorMsg: string, ...targets: string[]) {
     modeActionLoading.value[name] = true
     pipeline.error = null
     try {
-      const res = await fetch(`/api/modes/${encodeURIComponent(name)}/${endpoint}`, { method: 'POST' })
-      if (!res.ok) {
-        pipeline.error = await _extractError(res, errorMsg)
-        modeActionLoading.value[name] = false
-        return false
-      }
+      await apiFetch(`/api/modes/${encodeURIComponent(name)}/${endpoint}`, {
+        method: 'POST',
+        silent: true,
+      })
       await pipeline.fetchStatus()
       _clearLoadingOnTransition(name, ...targets)
       return true
     } catch (e: any) {
-      pipeline.error = e.message
+      pipeline.error = e instanceof ApiError && typeof e.detail === 'string'
+        ? e.detail
+        : errorMsg
       modeActionLoading.value[name] = false
       return false
     }

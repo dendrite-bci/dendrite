@@ -62,7 +62,9 @@ class SynchronousMetrics:
     def calculate_overall_accuracy(self) -> float:
         if not self.predictions:
             return 0.0
-        correct = sum(1 for p, t in zip(self.predictions, self.true_labels) if p == t)
+        correct = sum(
+            1 for p, t in zip(self.predictions, self.true_labels, strict=True) if p == t
+        )
         return correct / len(self.predictions)
 
     def calculate_cohens_kappa(self) -> float:

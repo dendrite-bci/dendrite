@@ -15,9 +15,11 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, is_dataclass
+from multiprocessing.queues import Queue as MpQueue
+from multiprocessing.synchronize import Event as MpEvent
 from typing import Any
 
-from dendrite.ml.decoders import create_decoder, load_decoder
+from dendrite.ml.decoders import Decoder, create_decoder, load_decoder
 from dendrite.processing._types import Sample
 from dendrite.processing.modes._metrics import AsynchronousMetrics, SynchronousMetrics
 from dendrite.processing.modes.mode_utils import (
@@ -29,7 +31,7 @@ from dendrite.processing.modes.mode_utils import (
     generate_label_mapping,
 )
 from dendrite.utils.component_state import ComponentState, ComponentStateMachine
-from dendrite.utils.logger_central import setup_logger
+from dendrite.utils.logger_central import get_logger, setup_logger
 from dendrite.utils.modality import normalize_modality_dict
 from dendrite.utils.shared_state import SharedState
 from dendrite.utils.state_keys import mode_metric_key
@@ -56,14 +58,17 @@ class BaseMode(multiprocessing.Process, ABC):
     decoder management, metrics collection, and unified buffering.
     """
 
+    MODE_TYPE: str
+    epoch_length_samples: int
+
     def __init__(
         self,
-        output_queue: "FanOutQueue",
-        stop_event: "multiprocessing.Event",
+        output_queue: FanOutQueue,
+        stop_event: MpEvent,
         instance_config: dict[str, Any],
-        prediction_queue: "multiprocessing.Queue | None" = None,
-        shared_state: "SharedState | None" = None,
-        training_queue: "multiprocessing.Queue | None" = None,
+        prediction_queue: MpQueue[Any] | None = None,
+        shared_state: SharedState | None = None,
+        training_queue: MpQueue[Any] | None = None,
     ):
         """Initialize the base mode with core infrastructure."""
         super().__init__()
@@ -87,19 +92,21 @@ class BaseMode(multiprocessing.Process, ABC):
         rb_rate = self._rb_config.get("sample_rate") if self._rb_config else None
         self.sample_rate = float(rb_rate) if rb_rate else 500.0
 
-        self.logger = None
+        self.logger: logging.Logger = get_logger(f"{self.__class__.__name__}-{self.mode_name}")
 
         self.modalities = list(self.channel_selection.keys()) if self.channel_selection else []
 
-        self.metrics_manager = None
-        self._start_time = None
+        self.metrics_manager: AsynchronousMetrics | SynchronousMetrics | None = None
+        self._start_time: float | None = None
         self._is_running = False
-        self.buffer = None
+        self.buffer: Buffer | None = None
         self.last_lsl_timestamp = 0.0
 
-        self.decoder = None
+        self.decoder: Decoder | None = None
         self._gpu_last_emit_time = 0.0
-        self._state_machine: ComponentStateMachine | None = None
+        self._state_machine: ComponentStateMachine = ComponentStateMachine(
+            f"mode:{self.mode_name}", self.shared_state
+        )
 
         self._sample_preprocessor: SamplePreprocessor | None = None
         self.effective_sample_rate: float = self.sample_rate
@@ -133,9 +140,6 @@ class BaseMode(multiprocessing.Process, ABC):
         if self._rb_config:
             self._reader = SampleReader(self._rb_config, self.logger)
             self._reader.connect()
-        self._state_machine = ComponentStateMachine(
-            f"mode:{self.mode_name}", self.shared_state
-        )
         self._start_time = time.time()
         self._is_running = True
 
@@ -266,7 +270,9 @@ class BaseMode(multiprocessing.Process, ABC):
             queue: Target queue ('main', 'prediction', or 'both')
             data_timestamp: LSL timestamp for the data (auto-filled from last_lsl_timestamp if None)
         """
-        processed = asdict(payload) if is_dataclass(payload) else payload
+        processed: dict[str, Any] = (
+            asdict(payload) if is_dataclass(payload) and not isinstance(payload, type) else payload
+        )  # type: ignore[assignment]
 
         if data_timestamp is None:
             data_timestamp = self.last_lsl_timestamp or None
@@ -408,12 +414,13 @@ class BaseMode(multiprocessing.Process, ABC):
 
         self.logger.info(f"Loading {source} from {model_path}")
         try:
-            self.decoder = load_decoder(model_path)
+            decoder = load_decoder(model_path)
+            self.decoder = decoder
             self.logger.info(f"Successfully loaded {source}")
 
             # Inherit event mapping from decoder if mode has none
-            if not self.event_mapping and self.decoder.event_mapping:
-                self.event_mapping = self.decoder.event_mapping
+            if not self.event_mapping and decoder.event_mapping:
+                self.event_mapping = decoder.event_mapping
                 self._generate_label_mapping(self.event_mapping)
                 self.logger.info("Inherited event mapping from decoder")
 
@@ -424,7 +431,7 @@ class BaseMode(multiprocessing.Process, ABC):
 
     def _predict(self, X_input) -> tuple[int, float, float]:
         """Run prediction with timing. Returns (prediction, confidence, inference_ms)."""
-        if not self.is_decoder_ready:
+        if not self.is_decoder_ready or self.decoder is None:
             return 0, 0.5, 0.0
 
         X_array = X_input[next(iter(X_input))] if isinstance(X_input, dict) else X_input

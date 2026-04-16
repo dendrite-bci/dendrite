@@ -1,8 +1,7 @@
 """Tests for RawH5Loader event_id extraction."""
 
-import numpy as np
-import pytest
 import h5py
+import numpy as np
 
 from dendrite.data.loaders.raw_h5_loader import (
     RawH5Loader,
@@ -52,7 +51,7 @@ def _write_h5_with_events(
     data["timestamp"] = timestamps
 
     if include_markers:
-        for etype, ecode, ts in events:
+        for _etype, ecode, ts in events:
             sample_idx = int(ts * sample_rate)
             if 0 <= sample_idx < n_samples:
                 data["Markers"][sample_idx] = ecode

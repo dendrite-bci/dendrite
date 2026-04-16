@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { apiFetchOrNull } from '../utils/api'
 
 interface EventEntry { id: number; label: string }
 
@@ -7,14 +8,12 @@ export function useSessionEvents() {
   const mapping = ref<Record<number, string>>({})
 
   async function fetchEvents() {
-    try {
-      const res = await fetch('/api/pipeline/session-events')
-      if (res.ok) {
-        const data = await res.json()
-        events.value = data.events ?? []
-        mapping.value = data.event_mapping ?? {}
-      }
-    } catch { /* endpoint may not exist if pipeline isn't running */ }
+    const data = await apiFetchOrNull<{ events?: number[]; event_mapping?: Record<number, string> }>(
+      '/api/pipeline/session-events',
+    )
+    if (!data) return
+    events.value = data.events ?? []
+    mapping.value = data.event_mapping ?? {}
   }
 
   function buildEntries(): EventEntry[] {

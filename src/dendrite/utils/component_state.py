@@ -6,7 +6,7 @@ Each subprocess owns its own ComponentStateMachine instance and publishes
 state transitions to SharedState for the web layer to read.
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from dendrite.utils.state_keys import component_error_key, component_state_key
 
 
-class ComponentState(str, Enum):
+class ComponentState(StrEnum):
     """Lifecycle states for pipeline components."""
 
     IDLE = "idle"

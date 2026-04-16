@@ -1,15 +1,12 @@
 """Tests for visualization bridge serialization."""
 
 import numpy as np
-import pytest
 
+from dendrite.data.shared_buffers import SharedRingBuffer
 from dendrite.web.ws.visualization_bridge import (
     _read_with_sleep,
     _serialize_mode_data,
 )
-
-from dendrite.data.shared_buffers import OverrunError, SharedRingBuffer
-
 
 # --- _serialize_mode_data ---
 

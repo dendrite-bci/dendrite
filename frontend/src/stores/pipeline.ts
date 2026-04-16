@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { PipelineStatus, PreflightResult } from '../types/api'
+import { apiFetch, apiFetchOrNull } from '../utils/api'
 
 export const usePipelineStore = defineStore('pipeline', () => {
   const status = ref<PipelineStatus>({
@@ -26,8 +27,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
 
   async function fetchStatus() {
     try {
-      const res = await fetch('/api/pipeline/status')
-      status.value = await res.json()
+      status.value = await apiFetch('/api/pipeline/status', { silent: true })
     } catch (e: any) {
       error.value = e.message
     }
@@ -35,14 +35,9 @@ export const usePipelineStore = defineStore('pipeline', () => {
 
   async function fetchPreflight() {
     preflightLoading.value = true
-    try {
-      const res = await fetch('/api/pipeline/preflight')
-      preflight.value = await res.json()
-    } catch {
-      // Preflight is advisory — don't block on failure
-    } finally {
-      preflightLoading.value = false
-    }
+    // Preflight is advisory — don't block on failure
+    preflight.value = await apiFetchOrNull<PreflightResult>('/api/pipeline/preflight')
+    preflightLoading.value = false
   }
 
   async function start() {
@@ -58,15 +53,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     }
 
     try {
-      const res = await fetch('/api/pipeline/start', { method: 'POST' })
-      if (!res.ok) {
-        const data = await res.json()
-        const detail = data.detail
-        if (typeof detail === 'object' && detail.message) {
-          throw new Error(detail.message)
-        }
-        throw new Error(detail || 'Failed to start pipeline')
-      }
+      await apiFetch('/api/pipeline/start', { method: 'POST' })
       startPolling()
       await fetchStatus()
     } catch (e: any) {
@@ -80,7 +67,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     loading.value = true
     error.value = null
     try {
-      await fetch('/api/pipeline/stop', { method: 'POST' })
+      await apiFetch('/api/pipeline/stop', { method: 'POST' })
       stopPolling()
       await fetchStatus()
     } catch (e: any) {

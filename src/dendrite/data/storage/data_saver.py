@@ -270,8 +270,11 @@ class DataSaver(Process):
         """Create a timeseries dataset for the given modality."""
         try:
             if modality in h5f:
-                self.logger.info(f"Dataset {modality} already exists, reusing")
-                return h5f[modality]
+                existing = h5f[modality]
+                if isinstance(existing, h5py.Dataset):
+                    self.logger.info(f"Dataset {modality} already exists, reusing")
+                    return existing
+                return None
 
             metadata = self.stream_metadata.get(modality)
             if not metadata:
@@ -295,7 +298,7 @@ class DataSaver(Process):
                 chunks=(self.chunk_size,),
             )
 
-            dataset.attrs["field_names"] = list(structured_dtype.names)
+            dataset.attrs["field_names"] = list(structured_dtype.names or ())
             dataset.attrs["channel_labels"] = channel_labels
             dataset.attrs["sampling_frequency"] = metadata.get("sample_rate", 500.0)
             dataset.attrs["channel_format"] = metadata.get("channel_format", "float32")
@@ -329,7 +332,7 @@ class DataSaver(Process):
                 chunks=(self.event_chunk_size,),
             )
 
-            dataset.attrs["channel_labels"] = list(self.EVENT_DTYPE.names)
+            dataset.attrs["channel_labels"] = list(self.EVENT_DTYPE.names or ())
             dataset.attrs["description"] = "Event markers with timestamps and metadata"
 
             self.logger.info("Created Event dataset")
@@ -354,10 +357,10 @@ class DataSaver(Process):
             dataset = self.datasets[stream_type]
             structured_dtype = dataset.dtype
             ts_fields = {"timestamp", "local_timestamp", "receive_timestamp"}
-            field_names = [n for n in structured_dtype.names if n not in ts_fields]
+            field_names = [n for n in (structured_dtype.names or ()) if n not in ts_fields]
 
             n_samples = len(data)
-            chunk_array = np.zeros(n_samples, dtype=structured_dtype)
+            chunk_array: np.ndarray = np.zeros(n_samples, dtype=structured_dtype)
 
             for j, field_name in enumerate(field_names):
                 chunk_array[field_name] = data[:, j]

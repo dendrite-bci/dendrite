@@ -1,7 +1,6 @@
 """Tests for WebSocket handler _relay — disconnect detection and subscriber cleanup."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 

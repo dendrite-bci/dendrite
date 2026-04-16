@@ -6,7 +6,6 @@ import multiprocessing
 from collections import deque
 from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 from dendrite.data.acquisition import LATENCY_EVENT_TYPE, DataAcquisition, EventRecord

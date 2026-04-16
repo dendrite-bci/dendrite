@@ -1,6 +1,8 @@
 """Tests for shared metrics utility functions."""
 
-from dendrite.ml.decision_gate import DecisionGate, _dwell_decide as dwell_decide, _majority_vote as majority_vote
+from dendrite.ml.decision_gate import DecisionGate
+from dendrite.ml.decision_gate import _dwell_decide as dwell_decide
+from dendrite.ml.decision_gate import _majority_vote as majority_vote
 from dendrite.ml.metrics_utils import class_distribution, compute_trial_metrics
 
 

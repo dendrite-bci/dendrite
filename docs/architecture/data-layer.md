@@ -33,6 +33,8 @@ Channel types are user-defined labels classifying individual channels by modalit
 
 ### Markers Column
 
+The markers column gives modes a per-sample channel of event codes they can read inline with the signal data — synchronous modes use this to extract time-locked epochs without maintaining a parallel event queue and sample-to-event lookup.
+
 **Creation:** The orchestrator creates each ring buffer with `raw_channels + 1` columns. The last column is the markers column (initialized to zero), invisible to stream configs.
 
 **Event injection:** DAQ's `_events_reader()` broadcasts each `event_id` to per-stream deques. Each reader thread pops from its deque and writes the event code into the markers column, keeping markers synchronized across all ring buffers. **Event codes must be positive integers (> 0) for real-time detection.** The markers column uses `0.0` as the "no event" sentinel, so code 0 is indistinguishable from no event. Modes filter on `markers > 0`; visualization skips `marker == 0`. Events with code 0 or negative codes are still saved to HDF5 via the separate event queue (and available for offline analysis), but are invisible to real-time modes and visualization. The MOABB loader auto-shifts codes if any would be 0.
@@ -42,6 +44,8 @@ Channel types are user-defined labels classifying individual channels by modalit
 See **[Synchronous Mode](/guides/synchronous-mode)** for epoch triggering and **[Send Events](/guides/send-events)** for event broadcasting.
 
 ### Timestamp Types and Semantics
+
+Three clock domains are recorded because different consumers need different guarantees: LSL time for cross-stream and offline alignment, local clock for measuring transmission delay, wall clock for session bookkeeping tied to the OS.
 
 Multiple timestamps captured at different pipeline stages:
 

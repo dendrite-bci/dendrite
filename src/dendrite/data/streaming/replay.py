@@ -12,8 +12,8 @@ import logging
 import time
 from collections import Counter
 from multiprocessing import Process
-from pathlib import Path
 from multiprocessing.queues import Queue
+from pathlib import Path
 
 import numpy as np
 from pylsl import local_clock
@@ -151,6 +151,8 @@ class ReplayStreamer(Process):
     # ------------------------------------------------------------------
 
     def _replay_moabb(self):
+        if self.moabb_preset is None or self.moabb_subject is None:
+            raise ValueError("moabb_preset and moabb_subject are required for MOABB replay")
         info = get_moabb_dataset_info(self.moabb_preset)
         if not info:
             raise ValueError(f"Unknown MOABB dataset: {self.moabb_preset}")

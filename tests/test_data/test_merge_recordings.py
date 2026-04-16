@@ -6,7 +6,6 @@ import pytest
 from dendrite.data.loaders._training_data import merge_recordings
 from dendrite.data.loaders._types import EpochedData
 
-
 # ---- Helpers ---- #
 
 def _make_study_data(

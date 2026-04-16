@@ -23,9 +23,9 @@ class SeparableConv2d(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size,
+        kernel_size: int | tuple[int, int],
         stride: int = 1,
-        padding=0,
+        padding: int | str | tuple[int, int] = 0,
         bias: bool = True,
     ):
         super().__init__()

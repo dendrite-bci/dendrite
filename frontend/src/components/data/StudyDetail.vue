@@ -3,14 +3,12 @@ import { ref, computed, watch } from 'vue'
 import { useDataStore } from '../../stores/data'
 import { usePipelineStore } from '../../stores/pipeline'
 import { useConfigStore } from '../../stores/config'
-import { useToast } from '../../composables/useToast'
 import ConfirmDialog from '../common/ConfirmDialog.vue'
 import { formatDate, formatPercent } from '../../utils/format'
 
 const data = useDataStore()
 const pipeline = usePipelineStore()
 const config = useConfigStore()
-const toast = useToast()
 
 const isActiveStudy = computed(() =>
   pipeline.status.recording && config.general.study_name === data.selectedStudyDetail?.study_name
@@ -19,8 +17,7 @@ const isActiveStudy = computed(() =>
 const showDeleteConfirm = ref(false)
 async function confirmDelete() {
   if (!data.selectedStudyDetail) return
-  const ok = await data.deleteStudy(data.selectedStudyDetail.study_id)
-  if (!ok) toast.error('Failed to delete study')
+  await data.deleteStudy(data.selectedStudyDetail.study_id)
   showDeleteConfirm.value = false
 }
 

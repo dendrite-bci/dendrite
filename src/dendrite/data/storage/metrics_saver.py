@@ -301,7 +301,7 @@ class MetricsSaver(Process):
             safe_key = f"_{safe_key}"
         return safe_key
 
-    def _format_value_for_hdf5(self, value: Any) -> tuple[np.dtype, Any, tuple]:
+    def _format_value_for_hdf5(self, value: Any) -> tuple[Any, Any, tuple]:
         """Format value for HDF5 storage with shape information."""
         if isinstance(value, str):
             return h5py.string_dtype(encoding="utf-8"), value, ()
@@ -381,6 +381,10 @@ class MetricsSaver(Process):
         """Append value to existing metric dataset."""
         dataset = group[key]
         timestamp_dataset = group[f"{key}_timestamps"]
+        if not isinstance(dataset, h5py.Dataset) or not isinstance(
+            timestamp_dataset, h5py.Dataset
+        ):
+            return
 
         current_size = dataset.shape[0]
         new_size = current_size + 1

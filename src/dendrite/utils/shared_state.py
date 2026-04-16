@@ -38,8 +38,8 @@ class SharedState:
     """
 
     def __init__(self):
-        self._manager: SyncManager = Manager()
-        self._data: dict[str, Any] = self._manager.dict()
+        self._manager: SyncManager | None = Manager()
+        self._data: dict[str, Any] = self._manager.dict()  # type: ignore[assignment]
 
     def __getstate__(self) -> dict[str, Any]:
         """Prepare for pickling - only pickle the DictProxy, not the manager."""

@@ -78,7 +78,9 @@ def load_dataset(path: str, name: str) -> pd.DataFrame:
             raise KeyError(f"Dataset '{name}' not found. Available: {available}")
 
         dataset = h5f[name]
-        data = dataset[()]
+        if not isinstance(dataset, h5py.Dataset):
+            raise KeyError(f"'{name}' is not a Dataset")
+        data: np.ndarray = dataset[()]
 
         if data.dtype.names:  # Structured array (events)
             df = pd.DataFrame(data)
@@ -86,7 +88,7 @@ def load_dataset(path: str, name: str) -> pd.DataFrame:
             df.columns = df.columns.str.lower()  # Normalize event fields
         else:  # Regular array (EEG/EMG)
             labels = get_channel_labels(dataset, data.shape[1])
-            df = pd.DataFrame(data, columns=labels)
+            df = pd.DataFrame(data, columns=pd.Index(labels))
 
     logger.debug(f"Loaded {name}: {df.shape}")
     return df
@@ -157,6 +159,8 @@ def get_channel_info(path: str, dataset: str | None = None) -> dict[str, Any]:
             raise KeyError(f"No data dataset found (requested: {dataset!r})")
 
         ds = h5f[dataset]
+        if not isinstance(ds, h5py.Dataset):
+            raise KeyError(f"'{dataset}' is not a Dataset")
         n_channels = ds.shape[1] if len(ds.shape) > 1 else 1
         labels = get_channel_labels(ds, n_channels)
 
@@ -168,7 +172,7 @@ def get_channel_info(path: str, dataset: str | None = None) -> dict[str, Any]:
 
         # Sample rate if stored
         if "sample_rate" in ds.attrs:
-            info["sample_rate"] = float(ds.attrs["sample_rate"])
+            info["sample_rate"] = float(ds.attrs["sample_rate"])  # type: ignore[arg-type]
 
         return info
 
@@ -233,7 +237,7 @@ def load_events(
     # Parse JSON in extra_vars if present
     if "extra_vars" in df.columns:
         json_data = df["extra_vars"].apply(_parse_json)
-        extra_df = pd.json_normalize(json_data).add_prefix("extra_")
+        extra_df = pd.json_normalize(json_data.tolist()).add_prefix("extra_")
         df = pd.concat([df.drop(columns=["extra_vars"]), extra_df], axis=1)
 
     if save:
@@ -260,19 +264,25 @@ def get_channel_labels(dataset: "h5py.Dataset", n_channels: int) -> list[str]:
     if "channel_labels" not in dataset.attrs:
         return [f"ch_{i}" for i in range(n_channels)]
 
-    labels = dataset.attrs["channel_labels"]
+    raw = dataset.attrs["channel_labels"]
 
     # Handle various formats
-    if isinstance(labels, bytes):
-        labels = labels.decode("utf-8")
-    if isinstance(labels, str):
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    raw_iter: list
+    if isinstance(raw, str):
         try:
-            labels = ast.literal_eval(labels)
+            parsed = ast.literal_eval(raw)
+            raw_iter = list(parsed) if isinstance(parsed, (list, tuple)) else [parsed]
         except (ValueError, SyntaxError):
-            labels = [labels]
+            raw_iter = [raw]
+    elif isinstance(raw, (list, tuple, np.ndarray)):
+        raw_iter = list(raw)
+    else:
+        raw_iter = [raw]
 
     # Decode byte strings in list
-    labels = [str(_decode_value(label)) for label in labels]
+    labels: list[str] = [str(_decode_value(label)) for label in raw_iter]
 
     # Ensure correct length
     if len(labels) < n_channels:

@@ -49,9 +49,11 @@ class RawH5Loader:
                     + (f" for modality '{modality}'" if modality else "")
                 )
             ds = f[ds_name]
+            if not isinstance(ds, h5py.Dataset):
+                raise ValueError(f"'{ds_name}' is not a Dataset")
             if self._swmr:
                 ds.refresh()
-            ds_data = ds[()]
+            ds_data: np.ndarray = ds[()]
 
             if "channel_labels" in ds.attrs:
                 all_labels = _decode_labels(ds.attrs["channel_labels"])
@@ -65,8 +67,9 @@ class RawH5Loader:
 
             channel_data = []
             channel_names = []
+            ds_names = ds_data.dtype.names or ()
             for label in data_labels:
-                if label in ds_data.dtype.names:
+                if label in ds_names:
                     channel_data.append(ds_data[label].astype(np.float32))
                     channel_names.append(label)
 
@@ -80,7 +83,7 @@ class RawH5Loader:
                 all_types = [t.lower() for t in _decode_labels(raw_types)]
                 # Map label→type (all_labels includes timestamp etc., all_types aligns with it)
                 type_map = (
-                    dict(zip(all_labels, all_types))
+                    dict(zip(all_labels, all_types, strict=True))
                     if len(all_types) == len(all_labels)
                     else {}
                 )
@@ -114,7 +117,10 @@ def _extract_event_id_mapping(h5_file: h5py.File) -> dict[str, int] | None:
     event_ds_names = _find_event_datasets(h5_file)
     if not event_ds_names:
         return None
-    event_data = h5_file[event_ds_names[0]][()]
+    event_ds = h5_file[event_ds_names[0]]
+    if not isinstance(event_ds, h5py.Dataset):
+        return None
+    event_data: np.ndarray = event_ds[()]
     if not event_data.dtype.names:
         return None
     field_map = {n.lower(): n for n in event_data.dtype.names}
@@ -141,7 +147,10 @@ def _extract_h5_events(
     if not event_ds_names:
         return [], None
 
-    event_data = h5_file[event_ds_names[0]][()]
+    event_ds = h5_file[event_ds_names[0]]
+    if not isinstance(event_ds, h5py.Dataset):
+        return [], None
+    event_data: np.ndarray = event_ds[()]
     if not event_data.dtype.names:
         return [], None
 
@@ -157,8 +166,7 @@ def _extract_h5_events(
 
     if len(ds_data) == 0:
         return [], None
-    data_start = float(ds_data[ts_label][0])
-    event_timestamps = event_data[field_map["timestamp"]].astype(float)
+    event_timestamps: np.ndarray = event_data[field_map["timestamp"]].astype(float)
 
     raw_types = event_data[field_map["event_type"]]
     event_types = [

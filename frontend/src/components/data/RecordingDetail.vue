@@ -2,7 +2,6 @@
 import { ref, computed, watch } from 'vue'
 import { useDataStore } from '../../stores/data'
 import { usePipelineStore } from '../../stores/pipeline'
-import { useToast } from '../../composables/useToast'
 import ConfirmDialog from '../common/ConfirmDialog.vue'
 import H5FileViewer from './H5FileViewer.vue'
 import SignalPreviewPlot from './SignalPreviewPlot.vue'
@@ -17,7 +16,6 @@ import { getModalityColor } from '../../utils/colors'
 
 const data = useDataStore()
 const pipeline = usePipelineStore()
-const toast = useToast()
 
 const isActiveRecording = computed(() =>
   pipeline.status.recording &&
@@ -27,8 +25,7 @@ const isActiveRecording = computed(() =>
 const showDeleteConfirm = ref(false)
 async function confirmDelete() {
   if (!data.selectedRecording) return
-  const ok = await data.deleteRecording(data.selectedRecording.recording_id)
-  if (!ok) toast.error('Cannot delete — recording file is locked')
+  await data.deleteRecording(data.selectedRecording.recording_id)
   showDeleteConfirm.value = false
 }
 const activeSection = ref<'overview' | 'analysis'>('overview')

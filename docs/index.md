@@ -3,12 +3,16 @@ layout: page
 sidebar: false
 ---
 
+<script setup>
+import { withBase } from 'vitepress'
+</script>
+
 <div class="landing">
   <header class="hero">
     <h1 class="title">Dendrite</h1>
     <p class="subtitle">Open-source brain-computer interface application</p>
     <div class="actions">
-      <a class="btn" href="/quickstart">Get Started</a>
+      <a class="btn" :href="withBase('/quickstart')">Get Started</a>
     </div>
   </header>
   <section class="features">

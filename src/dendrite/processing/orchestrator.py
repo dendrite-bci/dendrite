@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import multiprocessing
+from multiprocessing.queues import Queue as MpQueue
+from multiprocessing.synchronize import Event as MpEvent
 from typing import Any
 
 from dendrite import __version__
@@ -50,16 +52,16 @@ class PipelineOrchestrator:
         self._metrics_saver_stop = multiprocessing.Event()
 
         # Queues (low-frequency only — mode outputs, events)
-        self._event_queue: multiprocessing.Queue | None = None
-        self._prediction_queue: multiprocessing.Queue | None = None
-        self._visualization_queue: multiprocessing.Queue | None = None
-        self._training_queue: multiprocessing.Queue | None = None
-        self._pid_queue: multiprocessing.Queue | None = None
-        self._shared_metrics_queue: multiprocessing.Queue | None = None
+        self._event_queue: MpQueue[Any] | None = None
+        self._prediction_queue: MpQueue[Any] | None = None
+        self._visualization_queue: MpQueue[Any] | None = None
+        self._training_queue: MpQueue[Any] | None = None
+        self._pid_queue: MpQueue[Any] | None = None
+        self._shared_metrics_queue: MpQueue[Any] | None = None
 
         # Mode tracking
         self._mode_processes: dict[str, multiprocessing.Process] = {}
-        self._mode_stops: dict[str, multiprocessing.Event] = {}
+        self._mode_stops: dict[str, MpEvent] = {}
         self._mode_output_queues: dict[str, FanOutQueue] = {}
 
         # Shared memory ring buffers (owned by orchestrator)
@@ -304,7 +306,9 @@ class PipelineOrchestrator:
                 self._data_saver_process.terminate()
                 self._data_saver_process.join(timeout=1)
                 # On Windows, terminate() is a hard kill — clear dirty HDF5 flags
-                self._clear_h5_flags(self._data_saver_process.filename)
+                filename = getattr(self._data_saver_process, "filename", None)
+                if filename:
+                    self._clear_h5_flags(filename)
 
         # Wait for DAQ
         if self._daq_process and self._daq_process.is_alive():
@@ -337,17 +341,22 @@ class PipelineOrchestrator:
         return states
 
     def get_mode_pids(self) -> dict[str, int]:
-        return {name: proc.pid for name, proc in self._mode_processes.items() if proc.is_alive()}
+        return {
+            name: proc.pid
+            for name, proc in self._mode_processes.items()
+            if proc.is_alive() and proc.pid is not None
+        }
 
     @property
     def core_pids(self) -> dict[str, int]:
         pids: dict[str, int] = {}
-        if self._daq_process and self._daq_process.is_alive():
-            pids["DAQ"] = self._daq_process.pid
-        if self._data_saver_process and self._data_saver_process.is_alive():
-            pids["DataSaver"] = self._data_saver_process.pid
-        if self._metrics_saver_process and self._metrics_saver_process.is_alive():
-            pids["MetricsSaver"] = self._metrics_saver_process.pid
+        for label, proc in (
+            ("DAQ", self._daq_process),
+            ("DataSaver", self._data_saver_process),
+            ("MetricsSaver", self._metrics_saver_process),
+        ):
+            if proc and proc.is_alive() and proc.pid is not None:
+                pids[label] = proc.pid
         return pids
 
     def is_mode_running(self, instance_name: str) -> bool:
@@ -375,23 +384,23 @@ class PipelineOrchestrator:
     # ------------------------------------------------------------------
 
     @property
-    def event_queue(self) -> multiprocessing.Queue | None:
+    def event_queue(self) -> MpQueue[Any] | None:
         return self._event_queue
 
     @property
-    def prediction_queue(self) -> multiprocessing.Queue | None:
+    def prediction_queue(self) -> MpQueue[Any] | None:
         return self._prediction_queue
 
     @property
-    def training_queue(self) -> multiprocessing.Queue | None:
+    def training_queue(self) -> MpQueue[Any] | None:
         return self._training_queue
 
     @property
-    def visualization_queue(self) -> multiprocessing.Queue | None:
+    def visualization_queue(self) -> MpQueue[Any] | None:
         return self._visualization_queue
 
     @property
-    def pid_queue(self) -> multiprocessing.Queue | None:
+    def pid_queue(self) -> MpQueue[Any] | None:
         return self._pid_queue
 
     @property

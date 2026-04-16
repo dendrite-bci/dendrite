@@ -8,7 +8,6 @@ from dendrite.ml import create_decoder
 from dendrite.ml.training.augmentation import apply_cutmix, apply_mixup
 from dendrite.ml.training.losses import FocalLoss
 
-
 # ---------------------------------------------------------------------------
 # Basic Training
 # ---------------------------------------------------------------------------

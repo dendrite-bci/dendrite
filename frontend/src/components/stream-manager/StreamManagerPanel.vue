@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useStreamManagerStore } from '../../stores/streamManager'
 import type { FileInfo } from '../../stores/streamManager'
 import { useToast } from '../../composables/useToast'
+import { apiFetch, apiFetchOrNull } from '../../utils/api'
 import NumberInput from '../common/NumberInput.vue'
 import StreamPreview from './StreamPreview.vue'
 import type { Recording, Study } from '../../types/api'
@@ -28,8 +29,7 @@ async function browseFile() {
   fileError.value = ''
   fileInfo.value = null
   try {
-    const res = await fetch('/api/stream-manager/pick-file', { method: 'POST' })
-    const data = await res.json()
+    const data = await apiFetch<{ path?: string }>('/api/stream-manager/pick-file', { method: 'POST' })
     if (!data.path) {
       fileLoading.value = false
       return
@@ -78,22 +78,18 @@ const selectedRecordingData = computed(() =>
 )
 
 async function fetchStudies() {
-  try {
-    const res = await fetch('/api/data/studies')
-    if (res.ok) studies.value = await res.json()
-  } catch { /* network error — non-critical */ }
+  const data = await apiFetchOrNull<Study[]>('/api/data/studies')
+  if (data) studies.value = data
 }
 
 async function fetchRecordings() {
   recordingsLoading.value = true
-  try {
-    const url = recordingsStudyId.value != null
-      ? `/api/data/recordings?study_id=${recordingsStudyId.value}`
-      : '/api/data/recordings'
-    const res = await fetch(url)
-    if (res.ok) recordings.value = await res.json()
-  } catch { /* network error — non-critical */ }
-  finally { recordingsLoading.value = false }
+  const url = recordingsStudyId.value != null
+    ? `/api/data/recordings?study_id=${recordingsStudyId.value}`
+    : '/api/data/recordings'
+  const data = await apiFetchOrNull<Recording[]>(url)
+  if (data) recordings.value = data
+  recordingsLoading.value = false
 }
 
 watch(recordingsStudyId, async () => {

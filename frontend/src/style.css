@@ -36,6 +36,36 @@
   --color-level-danger: #e87575;
 }
 
+/* Light theme overrides — applied when <html> has no .dark class */
+:root:not(.dark) {
+  --color-bg-main: #ffffff;
+  --color-bg-panel: #f8f9fb;
+  --color-bg-input: #f0f2f5;
+  --color-bg-elevated: #e4e7ec;
+  --color-bg-hover: #d8dce3;
+
+  --color-text-main: #111318;
+  --color-text-label: #1e2028;
+  --color-text-disabled: #8890a0;
+  --color-text-muted: #4a5068;
+
+  --color-border: #c4c9d4;
+
+  --color-accent: #1a6dd2;
+  --color-accent-hover: #1558b0;
+
+  --color-status-ok: #1a7a38;
+  --color-status-warn: #a07800;
+  --color-status-error: #c42030;
+
+  --color-data-train: #18844a;
+  --color-data-eval: #2670c0;
+
+  --color-level-ok: #108868;
+  --color-level-warn: #a07800;
+  --color-level-danger: #c44040;
+}
+
 html, body, #app {
   margin: 0;
   padding: 0;
@@ -52,13 +82,13 @@ html, body, #app {
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: #333 transparent;
+  scrollbar-color: var(--color-bg-elevated) transparent;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #383838; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #484848; }
+::-webkit-scrollbar-thumb { background: var(--color-bg-elevated); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-bg-hover); }
 
 /* Form element base styles */
 @layer base {
@@ -149,5 +179,5 @@ html, body, #app {
 .u-legend { font: 10px 'Inter', sans-serif; padding: 1px 4px; }
 .u-legend th, .u-legend td { padding: 0px 3px; }
 .u-legend .u-marker { width: 8px; height: 2px; border-radius: 1px; display: inline-block; }
-.u-legend .u-series > th { color: #b3b3b3; font-weight: 400; }
-.u-legend .u-series td { color: #808080; font-size: 9px; }
+.u-legend .u-series > th { color: var(--color-text-muted); font-weight: 400; }
+.u-legend .u-series td { color: var(--color-text-disabled); font-size: 9px; }

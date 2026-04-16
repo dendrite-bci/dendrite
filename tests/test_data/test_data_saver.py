@@ -11,7 +11,6 @@ import pytest
 from dendrite.data.acquisition import EventRecord
 from dendrite.data.storage.data_saver import DataSaver
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

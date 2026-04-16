@@ -8,13 +8,11 @@ configures them minimally, and feeds samples through _process_data().
 import logging
 import multiprocessing
 import queue
-
-import numpy as np
-import pytest
 from unittest.mock import MagicMock
 
-from dendrite.processing.modes.mode_utils import Buffer, FanOutQueue, extract_event_code
+import numpy as np
 
+from dendrite.processing.modes.mode_utils import Buffer, FanOutQueue, extract_event_code
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -394,7 +392,6 @@ class TestIAFDetection:
 
     def test_iaf_integration(self):
         """Full integration: trigger event → collect baseline → verify IAF."""
-        from dendrite.processing.modes.neurofeedback_mode import NeurofeedbackMode
 
         iaf_event_id = 99
         baseline_sec = 0.5  # short for test

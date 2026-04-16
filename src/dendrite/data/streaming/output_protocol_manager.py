@@ -8,6 +8,8 @@ import copy
 import multiprocessing
 import queue
 import threading
+from multiprocessing.queues import Queue as MpQueue
+from multiprocessing.synchronize import Event as MpEvent
 from typing import Any
 
 from dendrite.data.stream_schemas import StreamConfig
@@ -33,8 +35,8 @@ class OutputProtocolManager:
 
     def __init__(
         self,
-        stop_event: multiprocessing.Event,
-        prediction_queue: multiprocessing.Queue,
+        stop_event: MpEvent,
+        prediction_queue: MpQueue[Any],
         shared_state: Any,
     ):
         self.stop_event = stop_event
@@ -43,7 +45,7 @@ class OutputProtocolManager:
 
         self.streamer_stop_event = multiprocessing.Event()
         self.output_streamers: dict[str, Any] = {}
-        self.protocol_queues: dict[str, multiprocessing.Queue] = {}
+        self.protocol_queues: dict[str, MpQueue[Any]] = {}
         self.prediction_fanout_thread: threading.Thread | None = None
 
         self.logger = get_logger("OutputProtocolManager")

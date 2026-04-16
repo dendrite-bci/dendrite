@@ -5,6 +5,7 @@ import 'uplot/dist/uPlot.min.css'
 import { makeAxis, CURSOR_HIDDEN, LEGEND_HIDDEN } from '../../utils/chartDefaults'
 import NumberInput from '../common/NumberInput.vue'
 import type { QCPreview, QCChannelQuality } from '../../types/api'
+import { apiFetch } from '../../utils/api'
 
 const props = defineProps<{
   recordingId: number
@@ -83,13 +84,11 @@ async function fetchQC() {
       bad_channel_mode: badChannelMode.value,
       channels: indices.join(','),
     })
-    const res = await fetch(`/api/data/recordings/${props.recordingId}/qc-preview?${params}`)
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || res.statusText)
-    }
     const prevCount = qcData.value?.raw.channels.length ?? 0
-    qcData.value = await res.json()
+    qcData.value = await apiFetch<QCPreview>(
+      `/api/data/recordings/${props.recordingId}/qc-preview?${params}`,
+      { fallbackMessage: 'Failed to load QC preview' },
+    )
     await nextTick()
     const newCount = qcData.value?.raw.channels.length ?? 0
     if (newCount === prevCount && rawPlots.length === newCount) {

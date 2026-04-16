@@ -8,6 +8,7 @@ import { useConfigStore } from '../../stores/config'
 import { useDecoderPicker } from '../../composables/useDecoderPicker'
 import { useSessionEvents } from '../../composables/useSessionEvents'
 import type { ModeInstance } from '../../types/api'
+import { apiFetchOrNull } from '../../utils/api'
 import { getModeColor } from '../../utils/colors'
 import DecoderPickerDialog from './DecoderPickerDialog.vue'
 import NumberInput from '../common/NumberInput.vue'
@@ -160,7 +161,7 @@ function toggleChannel(modality: string, index: number) {
   else arr.push(index)
 }
 function selectAll(modality: string) {
-  channelSelection.value[modality] = selectedChannels.value.map((_, i) => i)
+  channelSelection.value[modality] = selectedChannels.value.map(ch => ch.local_index)
 }
 function selectNone(modality: string) {
   channelSelection.value[modality] = []
@@ -254,14 +255,12 @@ const studyRecordings = ref<any[]>([])
 watch(useStudyHistory, async (on) => {
   if (on && studyRecordings.value.length === 0) {
     const cfg = useConfigStore()
-    const studiesRes = await fetch('/api/data/studies')
-    if (!studiesRes.ok) return
-    const studies = await studiesRes.json()
+    const studies = await apiFetchOrNull<any[]>('/api/data/studies')
+    if (!studies) return
     const study = studies.find((s: any) => s.study_name === cfg.general.study_name)
-    if (study) {
-      const res = await fetch(`/api/data/recordings?study_id=${study.study_id}`)
-      if (res.ok) studyRecordings.value = await res.json()
-    }
+    if (!study) return
+    const recs = await apiFetchOrNull<any[]>(`/api/data/recordings?study_id=${study.study_id}`)
+    if (recs) studyRecordings.value = recs
   }
 }, { immediate: true })
 
@@ -516,9 +515,9 @@ async function save() {
                   <div class="grid grid-cols-10 gap-1">
                     <button
                       v-for="(ch, i) in selectedChannels" :key="i"
-                      @click="toggleChannel(selectedModality, i)"
+                      @click="toggleChannel(selectedModality, ch.local_index)"
                       class="px-1.5 py-1 text-xs rounded border transition-colors text-center truncate"
-                      :class="isChannelSelected(selectedModality, i)
+                      :class="isChannelSelected(selectedModality, ch.local_index)
                         ? 'border-accent bg-accent/15 text-accent'
                         : 'border-border bg-bg-input text-text-muted hover:border-accent'"
                       :title="ch.label"
@@ -858,11 +857,11 @@ async function save() {
                 <div v-if="iafEnabled" class="flex items-center gap-3">
                   <label class="flex items-center gap-1.5">
                     <span class="text-[11px] text-text-muted">Event ID</span>
-                    <NumberInput v-model="iafEventId" :min="1" :step="1" class="w-16 font-mono" />
+                    <NumberInput v-model="iafEventId" :min="1" :step="1" class="w-20 font-mono" />
                   </label>
                   <label class="flex items-center gap-1.5">
                     <span class="text-[11px] text-text-muted">Baseline</span>
-                    <NumberInput v-model="iafBaselineSec" :min="1" :max="30" :step="0.5" class="w-16 font-mono" />
+                    <NumberInput v-model="iafBaselineSec" :min="1" :max="120" :step="1" class="w-20 font-mono" />
                     <span class="text-[11px] text-text-disabled">s</span>
                   </label>
                 </div>

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from dendrite.data.loaders import is_supported_format, load_file, FIFLoader, RawData
+from dendrite.data.loaders import FIFLoader, RawData, is_supported_format, load_file
 
 
 class TestFormatDetection:

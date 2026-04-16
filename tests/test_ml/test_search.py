@@ -5,9 +5,9 @@ import optuna
 import pytest
 
 from dendrite.ml.search.optuna_runner import (
-    split_params,
     prepare_holdout_split,
     run_single_trial,
+    split_params,
     suggest_decoder_kwargs,
 )
 from dendrite.ml.search.search_space import (

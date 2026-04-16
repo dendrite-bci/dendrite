@@ -11,8 +11,12 @@ export function useWebSocket(path: string, options: {
   const error = ref<string | null>(null)
 
   let ws: WebSocket | null = null
+  let reconnectAttempt = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let userClosed = false
 
-  const reconnectMs = options.reconnectInterval ?? 3000
+  const baseDelay = options.reconnectInterval ?? 3000
+  const maxDelay = 30_000
 
   function connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -26,6 +30,7 @@ export function useWebSocket(path: string, options: {
     ws.onopen = () => {
       connected.value = true
       error.value = null
+      reconnectAttempt = 0
     }
 
     ws.onmessage = (event: MessageEvent) => {
@@ -45,7 +50,10 @@ export function useWebSocket(path: string, options: {
     ws.onclose = () => {
       connected.value = false
       options.onClose?.()
-      setTimeout(connect, reconnectMs)
+      if (userClosed) return
+      const delay = Math.min(baseDelay * 2 ** reconnectAttempt, maxDelay)
+      reconnectAttempt++
+      reconnectTimer = setTimeout(connect, delay)
     }
 
     ws.onerror = () => {
@@ -54,7 +62,16 @@ export function useWebSocket(path: string, options: {
     }
   }
 
+  function disconnect() {
+    userClosed = true
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    ws?.close()
+  }
+
   connect()
 
-  return { connected, error }
+  return { connected, error, disconnect }
 }

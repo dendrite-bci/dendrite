@@ -4,10 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from dendrite.processing.preprocessing.preprocessing_schemas import (
-    PreprocessingConfig,
     ModalityPreprocessing,
+    PreprocessingConfig,
 )
-
 
 # --- ModalityPreprocessing (user-configurable, optional runtime context) ---
 

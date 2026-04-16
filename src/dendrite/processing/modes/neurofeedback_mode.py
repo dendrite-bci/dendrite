@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -6,7 +7,7 @@ import numpy as np
 from dendrite.ml.features.iaf import compute_iaf, shift_bands
 from dendrite.ml.features.transforms import BandPowerTransform
 from dendrite.processing.modes.base_mode import BaseMode
-from dendrite.processing.modes.mode_utils import extract_event_code
+from dendrite.processing.modes.mode_utils import Buffer, extract_event_code
 
 
 @dataclass
@@ -39,6 +40,8 @@ class NeurofeedbackMode(BaseMode):
     """
 
     MODE_TYPE = "neurofeedback"
+
+    buffer: Buffer | None
 
     def __init__(
         self,
@@ -93,7 +96,7 @@ class NeurofeedbackMode(BaseMode):
         self.window_step_samples = int(self.window_step_sec * self.sample_rate)
 
         # Transform will be initialized in _initialize_mode()
-        self.band_power_transform = None
+        self.band_power_transform: BandPowerTransform | None = None
 
         # Event handlers: map event_code → callback(sample)
         # Subclasses or init logic can register handlers here.
@@ -217,9 +220,10 @@ class NeurofeedbackMode(BaseMode):
                     continue
 
                 # Apply per-mode preprocessing (CAR, bandpass, downsample)
-                sample = self._preprocess_sample(sample)
-                if sample is None:
+                processed = self._preprocess_sample(sample)
+                if processed is None:
                     continue  # Accumulating for downsample
+                sample = processed
 
                 # Track LSL timestamp for payloads
                 self.last_lsl_timestamp = sample.get("lsl_timestamp", 0.0)
@@ -232,6 +236,8 @@ class NeurofeedbackMode(BaseMode):
                 if self.iaf_state == "collecting":
                     self._accumulate_iaf_sample(sample)
 
+                if self.buffer is None:
+                    continue
                 self.buffer.add_sample(sample)
 
                 if self.buffer.is_ready_for_step(self.window_step_samples):
@@ -245,6 +251,8 @@ class NeurofeedbackMode(BaseMode):
         # Compute internal latency BEFORE feature extraction
         self._compute_and_store_internal_latency()
 
+        if self.buffer is None:
+            return
         X_input = self.buffer.extract_window()
         if not X_input:
             return
@@ -264,6 +272,8 @@ class NeurofeedbackMode(BaseMode):
 
     def _calculate_band_powers(self, data: np.ndarray) -> dict[str, dict[str, float]]:
         """Calculate band power using BandPowerTransform with Welch's method."""
+        if self.band_power_transform is None:
+            return {}
         # Prepare data: (channels, times) → (batch=1, channels, times)
         # Channel selection is already applied by _preprocess_sample before buffering
         if data.ndim == 2:
@@ -319,7 +329,7 @@ class NeurofeedbackMode(BaseMode):
 
     # ---- IAF calibration ----
 
-    def _on_iaf_trigger(self, sample: dict) -> None:
+    def _on_iaf_trigger(self, sample: Mapping[str, Any]) -> None:
         """Event handler: begin collecting baseline data for IAF."""
         if self.iaf_state != "idle":
             return
@@ -332,7 +342,7 @@ class NeurofeedbackMode(BaseMode):
         self.iaf_state = "collecting"
         self.logger.info("IAF baseline collection started")
 
-    def _accumulate_iaf_sample(self, sample: dict) -> None:
+    def _accumulate_iaf_sample(self, sample: Mapping[str, Any]) -> None:
         """Add one sample to the IAF baseline accumulator."""
         data = sample.get(self.modality_name)
         if data is None or self.iaf_baseline_buf is None:
@@ -344,6 +354,8 @@ class NeurofeedbackMode(BaseMode):
 
     def _finalize_iaf(self) -> None:
         """Compute IAF, shift bands, rebuild transform."""
+        if self.iaf_baseline_buf is None:
+            return
         iaf = compute_iaf(
             self.iaf_baseline_buf, self.effective_sample_rate, self.iaf_range
         )

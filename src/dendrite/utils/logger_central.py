@@ -65,11 +65,14 @@ def configure_file_logging(
 
     if file_identifier is None:
         file_identifier = f"app_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    if log_dir is None:
-        log_dir = DATA_DIR / "studies" / _current_study_name / "logs"
+    log_dir_path: Path = (
+        Path(log_dir)
+        if log_dir is not None
+        else DATA_DIR / "studies" / _current_study_name / "logs"
+    )
 
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
-    log_file = f"{log_dir}/{file_identifier}.log"
+    log_dir_path.mkdir(parents=True, exist_ok=True)
+    log_file = f"{log_dir_path}/{file_identifier}.log"
 
     try:
         logging.basicConfig(

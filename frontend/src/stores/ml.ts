@@ -9,6 +9,8 @@ import type {
   Recording,
 } from '../types/api'
 import { useToast } from '../composables/useToast'
+import { useWebSocket } from '../composables/useWebSocket'
+import { apiFetch, apiFetchOrNull } from '../utils/api'
 
 /** Non-reactive dirty flag for high-frequency eval timeline updates (same pattern as vizDirty) */
 export const evalDirty = { timelineChanged: false }
@@ -83,7 +85,6 @@ export const useMLStore = defineStore('ml', () => {
   const trainingProgress = ref<Record<number, TrainingProgress>>({})
   const modelSchema = ref<Record<string, any> | null>(null)
   const searchCategories = ref<Record<string, { label: string; params: string[] }>>({})
-  const searchTotalParams = ref(0)
 
   const trainingConfig = ref({
     model_type: 'EEGNet',
@@ -145,7 +146,7 @@ export const useMLStore = defineStore('ml', () => {
 
   // WebSocket
   const toast = useToast()
-  let ws: WebSocket | null = null
+  let wsHandle: { disconnect: () => void } | null = null
 
   // ============================================================
   // Data Tab Actions
@@ -154,12 +155,10 @@ export const useMLStore = defineStore('ml', () => {
   async function discoverMoabb() {
     moabbLoading.value = true
     try {
-      const res = await fetch('/api/ml/moabb/datasets')
-      if (res.ok) moabbDatasets.value = await res.json()
-      else toast.error('Failed to discover MOABB datasets')
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally {
+      moabbDatasets.value = await apiFetch('/api/ml/moabb/datasets', {
+        fallbackMessage: 'Failed to discover MOABB datasets',
+      })
+    } catch { /* toast surfaced by apiFetch */ } finally {
       moabbLoading.value = false
     }
   }
@@ -182,10 +181,10 @@ export const useMLStore = defineStore('ml', () => {
   async function loadMoabbDataset(code: string) {
     dataLoading.value = true
     try {
-      const res = await fetch('/api/ml/moabb/load', {
+      const data = await apiFetch('/api/ml/moabb/load', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        fallbackMessage: 'Failed to load dataset',
+        json: {
           dataset_code: code,
           subject: dataPreproc.value.subject,
           paradigm: selectedMoabbDataset.value?.paradigm ?? 'MotorImagery',
@@ -194,21 +193,13 @@ export const useMLStore = defineStore('ml', () => {
           apply_rereferencing: dataPreproc.value.apply_rereferencing,
           eval_split: dataPreproc.value.eval_split,
           use_paradigm_epochs: dataPreproc.value.use_paradigm_epochs,
-        }),
+        },
       })
-      if (res.ok) {
-        const data = await res.json()
-        evalData.value = data.eval ?? null
-        delete data.eval
-        loadedData.value = data
-        _onDataLoaded()
-      } else {
-        const err = await res.json()
-        toast.error(err.detail || 'Failed to load dataset')
-      }
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally {
+      evalData.value = data.eval ?? null
+      delete data.eval
+      loadedData.value = data
+      _onDataLoaded()
+    } catch { /* toast surfaced by apiFetch */ } finally {
       dataLoading.value = false
       dataLoadingStep.value = null
     }
@@ -224,15 +215,11 @@ export const useMLStore = defineStore('ml', () => {
   }
 
   async function fetchRecordings(studyId?: number) {
-    try {
-      const params = new URLSearchParams()
-      if (studyId != null) params.set('study_id', String(studyId))
-      const qs = params.toString()
-      const res = await fetch(`/api/data/recordings${qs ? '?' + qs : ''}`)
-      if (res.ok) {
-        recordings.value = await res.json()
-      }
-    } catch { /* network error — silently degrade */ }
+    const params = new URLSearchParams()
+    if (studyId != null) params.set('study_id', String(studyId))
+    const qs = params.toString()
+    const data = await apiFetchOrNull<Recording[]>(`/api/data/recordings${qs ? '?' + qs : ''}`)
+    if (data) recordings.value = data
   }
 
   const _inflight = new Set<number>()
@@ -244,12 +231,10 @@ export const useMLStore = defineStore('ml', () => {
     for (const id of uncached) _inflight.add(id)
     const results = await Promise.allSettled(
       uncached.map(async (id) => {
-        const res = await fetch(`/api/data/recordings/${id}/event-summary`)
-        if (res.ok) {
-          const data = await res.json()
-          return { id, events: data.event_types as Record<string, number> }
-        }
-        return null
+        const data = await apiFetchOrNull<{ event_types: Record<string, number> }>(
+          `/api/data/recordings/${id}/event-summary`,
+        )
+        return data ? { id, events: data.event_types } : null
       })
     )
     let changed = false
@@ -296,29 +281,21 @@ export const useMLStore = defineStore('ml', () => {
     if (trainIds.length === 0) return
     dataLoading.value = true
     try {
-      const res = await fetch('/api/ml/load-recording', {
+      const data = await apiFetch('/api/ml/load-recording', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        fallbackMessage: 'Failed to load recordings',
+        json: {
           recording_ids: trainIds,
           eval_recording_ids: evalIds.length > 0 ? evalIds : undefined,
           eval_split: evalIds.length === 0 ? dataPreproc.value.eval_split : undefined,
           ..._preprocBody(),
-        }),
+        },
       })
-      if (res.ok) {
-        const data = await res.json()
-        evalData.value = data.eval ?? null
-        delete data.eval
-        loadedData.value = data
-        _onDataLoaded()
-      } else {
-        const err = await res.json()
-        toast.error(err.detail || 'Failed to load recordings')
-      }
-    } catch (e: any) {
-      toast.error(e.message)
-    } finally {
+      evalData.value = data.eval ?? null
+      delete data.eval
+      loadedData.value = data
+      _onDataLoaded()
+    } catch { /* toast surfaced by apiFetch */ } finally {
       dataLoading.value = false
       dataLoadingStep.value = null
     }
@@ -329,17 +306,12 @@ export const useMLStore = defineStore('ml', () => {
   // ============================================================
 
   async function fetchModels() {
-    const res = await fetch('/api/ml/models')
-    if (res.ok) models.value = await res.json()
+    const data = await apiFetchOrNull<ModelInfo[]>('/api/ml/models')
+    if (data) models.value = data
   }
 
   async function fetchModelSchema(modelType: string) {
-    const res = await fetch(`/api/ml/models/${encodeURIComponent(modelType)}/schema`)
-    if (res.ok) {
-      modelSchema.value = await res.json()
-    } else {
-      modelSchema.value = null
-    }
+    modelSchema.value = await apiFetchOrNull(`/api/ml/models/${encodeURIComponent(modelType)}/schema`)
   }
 
   function applySearchParams(params: Record<string, any>) {
@@ -356,19 +328,18 @@ export const useMLStore = defineStore('ml', () => {
   }
 
   async function fetchSearchCategories(decoderType: string) {
-    const res = await fetch(`/api/ml/search-categories/${encodeURIComponent(decoderType)}`)
-    if (res.ok) {
-      const data = await res.json()
-      searchCategories.value = data.categories ?? {}
-      searchTotalParams.value = data.total_params ?? 0
-      // Reset selected categories to only available ones
-      const available = Object.keys(searchCategories.value)
-      trainingConfig.value.search_categories = trainingConfig.value.search_categories.filter(
-        c => available.includes(c),
-      )
-      if (trainingConfig.value.search_categories.length === 0 && available.length > 0) {
-        trainingConfig.value.search_categories = [available[0]!]
-      }
+    const data = await apiFetchOrNull<{ categories?: Record<string, { label: string; params: string[] }>; total_params?: number }>(
+      `/api/ml/search-categories/${encodeURIComponent(decoderType)}`,
+    )
+    if (!data) return
+    searchCategories.value = data.categories ?? {}
+    // Reset selected categories to only available ones
+    const available = Object.keys(searchCategories.value)
+    trainingConfig.value.search_categories = trainingConfig.value.search_categories.filter(
+      c => available.includes(c),
+    )
+    if (trainingConfig.value.search_categories.length === 0 && available.length > 0) {
+      trainingConfig.value.search_categories = [available[0]!]
     }
   }
 
@@ -377,21 +348,18 @@ export const useMLStore = defineStore('ml', () => {
     if (studyId != null) params.set('study_id', String(studyId))
     if (jobType) params.set('job_type', jobType)
     const qs = params.toString()
-    const res = await fetch(`/api/ml/jobs${qs ? '?' + qs : ''}`)
-    if (res.ok) jobs.value = await res.json()
+    const data = await apiFetchOrNull<TrainingJob[]>(`/api/ml/jobs${qs ? '?' + qs : ''}`)
+    if (data) jobs.value = data
   }
 
   async function selectJob(job: TrainingJob) {
     selectedJob.value = job
     // Lazy-fetch full result_json (excluded from list query for efficiency)
     if (job.status === 'completed' && !job.result_json) {
-      const res = await fetch(`/api/ml/jobs/${job.job_id}`)
-      if (res.ok) {
-        const full = await res.json()
-        if (full.result_json) {
-          job = { ...job, result_json: full.result_json }
-          selectedJob.value = job
-        }
+      const full = await apiFetchOrNull<TrainingJob>(`/api/ml/jobs/${job.job_id}`)
+      if (full?.result_json) {
+        job = { ...job, result_json: full.result_json }
+        selectedJob.value = job
       }
     }
     // Restore eval results into evalMetrics so EvalResultsPanel displays them
@@ -408,7 +376,7 @@ export const useMLStore = defineStore('ml', () => {
   async function startTraining() {
     if (!selectedStudyId.value) {
       toast.error('Select a study before training')
-      return
+      return null
     }
     loading.value = true
     try {
@@ -418,10 +386,10 @@ export const useMLStore = defineStore('ml', () => {
       const selectedTypes = sel ? sel.map(i => types[i]?.toLowerCase() ?? 'eeg') : types.map(t => t?.toLowerCase() ?? 'eeg')
       const modality = selectedTypes[0] ?? 'eeg'
 
-      const res = await fetch('/api/ml/train', {
+      const data = await apiFetch('/api/ml/train', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        fallbackMessage: 'Training failed to start',
+        json: {
           ...trainingConfig.value,
           modality,
           study_id: selectedStudyId.value,
@@ -434,52 +402,51 @@ export const useMLStore = defineStore('ml', () => {
           epoch_tmax: dataPreproc.value.epoch_tmax,
           use_epoch_qc: dataPreproc.value.use_epoch_qc,
           include_background: dataPreproc.value.include_background,
-        }),
+        },
       })
-      if (res.ok) {
-        const data = await res.json()
-        await fetchJobs()
-        const newJob = jobs.value.find(j => j.job_id === data.job_id)
-        if (newJob) selectedJob.value = newJob
-        return data
-      } else {
-        const err = await res.json()
-        toast.error(err.detail || 'Training failed to start')
-      }
-    } catch (e: any) {
-      toast.error(e.message)
+      await fetchJobs()
+      const newJob = jobs.value.find(j => j.job_id === data.job_id)
+      if (newJob) selectedJob.value = newJob
+      return data
+    } catch {
+      return null
     } finally {
       loading.value = false
     }
-    return null
   }
 
   async function cancelTraining(jobId: number) {
-    const res = await fetch(`/api/ml/train/${jobId}/cancel`, { method: 'POST' })
-    if (res.ok) await fetchJobs()
-    return res.ok
+    try {
+      await apiFetch(`/api/ml/train/${jobId}/cancel`, { method: 'POST' })
+      await fetchJobs()
+      return true
+    } catch {
+      return false
+    }
   }
 
   async function saveDecoder(jobId: number, name: string, description?: string) {
-    const res = await fetch(`/api/ml/jobs/${jobId}/save-decoder`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decoder_name: name, description }),
-    })
-    if (res.ok) {
+    try {
+      const data = await apiFetch(`/api/ml/jobs/${jobId}/save-decoder`, {
+        method: 'POST',
+        json: { decoder_name: name, description },
+      })
       await fetchJobs()
-      return await res.json()
+      return data
+    } catch {
+      return null
     }
-    return null
   }
 
   async function deleteJob(jobId: number) {
-    const res = await fetch(`/api/ml/jobs/${jobId}`, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/ml/jobs/${jobId}`, { method: 'DELETE' })
       if (selectedJob.value?.job_id === jobId) selectedJob.value = null
       await fetchJobs()
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   // ============================================================
@@ -492,25 +459,17 @@ export const useMLStore = defineStore('ml', () => {
     evalJobId.value = null
     liveEval.value = { timeline: [], trials: [], step: 0, total: 0 }
     try {
-      const res = await fetch('/api/ml/evaluate', {
+      const data = await apiFetch('/api/ml/evaluate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        fallbackMessage: 'Evaluation failed to start',
+        json: {
           ...evalConfig.value,
           ...evalGate.value,
           channel_indices: dataPreproc.value.selected_channels,
-        }),
+        },
       })
-      if (!res.ok) {
-        const err = await res.json()
-        toast.error(err.detail || 'Evaluation failed to start')
-        evalRunning.value = false
-      } else {
-        const data = await res.json()
-        evalJobId.value = data.job_id ?? null
-      }
-    } catch (e: any) {
-      toast.error(e.message)
+      evalJobId.value = data.job_id ?? null
+    } catch {
       evalRunning.value = false
     }
   }
@@ -520,21 +479,17 @@ export const useMLStore = defineStore('ml', () => {
     const jobId = evalJobId.value ?? (evalMetrics.value as any)?._job_id
     if (!jobId) return
     try {
-      const res = await fetch(`/api/ml/jobs/${jobId}/reaggregate`, {
+      const data = await apiFetch<Record<string, any>>(`/api/ml/jobs/${jobId}/reaggregate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(evalGate.value),
+        json: evalGate.value,
       })
-      if (res.ok) {
-        const data = await res.json()
-        // Merge aggregated metrics (now includes updated event_markers, ttd, itr)
-        if (evalMetrics.value) {
-          evalMetrics.value = { ...evalMetrics.value, ...data }
-          evalDirty.timelineChanged = true
-        }
+      // Merge aggregated metrics (now includes updated event_markers, ttd, itr)
+      if (evalMetrics.value) {
+        evalMetrics.value = { ...evalMetrics.value, ...data }
+        evalDirty.timelineChanged = true
       }
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch {
+      // toast surfaced by apiFetch
     }
   }
 
@@ -542,24 +497,16 @@ export const useMLStore = defineStore('ml', () => {
     benchRunning.value = true
     benchResults.value = []
     try {
-      const res = await fetch('/api/ml/benchmark', {
+      const data = await apiFetch('/api/ml/benchmark', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        fallbackMessage: 'Benchmark failed to start',
+        json: {
           ...benchConfig.value,
           channel_indices: dataPreproc.value.selected_channels,
-        }),
+        },
       })
-      if (res.ok) {
-        const data = await res.json()
-        benchJobId.value = data.job_id ?? null
-      } else {
-        const err = await res.json()
-        toast.error(err.detail || 'Benchmark failed to start')
-        benchRunning.value = false
-      }
-    } catch (e: any) {
-      toast.error(e.message)
+      benchJobId.value = data.job_id ?? null
+    } catch {
       benchRunning.value = false
     }
   }
@@ -568,95 +515,94 @@ export const useMLStore = defineStore('ml', () => {
   // WebSocket
   // ============================================================
 
-  function connectWS() {
-    if (ws) return
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    ws = new WebSocket(`${protocol}//${host}/ws/training`)
+  function _applyJobProgress(msg: TrainingProgress) {
+    trainingProgress.value = { ...trainingProgress.value, [msg.job_id]: msg }
+    if (selectedJob.value?.job_id !== msg.job_id) return
+    selectedJob.value = { ...selectedJob.value, progress: msg }
+    if (msg.type === 'complete') {
+      selectedJob.value.status = 'completed'
+      if (msg.result) selectedJob.value.result_json = JSON.stringify(msg.result)
+    } else if (msg.type === 'failed') {
+      selectedJob.value.status = 'failed'
+      selectedJob.value.error_message = msg.error || null
+    }
+  }
 
-    ws.onmessage = (event) => {
-      const msg: TrainingProgress = JSON.parse(event.data)
-      trainingProgress.value = { ...trainingProgress.value, [msg.job_id]: msg }
+  function _applyTerminal(msg: TrainingProgress) {
+    fetchJobs()
+    const { [msg.job_id]: _, ...rest } = trainingProgress.value
+    trainingProgress.value = rest
+    if (msg.job_id === benchJobId.value) {
+      benchRunning.value = false
+      benchJobId.value = null
+      if (msg.type === 'complete') toast.success('Benchmark completed')
+      else if (msg.type === 'failed') toast.error(msg.error || 'Benchmark failed')
+    } else if (msg.job_id === evalJobId.value) {
+      evalRunning.value = false
+      evalJobId.value = null
+      liveEval.value = null
+      if (msg.type === 'failed') toast.error(msg.error || 'Evaluation failed')
+    } else if (msg.type === 'complete') {
+      toast.success('Training completed')
+    } else if (msg.type === 'failed') {
+      toast.error(msg.error || 'Training failed')
+    }
+  }
 
-      // Terminal states → refresh job list + toast
-      const isTerminal = msg.type === 'complete' || msg.type === 'failed' || msg.type === 'cancelled'
-      if (isTerminal) {
-        fetchJobs()
-        const { [msg.job_id]: _, ...rest } = trainingProgress.value
-        trainingProgress.value = rest
-      }
-      if (msg.type === 'complete') toast.success('Training completed')
-      else if (msg.type === 'failed') toast.error(msg.error || 'Training failed')
+  function _applyEvalStep(msg: TrainingProgress) {
+    if (!liveEval.value) return
+    const m = msg as any
+    liveEval.value.step = m.step ?? 0
+    liveEval.value.total = m.total ?? 0
+    if (m.trial) liveEval.value.trials.push(m.trial)
+    if (m.timeline?.length) liveEval.value.timeline.push(...m.timeline)
+    evalDirty.timelineChanged = true
+    liveEval.value = { ...liveEval.value }
+  }
 
-      // Update selected job progress
-      if (selectedJob.value?.job_id === msg.job_id) {
-        selectedJob.value = { ...selectedJob.value, progress: msg }
-        if (msg.type === 'complete') {
-          selectedJob.value.status = 'completed'
-          if (msg.result) {
-            selectedJob.value.result_json = JSON.stringify(msg.result)
-          }
-        } else if (msg.type === 'failed') {
-          selectedJob.value.status = 'failed'
-          selectedJob.value.error_message = msg.error || null
-        }
-      }
+  function _applyEvalMetrics(msg: TrainingProgress) {
+    const result = msg.result ?? null
+    if (result) result._job_id = msg.job_id
+    evalMetrics.value = result
+    evalRunning.value = false
+    evalJobId.value = null
+    liveEval.value = null
+    const { [msg.job_id]: _ep, ...rest } = trainingProgress.value
+    trainingProgress.value = rest
+    fetchJobs()
+    toast.success('Evaluation completed')
+  }
 
-      // Evaluation results
-      if (msg.type === 'eval_step') {
-        if (liveEval.value) {
-          const m = msg as any
-          liveEval.value.step = m.step ?? 0
-          liveEval.value.total = m.total ?? 0
-          if (m.trial) liveEval.value.trials.push(m.trial)
-          if (m.timeline?.length) liveEval.value.timeline.push(...m.timeline)
-          evalDirty.timelineChanged = true  // non-reactive dirty flag for rAF loop
-          liveEval.value = { ...liveEval.value }  // reactive trigger for v-if/computed
-        }
-      } else if (msg.type === 'eval_metrics') {
-        const result = (msg as any).result ?? null
-        if (result) result._job_id = msg.job_id
-        evalMetrics.value = result
-        evalRunning.value = false
-        liveEval.value = null
-        const { [msg.job_id]: _ep, ...restProgress } = trainingProgress.value
-        trainingProgress.value = restProgress
-        fetchJobs()
-        toast.success('Evaluation completed')
-      }
-      if (msg.type === 'failed' && msg.job_id === evalJobId.value) {
-        evalRunning.value = false
-        evalJobId.value = null
-        liveEval.value = null
-        toast.error(msg.error || 'Evaluation failed')
-      }
+  function handleTrainingMessage(msg: TrainingProgress) {
+    _applyJobProgress(msg)
 
-      // Benchmark progress
-      if (msg.type === 'bench_model_complete' && msg.result && msg.job_id === benchJobId.value) {
-        benchResults.value.push(msg.result)
-      }
-      if (isTerminal && msg.job_id === benchJobId.value) {
-        benchRunning.value = false
-        benchJobId.value = null
-        if (msg.type === 'complete') toast.success('Benchmark completed')
-        else if (msg.type === 'failed') toast.error(msg.error || 'Benchmark failed')
-      }
+    const isTerminal = msg.type === 'complete' || msg.type === 'failed' || msg.type === 'cancelled'
+    if (isTerminal) _applyTerminal(msg)
 
-      // Data loading step progress
-      if (msg.type === 'data_loading_step') {
-        dataLoadingStep.value = (msg as any).step ?? null
-      }
-
+    if (msg.type === 'eval_step') {
+      _applyEvalStep(msg)
+    } else if (msg.type === 'eval_metrics') {
+      _applyEvalMetrics(msg)
     }
 
-    ws.onclose = () => { ws = null }
+    if (msg.type === 'bench_model_complete' && msg.result && msg.job_id === benchJobId.value) {
+      benchResults.value.push(msg.result)
+    }
+
+    if (msg.type === 'data_loading_step') {
+      dataLoadingStep.value = (msg as any).step ?? null
+    }
+  }
+
+  function connectWS() {
+    if (wsHandle) return
+    const { disconnect } = useWebSocket('/ws/training', { onMessage: handleTrainingMessage })
+    wsHandle = { disconnect }
   }
 
   function disconnectWS() {
-    if (ws) {
-      ws.close()
-      ws = null
-    }
+    wsHandle?.disconnect()
+    wsHandle = null
   }
 
   return {

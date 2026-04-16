@@ -182,7 +182,7 @@ def validate_decoder_file(
     # Check compatibility with system configuration
     if expected_shapes:
         compatibility_issues = validated_config.check_compatibility(
-            system_shapes=expected_shapes,
+            system_shapes={k: list(v) for k, v in expected_shapes.items()},
             system_labels=expected_labels,
             system_sample_rate=expected_sample_rate,
         )

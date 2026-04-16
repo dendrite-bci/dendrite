@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, reactive, onMounted, nextTick, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import type { PlotSeries } from '../../utils/metrics'
 import { CHART_COLORS } from '../../utils/colors'
 
@@ -14,33 +15,23 @@ const props = defineProps<{
 }>()
 
 const chartEl = ref<HTMLDivElement | null>(null)
-let chart: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
+const { create, getPlot } = useUPlot(chartEl)
 
 const hidden = reactive(new Set<number>())
-
 
 function seriesColor(i: number): string {
   return props.series[i]?.color ?? CHART_COLORS[i % CHART_COLORS.length] ?? ''
 }
 
 function toggleSeries(idx: number) {
-  if (hidden.has(idx)) {
-    hidden.delete(idx)
-  } else {
-    hidden.add(idx)
-  }
+  if (hidden.has(idx)) hidden.delete(idx)
+  else hidden.add(idx)
   // uPlot series index is +1 because index 0 is the time axis
-  if (chart) {
-    chart.setSeries(idx + 1, { show: !hidden.has(idx) })
-  }
+  getPlot()?.setSeries(idx + 1, { show: !hidden.has(idx) })
 }
 
 function buildChart() {
-  if (!chartEl.value || props.series.length === 0) return
-
-  chart?.destroy()
-  resizeObserver?.disconnect()
+  if (props.series.length === 0) return
 
   const timeArr = new Float64Array(props.series[0]!.time)
   const data: uPlot.AlignedData = [
@@ -58,8 +49,8 @@ function buildChart() {
     })),
   ]
 
-  const opts: uPlot.Options = {
-    width: chartEl.value.clientWidth,
+  create(({ width }) => ({
+    width,
     height: CHART_HEIGHT,
     cursor: CURSOR_INTERACTIVE,
     legend: LEGEND_HIDDEN,
@@ -69,26 +60,13 @@ function buildChart() {
       makeAxis({ size: 50 }),
     ],
     scales: { x: { time: false } },
-  }
-
-  chart = new uPlot(opts, data, chartEl.value)
-
-  resizeObserver = new ResizeObserver(() => {
-    if (chartEl.value && chart) {
-      chart.setSize({ width: chartEl.value.clientWidth, height: CHART_HEIGHT })
-    }
-  })
-  resizeObserver.observe(chartEl.value)
+  }), data)
 }
 
 onMounted(() => nextTick(buildChart))
 watch(() => props.series, () => {
   hidden.clear()
   nextTick(buildChart)
-})
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  chart?.destroy()
 })
 </script>
 

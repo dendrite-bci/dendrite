@@ -5,7 +5,6 @@ import pytest
 
 from dendrite.processing.modes._metrics import AsynchronousMetrics, SynchronousMetrics
 
-
 # ---------------------------------------------------------------------------
 # Synchronous Metrics
 # ---------------------------------------------------------------------------

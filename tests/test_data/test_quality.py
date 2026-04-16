@@ -1,9 +1,8 @@
 """Tests for ChannelQualityMonitor iterative bad channel detection."""
 
 import numpy as np
-import pytest
 
-from dendrite.data.quality import ChannelQualityMonitor, compute_mad
+from dendrite.data.quality import ChannelQualityMonitor
 
 
 def _fill_monitor(monitor, variances, n_samples=500):
@@ -78,7 +77,7 @@ class TestIterativeDetection:
         n_ch = 60
         variances = np.ones(n_ch) * 10.0
         # 5 bad channels at various levels
-        for i, mult in zip([10, 20, 30, 40, 50], [100, 500, 1000, 5000, 50000]):
+        for i, mult in zip([10, 20, 30, 40, 50], [100, 500, 1000, 5000, 50000], strict=True):
             variances[i] = mult
 
         monitor = _make_monitor(n_ch)

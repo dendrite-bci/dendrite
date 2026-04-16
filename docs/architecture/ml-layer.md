@@ -15,7 +15,7 @@ Decoder (`src/dendrite/ml/decoders/decoder.py`) wraps PyTorch models and classic
 
 ## Training Infrastructure
 
-`TrainingLoop` runs in a `ProcessPoolExecutor` subprocess, isolated from the async event loop. Progress broadcasts to `/ws/training` via epoch callbacks. Cancellation uses a `threading.Event` checked between epochs.
+`TrainingLoop` runs in a `ProcessPoolExecutor` subprocess, isolated from the async event loop — training would otherwise block FastAPI from serving API calls and streaming visualization frames, and a model crash would take the backend down with it. Progress broadcasts to `/ws/training` via epoch callbacks. Cancellation uses a `threading.Event` checked between epochs.
 
 Key cross-module contracts:
 - SWA (Stochastic Weight Averaging) skips early-stopping checkpoint restore — the averaged model replaces the best checkpoint
@@ -28,7 +28,7 @@ Source: `src/dendrite/ml/training/trainer.py`
 
 ## Hyperparameter Search
 
-Optuna-based search (`src/dendrite/ml/search/`). Search spaces are auto-generated from Pydantic config `hpo` field metadata across optimizer, regularization, and augmentation categories. Profiles (`Quick`/`Balanced`/`Full`) scope the number of trials and which categories to search. Early stopping halts search after `n_trials / 3` consecutive non-improving trials.
+Optuna-based search (`src/dendrite/ml/search/`). Search spaces are auto-generated from Pydantic config `hpo` field metadata across optimizer, regularization, and augmentation categories — bounds live on the model's config class rather than in the search runner, so adding or tuning a hyperparameter only touches the model definition. Profiles (`Quick`/`Balanced`/`Full`) scope the number of trials and which categories to search, trading search cost against coverage. Early stopping halts search after `n_trials / 3` consecutive non-improving trials.
 
 
 ---

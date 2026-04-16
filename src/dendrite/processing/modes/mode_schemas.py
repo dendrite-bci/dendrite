@@ -121,12 +121,13 @@ class BaseModeInstanceConfig(BaseModel):
     @model_validator(mode="after")
     def validate_model_modality_compatibility(self):
         """Check model supports selected modalities."""
-        if not hasattr(self, "decoder_config") or not self.channel_selection:
+        decoder_config = getattr(self, "decoder_config", None)
+        if decoder_config is None or not self.channel_selection:
             return self
 
         from dendrite.ml.decoders import check_decoder_compatibility, get_decoder_capabilities
 
-        model_type = self.decoder_config.get("model_config", {}).get("model_type", "EEGNet")
+        model_type = decoder_config.get("model_config", {}).get("model_type", "EEGNet")
         is_compatible, unsupported = check_decoder_compatibility(
             model_type, list(self.channel_selection.keys())
         )

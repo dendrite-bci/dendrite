@@ -2,6 +2,8 @@
 Per-channel scaling for EEG data using sklearn StandardScaler.
 """
 
+from typing import cast
+
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import StandardScaler
@@ -35,8 +37,10 @@ class ChannelScaler(BaseEstimator, TransformerMixin):
         self.scaler.fit(X_2d)
 
         # Pre-cache broadcast arrays as float32 for fast transform
-        self._mean_3d = self.scaler.mean_[np.newaxis, :, np.newaxis].astype(np.float32)
-        self._scale_3d = self.scaler.scale_[np.newaxis, :, np.newaxis].astype(np.float32)
+        mean = cast(np.ndarray, self.scaler.mean_)
+        scale = cast(np.ndarray, self.scaler.scale_)
+        self._mean_3d = mean[np.newaxis, :, np.newaxis].astype(np.float32)
+        self._scale_3d = scale[np.newaxis, :, np.newaxis].astype(np.float32)
         return self
 
     def transform(self, X):

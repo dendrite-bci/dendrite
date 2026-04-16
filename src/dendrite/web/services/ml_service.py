@@ -10,6 +10,7 @@ import os
 import queue
 import time
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -32,6 +33,7 @@ from dendrite.ml.models.registry import MODEL_REGISTRY
 from dendrite.ml.training.runner import run_training
 from dendrite.utils.serialization import jsonify
 from dendrite.web.services.data_service import DataService
+from dendrite.web.ws.bridge import QueueBridge
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class MLService:
     def __init__(self, data_service: DataService) -> None:
         self._data_service = data_service
         self._job_repo = TrainingJobRepository(data_service.db)
-        self._bridge: Any | None = None
+        self._bridge: QueueBridge | None = None
         self._active_jobs: dict[int, asyncio.Task] = {}
         self._job_progress: dict[int, dict] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -65,8 +67,11 @@ class MLService:
 
     def _get_executor(self):
         if self._executor is None:
+            import multiprocessing as mp
             from concurrent.futures import ProcessPoolExecutor
-            self._executor = ProcessPoolExecutor(max_workers=1)
+            self._executor = ProcessPoolExecutor(
+                max_workers=1, mp_context=mp.get_context("spawn")
+            )
         return self._executor
 
     def _get_manager(self):
@@ -87,7 +92,7 @@ class MLService:
                 pass
             self._mp_manager = None
 
-    def set_bridge(self, bridge: Any) -> None:
+    def set_bridge(self, bridge: QueueBridge) -> None:
         self._bridge = bridge
         self._loop = asyncio.get_running_loop()
 
@@ -139,7 +144,6 @@ class MLService:
             })
         finally:
             self._cleanup_job(job_id)
-            self._shutdown_resources()
 
     def _get_job_result(self, job_id: int) -> dict | None:
         """Get a job's parsed result from the database."""
@@ -297,11 +301,12 @@ class MLService:
     async def cancel_training(self, job_id: int) -> bool:
         task = self._active_jobs.get(job_id)
         if task and not task.done():
-            # Signal subprocess to stop before shutting down executor
-            stop_event = self._stop_events.pop(job_id, None)
+            # Signal subprocess to stop, then cancel the async task.
+            # Don't destroy shared resources here — _cleanup_job handles removal,
+            # and the executor/manager stay alive for other jobs.
+            stop_event = self._stop_events.get(job_id)
             if stop_event:
                 stop_event.set()
-            self._shutdown_resources()
             task.cancel()
             self._job_repo.update_status(job_id, "cancelled", completed_at=_now_iso())
             self._cleanup_job(job_id)
@@ -473,22 +478,26 @@ class MLService:
 
             if config.get("optuna_enabled"):
                 from dendrite.ml.search import run_optuna_search
-                msg_type, target = "optuna_trial", run_optuna_search
-                args = (X, y, workbench_config, progress_q, stop_event)
+                msg_type = "optuna_trial"
+                work_fn = partial(
+                    run_optuna_search, X, y, workbench_config, progress_q, stop_event,
+                )
             else:
-                msg_type, target = "epoch", run_training
+                msg_type = "epoch"
                 save_name = f"workbench_{job_id}_{int(time.time())}"
-                args = (X, y, workbench_config, save_name, progress_q, stop_event)
+                work_fn = partial(
+                    run_training,
+                    X, y, workbench_config, save_name, progress_q, stop_event,
+                )
 
             drain_task = asyncio.create_task(
                 self._drain_progress(job_id, progress_q, msg_type=msg_type),
             )
             try:
-                result = await loop.run_in_executor(
-                    self._get_executor(), target, *args,
-                )
+                result = await loop.run_in_executor(self._get_executor(), work_fn)
             finally:
                 self._stop_events.pop(job_id, None)
+                progress_q.put(None)  # sentinel so drain exits cleanly
                 drain_task.cancel()
 
             # Compute honest eval metrics on pre-split held-out data
@@ -557,7 +566,7 @@ class MLService:
             return {
                 "confusion_matrix": confusion_matrix(y_eval, y_pred).tolist(),
                 "classification_report": classification_report(
-                    y_eval, y_pred, output_dict=True, zero_division=0,
+                    y_eval, y_pred, output_dict=True, zero_division=0,  # type: ignore[arg-type]
                 ),
                 "val_samples": len(y_eval),
                 "class_labels": class_labels,
@@ -630,8 +639,8 @@ class MLService:
                             logger.warning(f"Historical data load failed: {e}")
                             history_cache[mode_name] = (None, None)
                     hist_X, hist_y = history_cache[mode_name]
-                    if hist_X is not None:
-                        if X is not None:
+                    if hist_X is not None and hist_y is not None:
+                        if X is not None and y is not None:
                             X = np.concatenate([hist_X, X], axis=0)
                             y = np.concatenate([hist_y, y], axis=0)
                         else:
@@ -640,7 +649,7 @@ class MLService:
                             f"Study history: {len(hist_y)} epochs (total: {len(y)})"
                         )
 
-                if X is None or len(X) == 0:
+                if X is None or y is None or len(X) == 0:
                     logger.warning(f"No training data available for {mode_name}")
                     continue
 
@@ -661,7 +670,8 @@ class MLService:
                 save_name = f"online_{mode_name}_{int(time.time())}"
 
                 result = await loop.run_in_executor(
-                    self._get_executor(), run_training, X, y, train_config, save_name,
+                    self._get_executor(),
+                    partial(run_training, X, y, train_config, save_name),
                 )
 
                 decoder_info = {

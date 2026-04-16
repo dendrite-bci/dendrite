@@ -48,7 +48,7 @@ def evaluate_epochs(
         "accuracy": round(float(np.mean(y_pred == y)), 4),
         "confusion_matrix": confusion_matrix(y, y_pred).tolist(),
         "classification_report": classification_report(
-            y, y_pred, output_dict=True, zero_division=0,
+            y, y_pred, output_dict=True, zero_division=0,  # type: ignore[arg-type]
         ),
         "n_samples": total,
         "predictions": predictions,

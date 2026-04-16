@@ -46,7 +46,7 @@ async def update_general(request: GeneralConfigRequest, _=Depends(require_not_re
     try:
         service.set_general_config(request.model_dump())
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
     return service.get_general_config()
 
 
@@ -130,17 +130,17 @@ async def load_config(file_path: str, _=Depends(require_not_recording)):
     try:
         validate_no_path_traversal(file_path)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     service = get_config_service()
     try:
         result = service.load_configuration(file_path)
         return {"status": "loaded", "file_path": file_path, "warnings": result["warnings"]}
     except FileNotFoundError as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404, str(e)) from e
     except PermissionError as e:
-        raise HTTPException(403, str(e))
+        raise HTTPException(403, str(e)) from e
     except Exception as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/save")
@@ -150,7 +150,7 @@ async def save_config(file_path: str | None = None):
         try:
             validate_no_path_traversal(file_path)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
     service = get_config_service()
     saved_path = service.save_configuration(file_path)
     return {"status": "saved", "file_path": saved_path}

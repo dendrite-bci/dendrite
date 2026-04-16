@@ -37,7 +37,7 @@ async def _relay(
                 return
             for item in history[i : i + BATCH]:
                 if binary:
-                    await websocket.send_bytes(msgpack.packb(item, use_bin_type=True))
+                    await websocket.send_bytes(msgpack.packb(item, use_bin_type=True))  # type: ignore[arg-type]
                 else:
                     await websocket.send_json(item)
             await asyncio.sleep(0)
@@ -54,7 +54,7 @@ async def _relay(
                 break
             data = get_task.result()
             if binary:
-                await websocket.send_bytes(msgpack.packb(data, use_bin_type=True))
+                await websocket.send_bytes(msgpack.packb(data, use_bin_type=True))  # type: ignore[arg-type]
             else:
                 await websocket.send_json(data)
     except WebSocketDisconnect:

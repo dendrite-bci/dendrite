@@ -57,10 +57,10 @@ class EventOutlet:
             type="Events",
             channel_count=1,
             nominal_srate=0,
-            channel_format="string",
+            channel_format="string",  # type: ignore[arg-type]
             source_id=stream_id or f"{stream_name}_id",
         )
-        self.outlet = StreamOutlet(info)
+        self.outlet: StreamOutlet | None = StreamOutlet(info)
 
     def send_event(self, event_type: str, additional_data: dict[str, Any] | None = None) -> None:
         """Send event marker with optional metadata payload.
@@ -71,11 +71,14 @@ class EventOutlet:
 
         Raises:
             ValueError: If event_type is not in configured events.
+            RuntimeError: If the outlet has been closed.
         """
         if event_type not in self.event_id_mapping:
             raise ValueError(
                 f"Unknown event '{event_type}'. Valid: {list(self.event_id_mapping.keys())}"
             )
+        if self.outlet is None:
+            raise RuntimeError("EventOutlet is closed")
 
         event_data = {
             "event_id": self.event_id_mapping[event_type],

@@ -1,7 +1,8 @@
 """Tests for PipelineOrchestrator health check."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from dendrite.processing.orchestrator import PipelineOrchestrator
 

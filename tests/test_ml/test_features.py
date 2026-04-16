@@ -5,7 +5,6 @@ import pytest
 
 from dendrite.ml.features.csp import CSPConfig, CSPModel
 
-
 # --- CSPConfig ---
 
 

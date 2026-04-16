@@ -12,6 +12,7 @@ import queue
 import threading
 import time
 from abc import ABC, abstractmethod
+from multiprocessing.queues import Queue as MpQueue
 from multiprocessing.synchronize import Event
 from typing import Any
 
@@ -31,7 +32,7 @@ class BaseOutputStreamer(multiprocessing.Process, ABC):
 
     def __init__(
         self,
-        input_queue: multiprocessing.Queue,
+        input_queue: MpQueue[Any],
         stream_name: str,
         stop_event: Event | None = None,
         shared_state: Any | None = None,
@@ -148,7 +149,7 @@ class LSLBaseStreamer(BaseOutputStreamer):
 
     def __init__(
         self,
-        input_queue: multiprocessing.Queue,
+        input_queue: MpQueue[Any],
         stream_info: StreamConfig,
         stop_event: Event | None = None,
         bandwidth_reporting_interval: float = 60.0,
@@ -170,18 +171,18 @@ class LSLBaseStreamer(BaseOutputStreamer):
         self.bandwidth_reporting_interval = bandwidth_reporting_interval
 
         # LSL streamer
-        self.streamer = None
+        self.streamer: Any = None
 
-        # Bandwidth tracking
-        self.bandwidth_lock = None
-        self.last_report_time = 0
+        # Bandwidth tracking — lock created in _initialize_output() (child process)
+        # because threading.Lock can't be pickled across spawn boundary.
+        self.bandwidth_lock: threading.Lock = None  # type: ignore[assignment]
+        self.last_report_time: float = 0.0
 
     def _initialize_output(self) -> None:
         """Initialize LSL output stream."""
         try:
             self.logger.info(f"Setting up LSL stream: {self.stream_info.name}")
 
-            # Initialize bandwidth lock
             self.bandwidth_lock = threading.Lock()
             self.last_report_time = time.time()
 

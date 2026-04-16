@@ -155,7 +155,7 @@ class QualityTracker:
             self._logger.warning("Not enough warmup samples for correlation")
             return
 
-        corr = np.corrcoef(data)
+        corr: np.ndarray = np.asarray(np.corrcoef(data))
         corr = np.nan_to_num(corr, nan=0.0)
 
         self._calibration_corr = corr
@@ -300,7 +300,7 @@ async def run_visualization_bridge(
 
         # Raw data from ring buffers (one drain task per stream).
         # Only the first (primary) stream forwards markers to avoid
-        # N× event duplication when multiple streams are configured.
+        # Nx event duplication when multiple streams are configured.
         rb_channel_maps = service.visualization_data_queue
         if rb_channel_maps:
             primary_chosen = False

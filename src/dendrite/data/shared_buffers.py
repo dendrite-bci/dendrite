@@ -22,8 +22,18 @@ class SharedRingBuffer:
     Last column of data is the markers channel (injected by DAQ).
     """
 
-    __slots__ = ("name", "n_channels", "max_samples", "sample_rate",
-                 "_shm", "_data", "_ts", "_local_ts", "_receive_ns")
+    __slots__ = (
+        "_buf",
+        "_data",
+        "_local_ts",
+        "_receive_ns",
+        "_shm",
+        "_ts",
+        "max_samples",
+        "n_channels",
+        "name",
+        "sample_rate",
+    )
 
     def __init__(self, name: str, n_channels: int, max_samples: int,
                  sample_rate: float, shm: SharedMemory):
@@ -32,18 +42,21 @@ class SharedRingBuffer:
         self.max_samples = max_samples
         self.sample_rate = sample_rate
         self._shm = shm
+        buf = shm.buf
+        assert buf is not None, "SharedMemory buffer closed"
+        self._buf: memoryview = buf
         d0 = _HDR_SZ
         t0 = d0 + max_samples * n_channels * 4
         l0 = t0 + max_samples * 8
         n0 = l0 + max_samples * 8
         self._data = np.ndarray((max_samples, n_channels), np.float32,
-                                buffer=shm.buf[d0:t0])
+                                buffer=buf[d0:t0])
         self._ts = np.ndarray((max_samples,), np.float64,
-                              buffer=shm.buf[t0:l0])
+                              buffer=buf[t0:l0])
         self._local_ts = np.ndarray((max_samples,), np.float64,
-                                    buffer=shm.buf[l0:n0])
+                                    buffer=buf[l0:n0])
         self._receive_ns = np.ndarray((max_samples,), np.uint64,
-                                  buffer=shm.buf[n0:n0 + max_samples * 8])
+                                  buffer=buf[n0:n0 + max_samples * 8])
 
     @classmethod
     def create(cls, name: str, n_channels: int, max_samples: int,
@@ -55,22 +68,25 @@ class SharedRingBuffer:
                  + max_samples * 8)              # daq_ns uint64
         _try_unlink(name)
         shm = SharedMemory(name=name, create=True, size=total)
-        _HDR.pack_into(shm.buf, 0, 0, n_channels, max_samples, sample_rate)
-        return cls(name, n_channels, max_samples, sample_rate, shm)
+        rb = cls(name, n_channels, max_samples, sample_rate, shm)
+        _HDR.pack_into(rb._buf, 0, 0, n_channels, max_samples, sample_rate)
+        return rb
 
     @classmethod
     def connect(cls, name: str) -> "SharedRingBuffer":
         shm = SharedMemory(name=name, create=False)
-        _, n_ch, max_s, sr = _HDR.unpack_from(shm.buf, 0)
+        buf = shm.buf
+        assert buf is not None, "SharedMemory buffer closed"
+        _, n_ch, max_s, sr = _HDR.unpack_from(buf, 0)
         return cls(name, n_ch, max_s, sr, shm)
 
     @property
     def write_pos(self) -> int:
-        return struct.unpack_from("<Q", self._shm.buf, 0)[0]
+        return struct.unpack_from("<Q", self._buf, 0)[0]
 
     @write_pos.setter
     def write_pos(self, value: int):
-        struct.pack_into("<Q", self._shm.buf, 0, value)
+        struct.pack_into("<Q", self._buf, 0, value)
 
     def write(self, sample: np.ndarray, lsl_timestamp: float,
               local_timestamp: float = 0.0, receive_ns: int = 0) -> int:

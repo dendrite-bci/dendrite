@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import uPlot from 'uplot'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import 'uplot/dist/uPlot.min.css'
 import { LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import { useVisualizationStore } from '../../stores/visualization'
 
 export interface PerfData {
@@ -17,9 +17,8 @@ const props = defineProps<{
 }>()
 
 const viz = useVisualizationStore()
-const container = ref<HTMLElement>()
-let plot: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
+const container = ref<HTMLDivElement | null>(null)
+const { create, setData, getPlot } = useUPlot(container)
 
 function getMetrics(): PerfData | null {
   if (props.data) return props.data
@@ -30,12 +29,9 @@ function getMetrics(): PerfData | null {
 const hasData = computed(() => !!getMetrics())
 
 function createPlot() {
-  if (!container.value) return
-  const el = container.value
-
-  const opts: uPlot.Options = {
-    width: el.clientWidth,
-    height: el.clientHeight,
+  create(({ width, height }) => ({
+    width,
+    height,
     cursor: { show: false },
     legend: LEGEND_HIDDEN,
     series: [
@@ -52,23 +48,18 @@ function createPlot() {
       x: { time: false },
       y: { range: [0, 1.05] },
     },
-  }
-
-  plot = new uPlot(opts, [[0], [0], [0], [0]], el)
+  }), [[0], [0], [0], [0]])
 }
 
 function updatePlot() {
-  if (!plot) {
-    createPlot()
-    if (!plot) return
-  }
+  if (!getPlot()) createPlot()
   const metrics = getMetrics()
   if (!metrics) return
 
   const len = metrics.accuracy.length
   const xAxis = new Array(len)
   for (let i = 0; i < len; i++) xAxis[i] = i + 1
-  plot.setData([
+  setData([
     xAxis,
     metrics.accuracy,
     metrics.confidence,
@@ -76,7 +67,6 @@ function updatePlot() {
   ])
 }
 
-// Reactive: store or props change
 watch(() => viz.modeMetrics, () => {
   if (hasData.value) nextTick(updatePlot)
 })
@@ -87,19 +77,6 @@ watch(() => props.data, () => {
 onMounted(() => {
   createPlot()
   if (hasData.value) updatePlot()
-  if (container.value) {
-    resizeObserver = new ResizeObserver(() => {
-      if (plot && container.value) {
-        plot.setSize({ width: container.value.clientWidth, height: container.value.clientHeight })
-      }
-    })
-    resizeObserver.observe(container.value)
-  }
-})
-
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  plot?.destroy()
 })
 </script>
 

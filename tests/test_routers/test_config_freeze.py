@@ -2,7 +2,6 @@
 
 import pytest
 
-from dendrite.web.deps import get_pipeline_service
 from dendrite.web.services.pipeline_service import PipelineService
 
 

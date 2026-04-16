@@ -44,7 +44,7 @@ All consumers use this map to slice columns from the shared data array.
 
 OnlinePreprocessor (`src/dendrite/processing/preprocessing/preprocessor.py`) applies modality-specific filtering without modifying raw storage.
 
-Runs **inside each mode** (not centrally). BaseMode lazily creates the preprocessor on first sample, using actual channel counts. CAR operates on all channels before channel selection narrows to the mode's subset.
+Runs **inside each mode** (not centrally) so different modes can use different bandpasses and filter chains without forking DAQ or rewriting the raw buffer — the raw buffer stays the single source of truth for everyone downstream. BaseMode lazily creates the preprocessor on first sample, using actual channel counts. CAR operates on all channels before channel selection narrows to the mode's subset.
 
 **Per-Mode Lifecycle:**
 1. `_setup_preprocessor()` — reads config, creates `SamplePreprocessor` (`mode_utils.py`)
@@ -56,6 +56,8 @@ Runs **inside each mode** (not centrally). BaseMode lazily creates the preproces
 Single `ModalityProcessor` class with config-driven behavior: bandpass filter (lowcut/highcut/filter_order), notch filter (line_freq/notch_width), common average reference (apply_rereferencing), interpolation (channel_labels), and anti-aliased downsampling (downsample_factor). Omitting filter keys gives passthrough. Markers bypass preprocessing. `ChannelScaler` (`preprocessing/scalers.py`) provides optional per-channel z-score normalization.
 
 **Bad Channel Detection & Interpolation**
+
+Interpolation is used instead of channel rejection so downstream consumers (visualization, decoders, training) always see a fixed-shape montage — rejecting channels on the fly would force every mode and the frontend to re-handshake whenever a channel's status flipped.
 
 `ChannelQualityMonitor` (MAD-based z-score with hysteresis) runs in the visualization bridge. After 10s warmup, the bad channel list is frozen and a correlation-based interpolation matrix W is precomputed from the warmup data's pairwise Pearson correlations. Applied per-chunk as `data[bad] = W @ data[good]` before CAR. No montage or 3D electrode positions required.
 

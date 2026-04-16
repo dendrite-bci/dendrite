@@ -69,7 +69,7 @@ TIME_NEURAL = 120.0
 
 TRAINING_INTERVAL = 10
 BENCHMARK_DIR = Path(__file__).parent.parent / "benchmarks"
-PLOT_DIR = Path(__file__).parent / "regression_plots"
+PLOT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "regression_plots"
 
 # Module-level collectors — filled during test run, plotted at session end
 _cv_results: list[dict] = []

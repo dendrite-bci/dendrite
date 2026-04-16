@@ -8,7 +8,9 @@ import ToastContainer from './components/common/ToastContainer.vue'
 import { useVisualizationStore } from './stores/visualization'
 import { useTelemetryStore } from './stores/telemetry'
 import { usePipelineStore } from './stores/pipeline'
+import { useTheme } from './composables/useTheme'
 
+useTheme() // initialize theme (applies .dark class to <html>)
 const viz = useVisualizationStore()
 const telemetry = useTelemetryStore()
 const pipeline = usePipelineStore()
@@ -39,7 +41,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="dark-mode flex flex-col h-screen bg-bg-main">
+  <div class="flex flex-col h-screen bg-bg-main">
     <TopNavBar @toggle-stream-manager="toggleStreamManager" />
     <!-- Connection lost banner -->
     <div v-if="disconnected"

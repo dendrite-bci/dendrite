@@ -67,10 +67,10 @@ class BraindecodeAdapter(ModelBase):
     """
 
     # Subclasses must override these
-    _braindecode_class_name: str = None
-    _model_type: str = None
-    _description: str = None
-    _config_class = None  # Pydantic config class (single source of truth)
+    _braindecode_class_name: str
+    _model_type: str
+    _description: str
+    _config_class: Any = None  # Pydantic config class (single source of truth)
 
     def __init__(self, n_channels: int, n_times: int, n_classes: int, **kwargs):
         """Initialize braindecode model with Dendrite interface parameters.

@@ -4,9 +4,10 @@ from typing import Any
 
 import numpy as np
 
-from dendrite.processing.modes.base_mode import BaseMode
-from dendrite.processing.modes.mode_utils import extract_event_code
 from dendrite.processing._types import Sample
+from dendrite.processing.modes._metrics import SynchronousMetrics
+from dendrite.processing.modes.base_mode import BaseMode
+from dendrite.processing.modes.mode_utils import Buffer, extract_event_code
 from dendrite.utils.state_keys import mode_metric_key
 
 DEFAULT_TRAINING_INTERVAL = 10
@@ -55,6 +56,9 @@ class SynchronousMode(BaseMode):
     """
 
     MODE_TYPE = "synchronous"
+
+    metrics_manager: SynchronousMetrics | None  # narrowed from BaseMode
+    buffer: Buffer | None
 
     def __init__(
         self,
@@ -250,18 +254,16 @@ class SynchronousMode(BaseMode):
 
     def _process_data(self, sample: Sample):
         """Process a single data sample using unified buffer."""
-        if not isinstance(sample, dict):
-            return
-
         # Apply per-mode preprocessing (CAR, bandpass, downsample)
-        sample = self._preprocess_sample(sample)
-        if sample is None:
+        processed = self._preprocess_sample(sample)
+        if processed is None:
             return  # Accumulating for downsample
+        sample = processed
 
         # Track LSL timestamp for payloads
         self.last_lsl_timestamp = sample.get("lsl_timestamp", 0.0)
 
-        # Add sample to unified buffer
+        assert self.buffer is not None, "_setup_buffer must run before _process_data"
         self.buffer.add_sample(sample)
         self.current_sample_index += 1
 
@@ -321,6 +323,8 @@ class SynchronousMode(BaseMode):
         self, event_code: int, event_type: str, class_index: int, delay_samples: int
     ):
         """Extract and process epoch from buffer."""
+        if self.buffer is None:
+            return
         X_input = self.buffer.extract_epoch_at_event(
             start_offset_samples=self.tmin_samples,
             epoch_length_samples=self.epoch_length_samples,
@@ -343,7 +347,7 @@ class SynchronousMode(BaseMode):
             # Send ERP data for visualization (downsampled to ~125 Hz, all modalities)
             viz_rate = 125.0
             factor = max(1, int(self.effective_sample_rate / viz_rate))
-            for modality, data in X_input.items():
+            for _, data in X_input.items():
                 if data.ndim != 2:
                     continue
                 data_ds = data[:, ::factor] if factor > 1 else data
@@ -427,7 +431,9 @@ class SynchronousMode(BaseMode):
         except Exception:
             self.logger.warning("Training queue full, skipping")
 
-    def _update_metrics_and_send(self, prediction, confidence, class_index, event_type):
+    def _update_metrics_and_send(
+        self, prediction: int, confidence: float, class_index: int, event_type: str
+    ):
         """Update metrics and send performance updates."""
         current_metrics = {}
         if self.metrics_manager:

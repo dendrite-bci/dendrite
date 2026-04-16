@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import type { EventSummary } from '../../types/api'
 import { CHART_COLORS } from '../../utils/colors'
 
@@ -28,8 +29,7 @@ function eventLabel(type: string): string {
 
 // --- Timeline chart ---
 const chartEl = ref<HTMLDivElement | null>(null)
-let chart: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
+const { create } = useUPlot(chartEl)
 
 const showTable = ref(false)
 
@@ -41,10 +41,6 @@ const eventColumns = computed(() => {
 const chartHeight = computed(() => Math.max(60, sortedTypes.value.length * 22 + 40))
 
 function buildTimeline() {
-  if (!chartEl.value) return
-  chart?.destroy()
-  resizeObserver?.disconnect()
-
   const events = props.summary.events
   if (events.length === 0) return
 
@@ -52,7 +48,6 @@ function buildTimeline() {
   const typeIdx: Record<string, number> = {}
   types.forEach((t, i) => { typeIdx[t] = i })
 
-  // Collect timestamps per event type
   const typeTimes: Map<string, Set<number>> = new Map()
   for (const t of types) typeTimes.set(t, new Set())
 
@@ -88,10 +83,9 @@ function buildTimeline() {
     })
   }
 
-  const h = chartHeight.value
-  const opts: uPlot.Options = {
-    width: chartEl.value.clientWidth,
-    height: h,
+  create(({ width }) => ({
+    width,
+    height: chartHeight.value,
     cursor: CURSOR_INTERACTIVE,
     legend: LEGEND_HIDDEN,
     series: uSeries,
@@ -120,24 +114,11 @@ function buildTimeline() {
         },
       ],
     },
-  }
-
-  chart = new uPlot(opts, data as uPlot.AlignedData, chartEl.value)
-
-  resizeObserver = new ResizeObserver(() => {
-    if (chartEl.value && chart) {
-      chart.setSize({ width: chartEl.value.clientWidth, height: h })
-    }
-  })
-  resizeObserver.observe(chartEl.value)
+  }), data as uPlot.AlignedData)
 }
 
 onMounted(() => nextTick(buildTimeline))
 watch(() => props.summary, () => nextTick(buildTimeline))
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  chart?.destroy()
-})
 </script>
 
 <template>

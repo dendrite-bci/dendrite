@@ -81,6 +81,8 @@ def split_params(
 
     model_type = kwargs.get("model_type")
     model_params = kwargs.get("model_params", {})
+    if model_type is None:
+        return kwargs
     for param, compute_fn in DERIVED_PARAMS.get(model_type, {}).items():
         try:
             model_params[param] = compute_fn(model_params)

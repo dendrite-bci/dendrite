@@ -4,12 +4,14 @@ Behavior is fully determined by config keys — no per-modality subclasses.
 A modality with no lowcut/highcut acts as passthrough (downsample only).
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from scipy import signal
 
 from dendrite.utils.logger_central import get_logger
+
+BACoeffs = tuple[np.ndarray, np.ndarray]
 
 if TYPE_CHECKING:
     from dendrite.processing.preprocessing.interpolation import InterpolationApplicator
@@ -33,7 +35,7 @@ class ModalityProcessor:
         self.downsample_factor: int = config.get("downsample_factor", 1)
         self.apply_rereferencing: bool = config.get("apply_rereferencing", False)
         self.channel_labels: list[str] | None = config.get("channel_labels")
-        self._interpolator: "InterpolationApplicator | None" = None
+        self._interpolator: InterpolationApplicator | None = None
 
         nyquist = 0.5 * self.sample_rate
 
@@ -43,8 +45,9 @@ class ModalityProcessor:
         highcut = config.get("highcut")
         if lowcut is not None and highcut is not None:
             order = config.get("filter_order", 4)
-            self._bp_b, self._bp_a = signal.butter(
-                order, [lowcut / nyquist, highcut / nyquist], btype="band",
+            self._bp_b, self._bp_a = cast(
+                BACoeffs,
+                signal.butter(order, [lowcut / nyquist, highcut / nyquist], btype="band"),
             )
             self._bp_zi = self._make_zi(self._bp_b, self._bp_a)
             self._has_bandpass = True
@@ -57,8 +60,8 @@ class ModalityProcessor:
             lo = (line_freq - notch_width / 2) / nyquist
             hi = (line_freq + notch_width / 2) / nyquist
             if 0 < lo < hi < 1:
-                self._notch_b, self._notch_a = signal.butter(
-                    4, [lo, hi], btype="bandstop",
+                self._notch_b, self._notch_a = cast(
+                    BACoeffs, signal.butter(4, [lo, hi], btype="bandstop")
                 )
                 self._notch_zi = self._make_zi(self._notch_b, self._notch_a)
                 self._has_notch = True
@@ -69,7 +72,9 @@ class ModalityProcessor:
         if self.downsample_factor > 1:
             output_nyquist = (self.sample_rate / self.downsample_factor) / 2
             normalized_cutoff = 0.8 * output_nyquist / (self.sample_rate / 2)
-            self._aa_b, self._aa_a = signal.cheby1(8, 0.05, normalized_cutoff)
+            self._aa_b, self._aa_a = cast(
+                BACoeffs, signal.cheby1(8, 0.05, normalized_cutoff)
+            )
             self._aa_zi = self._make_zi(self._aa_b, self._aa_a)
 
         self._ds_buffer = np.zeros((self.num_channels, 0))

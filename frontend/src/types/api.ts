@@ -324,7 +324,7 @@ export interface TrainingProgress {
   best_accuracy?: number
   // Evaluation
   step?: number
-  total_steps?: number
+  total?: number
   prediction?: number
   true_label?: number
   confidence?: number

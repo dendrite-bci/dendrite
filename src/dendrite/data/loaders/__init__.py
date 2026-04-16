@@ -14,7 +14,7 @@ from .moabb_discovery import (
     discover_moabb_datasets,
     get_moabb_dataset_info,
 )
-from .moabb_loader import MOABBLoader, MoabbConfig
+from .moabb_loader import MoabbConfig, MOABBLoader
 from .raw_h5_loader import RawH5Loader
 
 

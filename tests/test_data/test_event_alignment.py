@@ -88,6 +88,7 @@ def _match_events(
         drift_poly: fitted drift polynomial (h5_corrected = h5_raw - drift_poly(fif_t))
     """
     from collections import defaultdict
+
     from scipy.optimize import linear_sum_assignment
 
     def _group_by_name(events):
@@ -98,14 +99,6 @@ def _match_events(
 
     def _assign(fif_idx, h5_idx, fif_t, h5_t, tol):
         """Hungarian assignment on per-name groups. Returns matched (fi, hi) pairs."""
-        fif_by_name = _group_by_name([fif_events[i] for i in fif_idx])
-        h5_by_name = _group_by_name([h5_events[j] for j in h5_idx])
-        # Remap: local group index -> original index
-        fif_local = {name: [fif_idx[i] for i in idxs] for name, idxs in
-                     defaultdict(list, {n: [fif_idx.index(fi) for fi in fis]
-                                        for n, fis in
-                                        _group_by_name([fif_events[i] for i in fif_idx]).items()}).items()}
-        # Simpler: just re-group the original indices
         fif_groups: dict[str, list[int]] = defaultdict(list)
         h5_groups: dict[str, list[int]] = defaultdict(list)
         for i in fif_idx:
@@ -124,7 +117,7 @@ def _match_events(
                 for c, h in enumerate(hi):
                     cost[r, c] = abs(fif_t[f] - h5_t[h])
             rows, cols = linear_sum_assignment(cost)
-            for r, c in zip(rows, cols):
+            for r, c in zip(rows, cols, strict=True):
                 if cost[r, c] <= tol:
                     pairs.append((fi[r], hi[c]))
         return pairs
@@ -330,7 +323,9 @@ class TestEventAlignment:
             """Drop non-EEG, align to first event, preprocess, epoch, baseline-correct."""
             eeg_mask = [t == "eeg" for t in loaded.channel_types]
             loaded.data = loaded.data[eeg_mask]
-            loaded.channel_names = [n for n, m in zip(loaded.channel_names, eeg_mask) if m]
+            loaded.channel_names = [
+                n for n, m in zip(loaded.channel_names, eeg_mask, strict=True) if m
+            ]
             loaded.channel_types = [t for t in loaded.channel_types if t == "eeg"]
 
             first_event_idx = min(idx for idx, _ in loaded.events)
@@ -434,8 +429,8 @@ class TestEventAlignment:
             lines = [
                 "PREPROCESSING",
                 f"  Filter: {filter_label}",
-                f"  Epoch:  -200 to 800 ms",
-                f"  Baseline: -200 to 0 ms",
+                "  Epoch:  -200 to 800 ms",
+                "  Baseline: -200 to 0 ms",
                 "",
                 "EPOCHS",
                 f"  {'':6} {'Corr':>5} {'Incorr':>6} {'Total':>5}",

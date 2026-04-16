@@ -1,5 +1,6 @@
 import { ref, onMounted, type Ref, type ComputedRef } from 'vue'
 import type { Decoder, ModalityChannel } from '../types/api'
+import { apiFetchOrNull } from '../utils/api'
 
 interface EventEntry { id: number; label: string }
 
@@ -64,35 +65,30 @@ export function useDecoderPicker(
     showPicker.value = false
     decoderEventMapping.value = null
 
-    try {
-      const res = await fetch(`/api/data/decoders/${decoder.decoder_id}/metadata`)
-      if (!res.ok) {
-        console.warn('[DecoderPicker] metadata endpoint returned', res.status)
-        return
-      }
-      const meta = await res.json()
+    const meta = await apiFetchOrNull<any>(`/api/data/decoders/${decoder.decoder_id}/metadata`)
+    if (!meta) {
+      console.warn('[DecoderPicker] metadata fetch failed for', decoder.decoder_id)
+      return
+    }
 
-      decoderEventMapping.value = meta.event_mapping ?? null
-      if (decoderEventMapping.value) applyMappings()
+    decoderEventMapping.value = meta.event_mapping ?? null
+    if (decoderEventMapping.value) applyMappings()
 
-      const modPreproc = meta.preprocessing_config?.modality_preprocessing
-      if (modPreproc) {
-        for (const [mod, cfg] of Object.entries(modPreproc as Record<string, any>)) {
-          deps.modePreproc.value[mod] = {
-            lowcut: cfg.lowcut ?? null,
-            highcut: cfg.highcut ?? null,
-            apply_rereferencing: cfg.apply_rereferencing ?? false,
-            ...(cfg.line_freq != null ? { line_freq: cfg.line_freq } : {}),
-          }
+    const modPreproc = meta.preprocessing_config?.modality_preprocessing
+    if (modPreproc) {
+      for (const [mod, cfg] of Object.entries(modPreproc as Record<string, any>)) {
+        deps.modePreproc.value[mod] = {
+          lowcut: cfg.lowcut ?? null,
+          highcut: cfg.highcut ?? null,
+          apply_rereferencing: cfg.apply_rereferencing ?? false,
+          ...(cfg.line_freq != null ? { line_freq: cfg.line_freq } : {}),
         }
       }
-
-      if (meta.epoch_tmin != null) deps.epochTmin.value = meta.epoch_tmin
-      if (meta.epoch_tmax != null) deps.epochTmax.value = meta.epoch_tmax
-      if (meta.channel_labels) applyChannels(meta.channel_labels)
-    } catch (err) {
-      console.warn('[DecoderPicker] metadata fetch failed:', err)
     }
+
+    if (meta.epoch_tmin != null) deps.epochTmin.value = meta.epoch_tmin
+    if (meta.epoch_tmax != null) deps.epochTmax.value = meta.epoch_tmax
+    if (meta.channel_labels) applyChannels(meta.channel_labels)
   }
 
   function clear() {
@@ -105,26 +101,26 @@ export function useDecoderPicker(
   // Auto-restore decoder state when re-opening a mode with an existing database decoder
   onMounted(async () => {
     if (source.value !== 'database' || !id.value) return
-    try {
-      const [decoderRes, metaRes] = await Promise.all([
-        fetch(`/api/data/decoders/${id.value}`),
-        fetch(`/api/data/decoders/${id.value}/metadata`),
-      ])
+    const [decoder, meta] = await Promise.all([
+      apiFetchOrNull<Decoder>(`/api/data/decoders/${id.value}`),
+      apiFetchOrNull<any>(`/api/data/decoders/${id.value}/metadata`),
+    ])
 
-      if (decoderRes.ok) selectedInfo.value = await decoderRes.json()
+    if (!decoder && !meta) {
+      console.warn('[DecoderPicker] restore failed for decoder', id.value)
+      return
+    }
 
-      if (metaRes.ok) {
-        const meta = await metaRes.json()
-        decoderEventMapping.value = meta.event_mapping ?? null
-        if (decoderEventMapping.value && deps.eventMapping.value.length === 0) {
-          applyMappings()
-        }
-        if (meta.channel_labels && Object.values(deps.channelSelection.value).every(a => a.length === 0)) {
-          applyChannels(meta.channel_labels)
-        }
+    if (decoder) selectedInfo.value = decoder
+
+    if (meta) {
+      decoderEventMapping.value = meta.event_mapping ?? null
+      if (decoderEventMapping.value && deps.eventMapping.value.length === 0) {
+        applyMappings()
       }
-    } catch (err) {
-      console.warn('[DecoderPicker] restore failed:', err)
+      if (meta.channel_labels && Object.values(deps.channelSelection.value).every(a => a.length === 0)) {
+        applyChannels(meta.channel_labels)
+      }
     }
   })
 

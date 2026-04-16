@@ -26,7 +26,7 @@ class ModeService:
         Raises ValueError if validation fails.
         """
         is_valid, errors, validated = validate_mode_config(config)
-        if not is_valid:
+        if not is_valid or validated is None:
             raise ValueError("; ".join(errors))
         return validated
 

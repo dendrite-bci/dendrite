@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, shallowRef, computed } from 'vue'
 import { useWebSocket } from '../composables/useWebSocket'
 import { RingBuffer } from '../composables/useRingBuffer'
+import { apiFetchOrNull } from '../utils/api'
 import { useTelemetryStore } from './telemetry'
 import { useModesStore } from './modes'
 
@@ -141,16 +142,10 @@ export const useVisualizationStore = defineStore('visualization', () => {
 
   async function updateVizPreproc(config: Record<string, Record<string, any>>) {
     vizPreproc.value = config
-    // Debounce API call
+    // Debounce API call — pipeline may not be running
     if (_vizPreprocDebounce) clearTimeout(_vizPreprocDebounce)
-    _vizPreprocDebounce = setTimeout(async () => {
-      try {
-        await fetch('/api/pipeline/viz-preprocessing', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(config),
-        })
-      } catch { /* ignore — pipeline may not be running */ }
+    _vizPreprocDebounce = setTimeout(() => {
+      apiFetchOrNull('/api/pipeline/viz-preprocessing', { method: 'PUT', json: config })
     }, 500)
   }
 

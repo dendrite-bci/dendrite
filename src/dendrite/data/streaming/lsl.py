@@ -2,7 +2,7 @@
 Pure LSL streamer for Lab Streaming Layer output.
 """
 
-import multiprocessing
+from multiprocessing.queues import Queue as MpQueue
 from multiprocessing.synchronize import Event
 from typing import Any
 
@@ -20,7 +20,7 @@ class LSLStreamer(LSLBaseStreamer):
 
     def __init__(
         self,
-        input_queue: multiprocessing.Queue,
+        input_queue: MpQueue[Any],
         stream_info: StreamConfig,
         stop_event: Event | None = None,
         lsl_config: dict[str, Any] | None = None,

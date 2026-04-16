@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ConfigFile, GeneralConfig, ProtocolAvailability, ProtocolFieldError } from '../types/api'
+import { apiFetch, apiFetchOrNull, ApiError } from '../utils/api'
 import { usePipelineStore } from './pipeline'
 
 const GENERAL_DEFAULTS: GeneralConfig = {
@@ -25,8 +26,8 @@ export const useConfigStore = defineStore('config', () => {
   const validationErrors = ref<Record<string, string>>({})
 
   async function fetchGeneral() {
-    const res = await fetch('/api/config/general')
-    if (res.ok) general.value = await res.json()
+    const data = await apiFetchOrNull<GeneralConfig>('/api/config/general')
+    if (data) general.value = data
   }
 
   async function updateGeneral(config: Partial<GeneralConfig>) {
@@ -36,23 +37,21 @@ export const useConfigStore = defineStore('config', () => {
     if (!merged.subject_id) merged.subject_id = GENERAL_DEFAULTS.subject_id
     if (!merged.session_id) merged.session_id = GENERAL_DEFAULTS.session_id
     if (!merged.recording_name) merged.recording_name = GENERAL_DEFAULTS.recording_name
-    const res = await fetch('/api/config/general', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(merged),
-    })
-    if (res.ok) {
-      general.value = await res.json()
+    try {
+      general.value = await apiFetch('/api/config/general', {
+        method: 'PUT',
+        json: merged,
+        silent: true,
+      })
       validationErrors.value = {}
       usePipelineStore().fetchPreflight()
       debouncedFetchNextRun()
-    } else {
-      const err = await res.json()
-      if (err.detail && Array.isArray(err.detail)) {
+    } catch (e) {
+      if (e instanceof ApiError && Array.isArray(e.detail)) {
         const errors: Record<string, string> = {}
-        for (const e of err.detail) {
-          const field = e.loc?.[1] || 'unknown'
-          errors[field] = e.msg
+        for (const item of e.detail) {
+          const field = item.loc?.[1] || 'unknown'
+          errors[field] = item.msg
         }
         validationErrors.value = errors
       }
@@ -63,8 +62,8 @@ export const useConfigStore = defineStore('config', () => {
     const { subject_id, session_id, recording_name } = general.value
     if (!subject_id || !session_id || !recording_name) return
     const params = new URLSearchParams({ subject_id, session_id, recording_name })
-    const res = await fetch(`/api/config/next-run?${params}`)
-    if (res.ok) nextRun.value = (await res.json()).run_number
+    const data = await apiFetchOrNull<{ run_number: number }>(`/api/config/next-run?${params}`)
+    if (data) nextRun.value = data.run_number
   }
 
   function debouncedFetchNextRun() {
@@ -73,55 +72,50 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   async function fetchOutput() {
-    const res = await fetch('/api/config/output')
-    if (!res.ok) return
-    const data = await res.json()
-    output.value = data.output || {}
+    const data = await apiFetchOrNull<{ output?: Record<string, any> }>('/api/config/output')
+    if (data) output.value = data.output || {}
   }
 
   async function updateOutput(protocols: Record<string, any>) {
-    const res = await fetch('/api/config/output', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ protocols }),
-    })
-    if (res.ok) {
-      const data = await res.json()
+    try {
+      const data = await apiFetch('/api/config/output', {
+        method: 'PUT',
+        json: { protocols },
+        silent: true,
+      })
       output.value = data.output || {}
       outputErrors.value = {}
       usePipelineStore().fetchPreflight()
-    } else {
-      const err = await res.json()
-      if (err.detail?.protocol_errors) {
-        outputErrors.value = err.detail.protocol_errors
+    } catch (e) {
+      if (e instanceof ApiError && e.detail?.protocol_errors) {
+        outputErrors.value = e.detail.protocol_errors
       }
     }
   }
 
   async function fetchOutputAvailability() {
-    const res = await fetch('/api/config/output/availability')
-    if (res.ok) outputAvailability.value = await res.json()
+    const data = await apiFetchOrNull<ProtocolAvailability>('/api/config/output/availability')
+    if (data) outputAvailability.value = data
   }
 
   async function fetchOutputDefaults() {
-    const res = await fetch('/api/config/output/defaults')
-    if (res.ok) outputDefaults.value = await res.json()
+    const data = await apiFetchOrNull<Record<string, Record<string, any>>>('/api/config/output/defaults')
+    if (data) outputDefaults.value = data
   }
 
   async function listConfigs() {
-    const res = await fetch('/api/config/list')
-    if (res.ok) {
-      const data = await res.json()
+    const data = await apiFetchOrNull<{ configs: ConfigFile[]; study_names?: string[] }>('/api/config/list')
+    if (data) {
       availableConfigs.value = data.configs
       knownStudyNames.value = data.study_names ?? []
     }
   }
 
   async function loadConfig(filePath: string) {
-    const res = await fetch(`/api/config/load?file_path=${encodeURIComponent(filePath)}`, {
-      method: 'POST',
-    })
-    if (res.ok) {
+    try {
+      await apiFetch(`/api/config/load?file_path=${encodeURIComponent(filePath)}`, {
+        method: 'POST',
+      })
       await fetchGeneral()
       await fetchOutput()
       // Refresh modes and streams from backend (restored by load_configuration)
@@ -130,17 +124,18 @@ export const useConfigStore = defineStore('config', () => {
       await useModesStore().fetchAll()
       await useStreamsStore().fetchConfigured()
       usePipelineStore().fetchPreflight()
+      return true
+    } catch {
+      return false
     }
-    return res.ok
   }
 
   async function saveConfig(filePath?: string): Promise<string | null> {
     const url = filePath
       ? `/api/config/save?file_path=${encodeURIComponent(filePath)}`
       : '/api/config/save'
-    const res = await fetch(url, { method: 'POST' })
-    if (res.ok) return (await res.json()).file_path
-    return null
+    const data = await apiFetchOrNull<{ file_path: string }>(url, { method: 'POST' })
+    return data?.file_path ?? null
   }
 
   // Restore all config from backend on init

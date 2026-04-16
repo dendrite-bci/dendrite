@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { StreamMetadata, StreamModalities } from '../types/api'
+import { apiFetch, apiFetchOrNull } from '../utils/api'
 import { usePipelineStore } from './pipeline'
 
 export const useStreamsStore = defineStore('streams', () => {
@@ -41,38 +42,38 @@ export const useStreamsStore = defineStore('streams', () => {
     if (usePipelineStore().status.recording) return
     isDiscovering.value = true
     try {
-      const res = await fetch('/api/streams/discover', { method: 'POST' })
-      const data = await res.json()
+      const data = await apiFetch('/api/streams/discover', { method: 'POST' })
       discoveredStreams.value = data.streams
       configuredStreams.value = {}
       modalitiesByStream.value = {}
       liveness.value = {}
       stopLivenessPolling()
+    } catch {
+      // toast surfaced by apiFetch
     } finally {
       isDiscovering.value = false
     }
   }
 
   async function configure(selectedUids: string[], channelOverrides?: Record<string, any>) {
-    const res = await fetch('/api/streams/configure', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selected_uids: selectedUids, channel_overrides: channelOverrides || {} }),
-    })
-    if (res.ok) {
-      const data = await res.json()
+    try {
+      const data = await apiFetch('/api/streams/configure', {
+        method: 'POST',
+        json: { selected_uids: selectedUids, channel_overrides: channelOverrides || {} },
+      })
       configuredStreams.value = data.configured
       modalitiesByStream.value = data.modalities_by_stream
       liveness.value = {}
       usePipelineStore().fetchPreflight()
       startLivenessPolling()
+    } catch {
+      // toast surfaced by apiFetch
     }
   }
 
   async function fetchConfigured() {
-    const res = await fetch('/api/streams')
-    if (!res.ok) return
-    const data = await res.json()
+    const data = await apiFetchOrNull<{ streams: Record<string, StreamMetadata>; modalities_by_stream: Record<string, StreamModalities> }>('/api/streams')
+    if (!data) return
     configuredStreams.value = data.streams
     modalitiesByStream.value = data.modalities_by_stream
     usePipelineStore().fetchPreflight()
@@ -86,12 +87,9 @@ export const useStreamsStore = defineStore('streams', () => {
   async function checkLiveness() {
     if (!hasStreams.value) return
     isCheckingLiveness.value = true
-    try {
-      const res = await fetch('/api/streams/liveness')
-      if (res.ok) liveness.value = (await res.json()).liveness
-    } finally {
-      isCheckingLiveness.value = false
-    }
+    const data = await apiFetchOrNull<{ liveness: Record<string, boolean> }>('/api/streams/liveness')
+    if (data) liveness.value = data.liveness
+    isCheckingLiveness.value = false
   }
 
   function startLivenessPolling() {

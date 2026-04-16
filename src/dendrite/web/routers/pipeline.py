@@ -47,7 +47,7 @@ async def start_pipeline():
             await pipeline.start(config)
             return {"status": "started"}
         except RuntimeError as e:
-            raise HTTPException(409, str(e))
+            raise HTTPException(409, str(e)) from e
 
 
 @router.post("/stop", status_code=200)

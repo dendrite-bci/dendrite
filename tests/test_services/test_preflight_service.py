@@ -1,6 +1,6 @@
 """Tests for PreflightService — pre-start validation checks."""
 
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
 from dendrite.data.stream_schemas import StreamMetadata
 from dendrite.web.services.config_service import ConfigService

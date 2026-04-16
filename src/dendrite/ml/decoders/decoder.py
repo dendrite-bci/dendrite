@@ -28,8 +28,8 @@ class Decoder(BaseEstimator, ClassifierMixin):
     def __init__(self, config: DecoderConfig):
         self.config = config
         self._is_fitted = False
-        self.pipeline = None
-        self.training_metrics = None
+        self.pipeline: Any = None
+        self.training_metrics: dict[str, Any] | None = None
         self.logger = get_logger()
 
         if config.num_classes is not None and config.input_shapes is not None:

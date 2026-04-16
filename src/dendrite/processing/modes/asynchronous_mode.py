@@ -2,9 +2,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from dendrite.processing.modes.base_mode import BaseMode
-from dendrite.processing.modes.mode_utils import extract_event_code
 from dendrite.processing._types import Sample
+from dendrite.processing.modes._metrics import AsynchronousMetrics
+from dendrite.processing.modes.base_mode import BaseMode
+from dendrite.processing.modes.mode_utils import Buffer, extract_event_code
 from dendrite.utils.state_keys import mode_metric_key
 
 # Async mode constants
@@ -47,6 +48,9 @@ class AsynchronousMode(BaseMode):
     """
 
     MODE_TYPE = "asynchronous"
+
+    metrics_manager: AsynchronousMetrics | None  # narrowed from BaseMode
+    buffer: Buffer | None
 
     def __init__(
         self,
@@ -200,7 +204,10 @@ class AsynchronousMode(BaseMode):
                 if data_received_count % LOG_INTERVAL_SAMPLES == 0:
                     self.logger.info(f"Processed {data_received_count} data samples")
 
-                if self.buffer.is_ready_for_step(self.samples_per_prediction_step):
+                if (
+                    self.buffer is not None
+                    and self.buffer.is_ready_for_step(self.samples_per_prediction_step)
+                ):
                     self._trigger_prediction()
 
                 # Poll for online decoder ~1Hz
@@ -237,13 +244,13 @@ class AsynchronousMode(BaseMode):
         if self.stop_event.is_set():
             return
 
-        if not isinstance(sample, dict):
-            return
-
         # Apply per-mode preprocessing (CAR, bandpass, downsample)
-        sample = self._preprocess_sample(sample)
-        if sample is None:
+        processed = self._preprocess_sample(sample)
+        if processed is None:
             return  # Accumulating for downsample
+        sample = processed
+
+        assert self.buffer is not None, "_setup_buffer must run before _process_data"
 
         self.last_lsl_timestamp = sample.get("lsl_timestamp", 0.0)
 
@@ -272,7 +279,7 @@ class AsynchronousMode(BaseMode):
 
     def _trigger_prediction(self):
         """Trigger a prediction using the current sliding window data."""
-        if not self.is_decoder_ready:
+        if not self.is_decoder_ready or self.buffer is None:
             return
 
         try:
@@ -302,7 +309,7 @@ class AsynchronousMode(BaseMode):
         except Exception as e:
             self.logger.error(f"Error in _trigger_prediction: {e}", exc_info=True)
 
-    def _update_metrics_and_send(self, prediction, confidence):
+    def _update_metrics_and_send(self, prediction: int, confidence: float):
         """Update metrics and send prediction output."""
         detected = False
         if self.metrics_manager:
@@ -325,7 +332,13 @@ class AsynchronousMode(BaseMode):
 
         self._send_prediction_output(prediction, confidence, self._cached_metrics, detected)
 
-    def _send_prediction_output(self, prediction, confidence, current_metrics, detected=False):
+    def _send_prediction_output(
+        self,
+        prediction: int,
+        confidence: float,
+        current_metrics: dict[str, Any],
+        detected: bool = False,
+    ):
         """Send prediction data to output queues."""
         event_code = self.index_to_event_code.get(prediction, prediction)
 
@@ -359,6 +372,8 @@ class AsynchronousMode(BaseMode):
 
     def _check_for_trained_decoder(self):
         """Poll SharedState for a newly trained decoder. Load in background thread."""
+        if self.shared_state is None:
+            return
         # Prefer mode-specific key (immune to overwrite by other modes)
         result = None
         if self._source_mode:

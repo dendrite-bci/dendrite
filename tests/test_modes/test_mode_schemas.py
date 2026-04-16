@@ -8,10 +8,9 @@ from dendrite.processing.modes.mode_schemas import (
     BaseModeInstanceConfig,
     NeurofeedbackInstanceConfig,
     SynchronousInstanceConfig,
-    validate_mode_config,
     _get_system_shapes,
+    validate_mode_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

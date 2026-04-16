@@ -5,7 +5,6 @@ from pylsl import StreamInfo, StreamOutlet
 
 from dendrite.data.stream_schemas import StreamConfig
 
-
 _EVENT_STREAM_TYPES = {"markers", "marker", "events", "event", "triggers", "stim"}
 
 
@@ -120,7 +119,7 @@ class LSLOutlet:
             type=config.type,
             channel_count=config.channel_count,
             nominal_srate=config.sample_rate,
-            channel_format=config.channel_format,
+            channel_format=config.channel_format,  # type: ignore[arg-type]
             source_id=config.source_id or f"nbr_bmi_{config.name.lower()}",
         )
 
@@ -151,6 +150,7 @@ class LSLOutlet:
         """Push a single sample to the stream."""
         if self.outlet is None:
             self.create_outlet()
+        assert self.outlet is not None
 
         if len(sample) != self.channel_count:
             raise ValueError(
@@ -168,6 +168,7 @@ class LSLOutlet:
         """Push multiple samples as a chunk [samples x channels]."""
         if self.outlet is None:
             self.create_outlet()
+        assert self.outlet is not None
 
         chunk_array = np.array(chunk)
         if chunk_array.ndim != 2:
@@ -184,7 +185,7 @@ class LSLOutlet:
                 raise ValueError(
                     f"Timestamps ({len(timestamps)}) must match samples ({len(chunk)})"
                 )
-            self.outlet.push_chunk(chunk, timestamps)
+            self.outlet.push_chunk(chunk, timestamps)  # type: ignore[arg-type]
 
     def close(self) -> None:
         """Close outlet and release resources."""

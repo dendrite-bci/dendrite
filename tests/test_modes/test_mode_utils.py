@@ -1,7 +1,6 @@
 """Tests for Buffer and utility functions in mode_utils.py."""
 
 import numpy as np
-import pytest
 
 from dendrite.processing.modes.mode_utils import (
     Buffer,
@@ -11,7 +10,6 @@ from dendrite.processing.modes.mode_utils import (
 )
 
 from .conftest import fill_buffer
-
 
 # ---------------------------------------------------------------------------
 # Buffer.__init__

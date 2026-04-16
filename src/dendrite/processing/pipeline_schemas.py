@@ -17,7 +17,7 @@ class PipelineConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # General 
+    # General
     study_name: str = "default_study"
     subject_id: str = ""
     session_id: str = ""

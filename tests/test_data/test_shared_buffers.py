@@ -57,7 +57,7 @@ class TestSharedRingBuffer:
         assert receive_ns[0] == 120
 
     def test_overrun(self, rb):
-        for i in range(150):
+        for _ in range(150):
             rb.write(np.full(4, 0.0, np.float32), 0.0)
         with pytest.raises(OverrunError):
             rb.read_new(0)

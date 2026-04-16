@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { useUPlot } from '../../composables/useUPlot'
 import type { ModalitySignalPreview } from '../../types/api'
 import { getModalityColor } from '../../utils/colors'
 
@@ -12,24 +13,18 @@ const props = defineProps<{
 }>()
 
 const chartEl = ref<HTMLDivElement | null>(null)
-let chart: uPlot | null = null
-let resizeObserver: ResizeObserver | null = null
-
+const { create } = useUPlot(chartEl)
 
 function chartHeight(n: number): number {
   return Math.max(200, n * 50 + 60)
 }
 
 function buildChart() {
-  if (!chartEl.value || props.preview.channels.length === 0) return
-
-  chart?.destroy()
-  resizeObserver?.disconnect()
+  if (props.preview.channels.length === 0) return
 
   const channels = props.preview.channels
   const time = props.preview.time
 
-  // Compute vertical offsets so channels don't overlap
   const stds = channels.map(ch => {
     const arr = ch.data
     const mean = arr.reduce((a, b) => a + b, 0) / arr.length
@@ -39,7 +34,6 @@ function buildChart() {
   const medianStd = stds.slice().sort((a, b) => a - b)[Math.floor(stds.length / 2)] || 1
   const separation = medianStd * 4
 
-  // Build uPlot aligned data: [time, ch0_offset, ch1_offset, ...]
   const data: uPlot.AlignedData = [
     new Float64Array(time),
     ...channels.map((ch, i) => {
@@ -59,8 +53,8 @@ function buildChart() {
     })),
   ]
 
-  const opts: uPlot.Options = {
-    width: chartEl.value.clientWidth,
+  create(({ width }) => ({
+    width,
     height: chartHeight(channels.length),
     cursor: CURSOR_INTERACTIVE,
     legend: LEGEND_HIDDEN,
@@ -90,26 +84,10 @@ function buildChart() {
         },
       ],
     },
-  }
-
-  chart = new uPlot(opts, data, chartEl.value)
-
-  resizeObserver = new ResizeObserver(() => {
-    if (chartEl.value && chart) {
-      chart.setSize({
-        width: chartEl.value.clientWidth,
-        height: chartHeight(channels.length),
-      })
-    }
-  })
-  resizeObserver.observe(chartEl.value)
+  }), data)
 }
 
 onMounted(() => nextTick(buildChart))
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  chart?.destroy()
-})
 </script>
 
 <template>

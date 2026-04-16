@@ -13,9 +13,10 @@ import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from dendrite import __version__
 from dendrite.web.deps import cleanup_services, get_ml_service, get_pipeline_service, init_services
 from dendrite.web.routers import config, data, ml, modes, pipeline, stream_manager, streams
 from dendrite.web.ws.bridge import QueueBridge
@@ -82,7 +83,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Dendrite",
         description="Real-time neural signal processing and brain-computer interfaces",
-        version="2.0.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -121,13 +122,26 @@ def create_app() -> FastAPI:
     dist_dir = Path(__file__).resolve().parent.parent.parent.parent / "frontend" / "dist"
     if dist_dir.is_dir():
         index_html = dist_dir / "index.html"
+        dist_resolved = dist_dir.resolve()
 
-        # SPA fallback: client-side routes serve index.html
-        @app.get("/data")
-        @app.get("/ml")
-        async def spa_fallback():
+        # Hashed assets get StaticFiles for proper caching headers
+        assets_dir = dist_dir / "assets"
+        if assets_dir.is_dir():
+            app.mount(
+                "/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets"
+            )
+
+        # SPA catch-all: serves the static file if it exists, otherwise index.html
+        # for client-side routing. Explicit /api and /ws prefixes are excluded so
+        # unknown API/WS paths return 404 instead of HTML.
+        @app.get("/{path:path}")
+        async def spa_fallback(path: str):
+            if path.startswith(("api/", "ws/")):
+                raise HTTPException(status_code=404)
+            if path:
+                candidate = (dist_dir / path).resolve()
+                if candidate.is_relative_to(dist_resolved) and candidate.is_file():
+                    return FileResponse(candidate)
             return FileResponse(index_html)
-
-        app.mount("/", StaticFiles(directory=str(dist_dir), html=True), name="frontend")
 
     return app

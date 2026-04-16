@@ -23,7 +23,7 @@ def load_moabb_for_training(
     - use_paradigm_epochs=False (default): load continuous → RawData → our pipeline
       (custom preprocessing, consistent with recordings)
     """
-    from .moabb_loader import MOABBLoader, MoabbConfig
+    from .moabb_loader import MoabbConfig, MOABBLoader
 
     step = broadcast_step or (lambda s: None)
 
@@ -86,7 +86,7 @@ def load_epochs(
 
     # Preprocessing: prefer mode_preprocessing (online), fall back to workbench config
     mode_preproc = config.get("mode_preprocessing", {})
-    if modality in mode_preproc:
+    if modality and modality in mode_preproc:
         loaded.preprocess(
             mode_preproc[modality],
             modality=modality,

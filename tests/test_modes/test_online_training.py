@@ -1,7 +1,8 @@
 """Tests for online training: schema validation, async mode decoder reload, REST endpoint."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from dendrite.processing.modes.mode_schemas import (
     AsynchronousInstanceConfig,
@@ -269,7 +270,8 @@ class TestActivateDecoderPreprocessing:
     def test_preserves_all_preproc_fields(self):
         """Decoder with target_sample_rate should preserve it in preprocessor config."""
         from dendrite.processing.preprocessing.preprocessing_schemas import (
-            ModalityPreprocessing, PreprocessingConfig,
+            ModalityPreprocessing,
+            PreprocessingConfig,
         )
 
         mode = _make_async_mode()
@@ -295,7 +297,8 @@ class TestActivateDecoderPreprocessing:
     def test_skips_preprocessor_reset_when_unchanged(self):
         """Should NOT reset preprocessor when config is identical."""
         from dendrite.processing.preprocessing.preprocessing_schemas import (
-            ModalityPreprocessing, PreprocessingConfig,
+            ModalityPreprocessing,
+            PreprocessingConfig,
         )
 
         mode = _make_async_mode()
@@ -319,7 +322,8 @@ class TestActivateDecoderPreprocessing:
     def test_resets_preprocessor_when_changed(self):
         """Should reset preprocessor when filter settings differ."""
         from dendrite.processing.preprocessing.preprocessing_schemas import (
-            ModalityPreprocessing, PreprocessingConfig,
+            ModalityPreprocessing,
+            PreprocessingConfig,
         )
 
         mode = _make_async_mode()
@@ -341,7 +345,8 @@ class TestActivateDecoderPreprocessing:
     def test_recalculates_effective_sample_rate(self):
         """Should update effective_sample_rate when target_sample_rate changes."""
         from dendrite.processing.preprocessing.preprocessing_schemas import (
-            ModalityPreprocessing, PreprocessingConfig,
+            ModalityPreprocessing,
+            PreprocessingConfig,
         )
 
         mode = _make_async_mode()

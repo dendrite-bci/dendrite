@@ -45,7 +45,7 @@ def to_mne_raw(
             dataset = find_dataset(h5f)
         if dataset is None:
             raise KeyError("No data dataset found in H5 file")
-    df = load_dataset(h5_path, dataset)
+    df = load_dataset(str(h5_path), dataset)
 
     # Filter out timestamp columns (case-insensitive match)
     timestamp_cols_lower = {c.lower() for c in _TIMESTAMP_COLS}
@@ -108,9 +108,9 @@ def export_to_fif(
     raw.apply_function(lambda x: x * _UV_TO_V, picks="data")
 
     # Attach events and embed mapping for round-trip fidelity
-    if include_events:
+    if include_events and dataset is not None:
         try:
-            event_id = _attach_events(raw, h5_path, dataset, event_dataset, sfreq)
+            event_id = _attach_events(raw, str(h5_path), dataset, event_dataset, sfreq)
             if event_id:
                 raw.info["description"] = json.dumps({"event_id": event_id})
         except (KeyError, ValueError, OSError) as e:
@@ -118,7 +118,7 @@ def export_to_fif(
 
     raw.save(output_path, overwrite=overwrite)
     logger.info(f"Exported to FIF: {output_path}")
-    return output_path
+    return str(output_path)
 
 
 def guess_channel_type(name: str) -> str:

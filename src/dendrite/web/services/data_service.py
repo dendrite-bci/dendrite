@@ -340,7 +340,7 @@ class DataService:
             event_ids = {str(row["event_type"]): int(row["event_id"]) for _, row in pairs.iterrows()}
 
         # Use pandas JSON serialization (handles NaN natively) then parse back
-        events_json = df.to_json(orient="records", default_handler=str)
+        events_json = df.to_json(orient="records", default_handler=str) or "[]"
         events = json.loads(events_json)
         return {
             "total_count": len(df),
@@ -412,7 +412,11 @@ class DataService:
         group: h5py.Group, key: str, data: np.ndarray,
     ) -> dict[str, list]:
         ts_key = f"{key}_timestamps"
-        timestamps = group[ts_key][:] if ts_key in group else None
+        timestamps: np.ndarray | None = None
+        if ts_key in group:
+            ts_ds = group[ts_key]
+            if isinstance(ts_ds, h5py.Dataset):
+                timestamps = ts_ds[:]
         if timestamps is not None and len(timestamps) > 0:
             time = _sanitize_floats((timestamps - timestamps[0]).tolist())
         else:
@@ -434,11 +438,16 @@ class DataService:
             if "telemetry" not in h5f:
                 return result
             tg = h5f["telemetry"]
+            if not isinstance(tg, h5py.Group):
+                return result
 
             for key in tg.keys():
                 if key.endswith("_timestamps"):
                     continue
-                data = tg[key][:]
+                ds = tg[key]
+                if not isinstance(ds, h5py.Dataset):
+                    continue
+                data = ds[:]
                 if len(data) == 0:
                     continue
 
@@ -484,6 +493,8 @@ class DataService:
                     if ds_key.lower() in _MODE_SKIP_KEYS:
                         continue
                     dataset = group[ds_key]
+                    if not isinstance(dataset, h5py.Dataset):
+                        continue
                     if dataset.dtype.kind not in ("f", "i", "u") or dataset.ndim != 1:
                         continue
                     data = dataset[:]

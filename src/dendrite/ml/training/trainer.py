@@ -43,7 +43,7 @@ def create_criterion(config, class_weights: torch.Tensor | None) -> nn.Module:
         return FocalLoss(
             gamma=config.focal_gamma, weight=class_weights, label_smoothing=label_smoothing
         )
-    return nn.CrossEntropyLoss(weight=class_weights, label_smoothing=label_smoothing)
+    return nn.CrossEntropyLoss(weight=class_weights, label_smoothing=label_smoothing)  # type: ignore[arg-type]
 
 
 class TrainingLoop:
@@ -183,11 +183,12 @@ class TrainingLoop:
 
     def _setup_training(self, X: np.ndarray, y: np.ndarray) -> None:
         """Initialize training components."""
-        self.device = self.config.get_device()
+        device = self.config.get_device()
+        self.device = device
         self.X_train = X
 
         self.optimizer = create_optimizer(self.config, self.model)
-        class_weights = self._calculate_class_weights(y, self.device)
+        class_weights = self._calculate_class_weights(y, device)
         self.criterion = create_criterion(self.config, class_weights)
 
         # Reset state
@@ -201,6 +202,7 @@ class TrainingLoop:
 
     def _setup_schedulers(self) -> None:
         """Setup LR schedulers based on config."""
+        assert self.optimizer is not None and self.X_train is not None
         # Warmup scheduler
         if self.config.use_lr_warmup:
             self.warmup_scheduler = optim.lr_scheduler.LinearLR(
@@ -250,6 +252,7 @@ class TrainingLoop:
 
     def _setup_swa(self) -> None:
         """Setup Stochastic Weight Averaging."""
+        assert self.optimizer is not None
         self.swa_model = AveragedModel(self.model)
         self.swa_start_epoch = int(self.config.swa_start_epoch * self.config.epochs)
 
@@ -302,9 +305,9 @@ class TrainingLoop:
         lam: float | None,
     ) -> tuple[torch.Tensor, float]:
         """Compute loss and accuracy, handling mixup if active."""
-        mixup_active = y1 is not None
-
-        if mixup_active:
+        assert self.criterion is not None
+        assert self.device is not None
+        if y1 is not None and y2 is not None and lam is not None:
             y1_tensor = torch.LongTensor(y1).to(self.device)
             y2_tensor = torch.LongTensor(y2).to(self.device)
             loss = lam * self.criterion(outputs, y1_tensor) + (1 - lam) * self.criterion(
@@ -356,6 +359,7 @@ class TrainingLoop:
 
     def _train_epoch(self, X: np.ndarray, y: np.ndarray, epoch: int) -> tuple[float, float]:
         """Train for one epoch."""
+        assert self.optimizer is not None
         self.model.train()
         epoch_loss = 0.0
         correct = 0
@@ -416,6 +420,7 @@ class TrainingLoop:
 
     def _validate(self, X: np.ndarray, y: np.ndarray) -> tuple[float, float]:
         """Evaluate on validation data."""
+        assert self.criterion is not None
         self.model.eval()
         total_loss = 0.0
         correct = 0
@@ -451,14 +456,16 @@ class TrainingLoop:
         """Update LR schedulers after epoch."""
         # Warmup phase
         if self.config.use_lr_warmup and not self.warmup_done:
-            self.warmup_scheduler.step()
+            if self.warmup_scheduler is not None:
+                self.warmup_scheduler.step()
             if epoch + 1 >= self.config.warmup_epochs:
                 self.warmup_done = True
             return
 
         # SWA phase uses its own scheduler
         if self.swa_active:
-            self.swa_scheduler.step()
+            if self.swa_scheduler is not None:
+                self.swa_scheduler.step()
             return
 
         # Main scheduler (skip OneCycleLR - it steps per batch)
@@ -511,7 +518,7 @@ class TrainingLoop:
 
     def _update_swa_bn(self) -> None:
         """Update batch norm stats for SWA model."""
-        if self.X_train is None:
+        if self.swa_model is None or self.X_train is None:
             return
 
         train_data = self.X_train

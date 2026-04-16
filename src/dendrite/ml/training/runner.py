@@ -60,9 +60,9 @@ def run_training(
     input_shapes = {modality: list(X.shape[1:])}
     decoder_config = decoder_config_from_dict(config, num_classes, input_shapes)
 
-    epoch_callback = None
+    epoch_callback: Callable[..., None] | None = None
     if progress_queue is not None:
-        def epoch_callback(epoch, total, train_loss, train_acc, val_loss, val_acc):
+        def _epoch_callback(epoch, total, train_loss, train_acc, val_loss, val_acc):
             try:
                 progress_queue.put_nowait({
                     "epoch": epoch, "total_epochs": total,
@@ -71,6 +71,7 @@ def run_training(
                 })
             except (Full, OSError):
                 pass
+        epoch_callback = _epoch_callback
 
     start_time = time.time()
     decoder = train_decoder(X, y, decoder_config, modality, epoch_callback, stop_event)

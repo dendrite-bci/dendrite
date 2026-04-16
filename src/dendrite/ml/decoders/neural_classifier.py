@@ -52,7 +52,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         self.input_shape: tuple | None = None
         self.training_results: dict[str, Any] | None = None
         self.is_fitted = False
-        self.classes_ = None
+        self.classes_: np.ndarray | None = None
 
         self.logger = get_logger(__name__)
 
@@ -143,6 +143,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
             Self for method chaining
         """
         self._validate_training_inputs(X, y)
+        assert self.input_shape is not None
 
         torch.manual_seed(self.config.seed)
         np.random.seed(self.config.seed)
@@ -181,8 +182,10 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         epoch_callback=None,
     ) -> dict[str, Any]:
         """Train using TrainingLoop."""
+        model = self.model
+        assert model is not None
         training_loop = TrainingLoop(
-            model=self.model,
+            model=model,
             config=self.config,
             prepare_input_fn=self._prepare_input_tensor,
             stop_event=self.stop_event,
@@ -201,30 +204,34 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         X_tensor = torch.as_tensor(X, dtype=torch.float32, device=self.device)
         if len(X_tensor.shape) != 3:
             return X_tensor
-        if callable(getattr(self.model, "get_model_info", None)):
-            if self.model.get_model_info().get("input_format", "3D") == "3D":
+        get_info = getattr(self.model, "get_model_info", None)
+        if callable(get_info):
+            info = get_info()
+            if isinstance(info, dict) and info.get("input_format", "3D") == "3D":
                 return X_tensor
         return X_tensor.unsqueeze(1)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Make class predictions."""
-        if not self.is_fitted:
+        model = self.model
+        if not self.is_fitted or model is None:
             raise ValueError("Classifier must be fitted before prediction")
 
         with torch.inference_mode():
             X_tensor = self._prepare_input_tensor(X)
-            outputs = self.model(X_tensor)
+            outputs = model(X_tensor)
             _, predicted = torch.max(outputs, 1)
             return predicted.cpu().numpy()
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Get class prediction probabilities."""
-        if not self.is_fitted:
+        model = self.model
+        if not self.is_fitted or model is None:
             raise ValueError("Classifier must be fitted before prediction")
 
         with torch.inference_mode():
             X_tensor = self._prepare_input_tensor(X)
-            outputs = self.model(X_tensor)
+            outputs = model(X_tensor)
             probabilities = torch.softmax(outputs, dim=1)
             return probabilities.cpu().numpy()
 

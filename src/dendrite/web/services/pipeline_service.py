@@ -16,6 +16,7 @@ import queue
 import sqlite3
 import time
 from datetime import datetime
+from multiprocessing.queues import Queue as MpQueue
 from typing import Any
 
 from dendrite.constants import get_study_paths
@@ -304,9 +305,11 @@ class PipelineService:
         import h5py
         try:
             with h5py.File(recording_file, "r", swmr=True) as h5f:
-                if "Event" not in h5f or len(h5f["Event"]) == 0:
+                if "Event" not in h5f:
                     return {"events": [], "event_mapping": {}, "total": 0}
                 event_data = h5f["Event"]
+                if not isinstance(event_data, h5py.Dataset) or len(event_data) == 0:
+                    return {"events": [], "event_mapping": {}, "total": 0}
                 event_data.refresh()
                 event_map: dict[int, str] = {}
                 for e in event_data:
@@ -331,8 +334,8 @@ class PipelineService:
 
     @property
     def system_pids(self) -> dict[str, int]:
-        pids = {
-            name: proc.pid
+        pids: dict[str, int] = {
+            name: proc.pid  # type: ignore[misc]
             for name, proc in self._system_processes.items()
             if proc and proc.is_alive()
         }
@@ -348,14 +351,14 @@ class PipelineService:
         return None
 
     @property
-    def visualization_queue(self) -> multiprocessing.Queue | None:
+    def visualization_queue(self) -> MpQueue[Any] | None:
         """Expose mode output visualization queue for WebSocket bridge."""
         if self._orchestrator:
             return self._orchestrator.visualization_queue
         return None
 
     @property
-    def training_queue(self) -> multiprocessing.Queue | None:
+    def training_queue(self) -> MpQueue[Any] | None:
         """Expose training queue for MLService online training loop."""
         if self._orchestrator:
             return self._orchestrator.training_queue
@@ -399,6 +402,8 @@ class PipelineService:
     # ------------------------------------------------------------------
 
     def _start_output_protocols(self, config: dict):
+        if self._orchestrator is None or self._orchestrator.prediction_queue is None:
+            raise RuntimeError("Cannot start output protocols: pipeline not initialized")
         self._output_protocol_manager = OutputProtocolManager(
             stop_event=self._stop_event,
             prediction_queue=self._orchestrator.prediction_queue,
