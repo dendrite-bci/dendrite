@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useVisualizationStore, vizDirty } from '../../stores/visualization'
 import { useModesStore } from '../../stores/modes'
+import { getDisabledStroke, getMutedStroke } from '../../utils/chartDefaults'
 
 const EVENT_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
@@ -69,7 +70,8 @@ function render() {
 
   // Draw time axis
   const axisY = h - 14
-  ctx.strokeStyle = '#808080'
+  const axisColor = getDisabledStroke()
+  ctx.strokeStyle = axisColor
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(0, axisY)
@@ -77,7 +79,7 @@ function render() {
   ctx.stroke()
 
   // Tick marks every 1s
-  ctx.fillStyle = '#808080'
+  ctx.fillStyle = axisColor
   ctx.font = '10px Inter, sans-serif'
   ctx.textAlign = 'center'
   const tickInterval = windowSize <= 5 ? 0.5 : (windowSize <= 20 ? 1 : 2)
@@ -98,7 +100,7 @@ function render() {
 
   if (visible.length === 0) {
     // "No events in window" hint
-    ctx.fillStyle = '#808080'
+    ctx.fillStyle = getDisabledStroke()
     ctx.font = '11px Inter, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('No events in window', w / 2, h / 2)
@@ -133,7 +135,7 @@ function render() {
     ctx.fill()
 
     // Value label above diamond
-    ctx.fillStyle = '#ccc'
+    ctx.fillStyle = getMutedStroke()
     ctx.font = 'bold 9px sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText(eventLabel(evt.value), x, stemTop - 7)

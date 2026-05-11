@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useMLStore, evalDirty } from '../../stores/ml'
 import { formatPercent } from '../../utils/format'
-import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN, getMutedStroke } from '../../utils/chartDefaults'
 import { useUPlot } from '../../composables/useUPlot'
 import { predClassColor } from '../../utils/colors'
 import ConfusionMatrix from './ConfusionMatrix.vue'
@@ -95,8 +95,10 @@ function createChart() {
             for (const m of markers) {
               const x = u.valToPos(m.event_s, 'x', true)
               if (x < left || x > left + plotW) continue
-              ctx.strokeStyle = 'rgba(255,255,255,0.3)'
+              ctx.strokeStyle = getMutedStroke()
+              ctx.globalAlpha = 0.5
               ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + plotH); ctx.stroke()
+              ctx.globalAlpha = 1
             }
             ctx.setLineDash([])
           } else {
@@ -157,9 +159,11 @@ function createChart() {
             const barW = Math.max(1, Math.ceil(stepSec * pxPerSec))
             const rasterY = top + plotH - RASTER_H
 
-            // Background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
+            // Background — subtle tint behind the raster strip
+            ctx.fillStyle = getMutedStroke()
+            ctx.globalAlpha = 0.15
             ctx.fillRect(left, rasterY, plotW, RASTER_H)
+            ctx.globalAlpha = 1
 
             // Clip to raster area
             ctx.save()

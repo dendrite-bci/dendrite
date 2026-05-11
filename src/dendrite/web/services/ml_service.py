@@ -217,14 +217,6 @@ class MLService:
 
         return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=120)
 
-    def get_loaded_data_info(self) -> dict[str, Any] | None:
-        if self._loaded_data is None:
-            return None
-        info = self._loaded_data.info()
-        if self._eval_data is not None:
-            info["eval"] = self._eval_data.info()
-        return info
-
     # ------------------------------------------------------------------ #
     # Model listing
     # ------------------------------------------------------------------ #
@@ -298,7 +290,7 @@ class MLService:
             lambda jid: self._run_training_async(jid, config),
         )
 
-    async def cancel_training(self, job_id: int) -> bool:
+    async def cancel_job(self, job_id: int) -> bool:
         task = self._active_jobs.get(job_id)
         if task and not task.done():
             # Signal subprocess to stop, then cancel the async task.
@@ -380,11 +372,11 @@ class MLService:
             if not config.get("event_id"):
                 config["event_id"] = self._loaded_data.metadata.get("event_id", {})
             if not config.get("channel_labels") and self._loaded_data.channel_names:
-                selected_ch = config.get("selected_channels")
-                if selected_ch:
+                ch_idx = config.get("channel_indices")
+                if ch_idx:
                     names = [
                         self._loaded_data.channel_names[i]
-                        for i in selected_ch
+                        for i in ch_idx
                         if i < len(self._loaded_data.channel_names)
                     ]
                 else:
@@ -439,9 +431,9 @@ class MLService:
         async def work():
             if config.get("use_loaded_data") and self._loaded_data is not None:
                 X, y = self._loaded_data.X.copy(), self._loaded_data.y.copy()
-                selected = config.get("selected_channels")
-                if selected and X.ndim == 3:
-                    valid = [i for i in selected if i < X.shape[1]]
+                ch_idx = config.get("channel_indices")
+                if ch_idx and X.ndim == 3:
+                    valid = [i for i in ch_idx if i < X.shape[1]]
                     if valid:
                         X = X[:, valid, :]
                 selected_events = config.get("selected_events")

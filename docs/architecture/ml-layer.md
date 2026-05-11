@@ -9,7 +9,7 @@ Decoder pipelines with sklearn-compatible `fit`/`predict` interface for cross-va
 
 Decoder (`src/dendrite/ml/decoders/decoder.py`) wraps PyTorch models and classical ML (CSP+LDA/SVM) behind a unified sklearn interface. The registry (`src/dendrite/ml/decoders/registry.py`) maps decoder type strings to pipeline builders and modality metadata.
 
-`DecoderConfig` (`src/dendrite/ml/decoders/decoder_schemas.py`) is the self-describing unit: model type, input shapes, event/label mappings, and per-modality `PreprocessingConfig` (bandpass, CAR, resampling). Saved with the decoder JSON so inference needs no external config.
+`DecoderConfig` (`src/dendrite/ml/decoders/decoder_schemas.py`) is the self-describing unit: model type, input shapes, event/label mappings, and per-modality `PreprocessingConfig` (defined in `src/dendrite/processing/preprocessing/preprocessing_schemas.py`: bandpass, CAR, resampling). Saved with the decoder JSON so inference needs no external config.
 
 ---
 

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
-import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { makeAxis, CURSOR_INTERACTIVE, LEGEND_HIDDEN, getMutedStroke } from '../../utils/chartDefaults'
 import { useUPlot } from '../../composables/useUPlot'
 import type { EventSummary } from '../../types/api'
 import { CHART_COLORS } from '../../utils/colors'
@@ -107,7 +107,7 @@ function buildTimeline() {
           ctx.textBaseline = 'middle'
           for (let i = 0; i < types.length; i++) {
             const yPos = u.valToPos(i, 'y')
-            ctx.fillStyle = colorMap.value[types[i]!] ?? '#888'
+            ctx.fillStyle = colorMap.value[types[i]!] ?? getMutedStroke()
             ctx.fillText(eventLabel(types[i]!), u.bbox.left / devicePixelRatio - 4, yPos)
           }
           ctx.restore()

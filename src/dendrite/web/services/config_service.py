@@ -107,6 +107,17 @@ class ConfigService:
         Raises:
             FileNotFoundError, json.JSONDecodeError.
         """
+        try:
+            return self._load_configuration(file_path)
+        except (FileNotFoundError, PermissionError):
+            raise
+        except Exception:
+            # Surface the full stack server-side; the router still returns
+            # a 4xx with type(e).__name__ so the toast pinpoints the failure.
+            self.logger.exception(f"Failed to load configuration from {file_path}")
+            raise
+
+    def _load_configuration(self, file_path: str) -> dict[str, Any]:
         from dendrite.web.schemas import StudyConfig
 
         with open(file_path) as f:

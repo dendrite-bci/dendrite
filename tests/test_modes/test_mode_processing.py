@@ -227,7 +227,6 @@ def _make_nfb_mode(n_channels=4, sample_rate=250.0, modality="eeg"):
     }
     mode.use_cluster_mode = False
     mode.channel_labels = [f"Ch{i}" for i in range(n_channels)]
-    mode.selected_channel_indices = list(range(n_channels))
     mode.target_bands = {"alpha": [8.0, 12.0], "beta": [13.0, 30.0]}
 
     # State
@@ -251,7 +250,6 @@ def _make_nfb_mode(n_channels=4, sample_rate=250.0, modality="eeg"):
     mode.iaf_baseline_pos = 0
     mode.iaf_baseline_samples = 0
     mode.iaf_value = None
-    mode._original_bands = None
     mode._event_handlers = {}
     mode.use_relative_power = True
 
@@ -328,6 +326,73 @@ class TestNeurofeedbackProcessing:
         outputs = _drain(pred_q)
         nfb = [o for o in outputs if isinstance(o, dict) and o.get("type") == "neurofeedback"]
         assert len(nfb) >= 1
+
+    def test_resolve_selected_labels_maps_indices_to_labels(self):
+        """channel_selection indices should pick the matching labels from the full list."""
+        from dendrite.processing.modes.neurofeedback_mode import NeurofeedbackMode
+
+        full = [f"E{i}" for i in range(60)]
+        full[7], full[23], full[24] = "C3", "Cz", "C4"
+
+        obj = MagicMock()
+        obj.modality_name = "eeg"
+        obj.modality_labels = {"eeg": full}
+        obj.channel_selection = {"eeg": [7, 23, 24]}
+
+        result = NeurofeedbackMode._resolve_selected_labels(obj)
+        assert result == ["C3", "Cz", "C4"]
+
+    def test_resolve_selected_labels_no_selection_returns_full(self):
+        """Empty channel_selection should fall back to full modality labels."""
+        from dendrite.processing.modes.neurofeedback_mode import NeurofeedbackMode
+
+        obj = MagicMock()
+        obj.modality_name = "eeg"
+        obj.modality_labels = {"eeg": ["C3", "Cz", "C4"]}
+        obj.channel_selection = {}
+
+        result = NeurofeedbackMode._resolve_selected_labels(obj)
+        assert result == ["C3", "Cz", "C4"]
+
+    def test_output_keys_match_selected_labels_in_non_contiguous_stream(self):
+        """End-to-end: output channel_powers keys must equal the selected EEG labels.
+
+        Regression: a stream where EEG channels are not stream-contiguous
+        (e.g., interleaved with EOG) used to mismatch labels and data because
+        channel_selection and channel_labels lived in different coordinate
+        spaces. With per-modality local_index, both are modality-relative and
+        the resolution lines up.
+        """
+        # 60-channel EEG modality with C3/Cz/C4 at modality-relative positions 5/21/22
+        full_labels = [f"E{i}" for i in range(60)]
+        full_labels[5], full_labels[21], full_labels[22] = "C3", "Cz", "C4"
+
+        n_selected = 3
+        mode, _, pred_q = _make_nfb_mode(n_channels=n_selected, sample_rate=250.0)
+
+        # Apply the production resolution path
+        mode.modality_labels = {"eeg": full_labels}
+        mode.channel_selection = {"eeg": [5, 21, 22]}
+        mode.channel_labels = mode._resolve_selected_labels()
+
+        _feed_nfb(mode, n_selected, 250.0)
+
+        outputs = _drain(pred_q)
+        nfb = [o for o in outputs if isinstance(o, dict) and o.get("type") == "neurofeedback"]
+        assert len(nfb) >= 1
+        assert set(nfb[0]["data"]["channel_powers"].keys()) == {"C3", "Cz", "C4"}
+
+    def test_resolve_selected_labels_empty_full_returns_empty(self):
+        """No labels available means caller will fall back to ch{i} naming."""
+        from dendrite.processing.modes.neurofeedback_mode import NeurofeedbackMode
+
+        obj = MagicMock()
+        obj.modality_name = "eeg"
+        obj.modality_labels = {}
+        obj.channel_selection = {"eeg": [0, 1, 2]}
+
+        result = NeurofeedbackMode._resolve_selected_labels(obj)
+        assert result == []
 
 
 # ---------------------------------------------------------------------------
@@ -410,9 +475,9 @@ class TestIAFDetection:
         mode.iaf_baseline_buf = None
         mode.iaf_baseline_pos = 0
         mode.iaf_baseline_samples = int(baseline_sec * fs)
-        mode._original_bands = {k: list(v) for k, v in mode.target_bands.items()}
         mode.iaf_value = None
         mode._event_handlers = {iaf_event_id: mode._on_iaf_trigger}
+        original_bands_before = {k: list(v) for k, v in mode.target_bands.items()}
 
         rng = np.random.default_rng(42)
 
@@ -458,13 +523,62 @@ class TestIAFDetection:
         assert 8.0 < mode.iaf_value < 10.5, f"Expected ~{target_freq}, got {mode.iaf_value:.2f}"
 
         # Bands should have been shifted
-        assert mode.target_bands != mode._original_bands
+        assert mode.target_bands != original_bands_before
 
         # IAF result should be in the output queue
         outputs = _drain(main_q)
         iaf_outputs = [o for o in outputs if isinstance(o, dict) and o.get("type") == "iaf_result"]
         assert len(iaf_outputs) == 1
         assert "iaf_hz" in iaf_outputs[0]["data"]
+
+    def test_iaf_multi_sample_chunks(self):
+        """Multi-column chunks (downsampler output) must be fully accumulated.
+
+        Regression: _accumulate_iaf_sample previously copied only data[:, 0]
+        per call, dropping k-1 of every k samples whenever the preprocessor
+        emitted downsampled chunks of width k>1. That produced an IAF off
+        by factor k. Verify with a 10 Hz tone fed in width-4 chunks plus a
+        final overshooting chunk that exercises the boundary clamp.
+        """
+        fs = 250.0
+        n_channels = 2
+        baseline_sec = 1.0
+        target_freq = 10.0
+        chunk_width = 4
+
+        mode, _, _ = _make_nfb_mode(n_channels=n_channels, sample_rate=fs)
+        mode.iaf_baseline_samples = int(baseline_sec * fs)
+        mode.iaf_baseline_buf = np.zeros(
+            (n_channels, mode.iaf_baseline_samples), dtype=np.float32
+        )
+        mode.iaf_baseline_pos = 0
+        mode.iaf_state = "collecting"
+        mode.iaf_range = (7.0, 14.0)
+
+        n_samples = mode.iaf_baseline_samples
+        t = np.arange(n_samples) / fs
+        tone = np.sin(2 * np.pi * target_freq * t).astype(np.float32)
+        full = np.tile(tone, (n_channels, 1))
+
+        # Feed in width-4 chunks; final iteration deliberately overshoots
+        # to exercise the boundary clamp in _accumulate_iaf_sample.
+        pos = 0
+        while pos < n_samples:
+            end = pos + chunk_width
+            if end > n_samples:
+                # Pad with zeros past the tone end — must be clamped, not copied.
+                chunk = np.zeros((n_channels, chunk_width), dtype=np.float32)
+                chunk[:, : n_samples - pos] = full[:, pos:n_samples]
+            else:
+                chunk = full[:, pos:end]
+            mode._accumulate_iaf_sample({"eeg": chunk})
+            pos = end
+
+        assert mode.iaf_state == "done"
+        assert mode.iaf_value is not None
+        assert 9.5 < mode.iaf_value < 10.5, (
+            f"Expected ~{target_freq} Hz, got {mode.iaf_value:.2f}"
+        )
 
     def test_iaf_disabled_ignores_markers(self):
         """Without iaf_event_id, markers should be ignored."""
@@ -474,7 +588,6 @@ class TestIAFDetection:
         mode.iaf_baseline_buf = None
         mode.iaf_baseline_pos = 0
         mode.iaf_baseline_samples = 0
-        mode._original_bands = None
         mode.iaf_value = None
         mode._event_handlers = {}
 

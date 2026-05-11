@@ -47,15 +47,6 @@ async def load_recording(req: RecordingLoadRequest):
         raise HTTPException(500, f"Failed to load recording: {e}") from e
 
 
-@router.get("/data/loaded")
-def get_loaded_data():
-    """Get metadata of currently loaded data."""
-    info = get_ml_service().get_loaded_data_info()
-    if info is None:
-        raise HTTPException(404, "No data currently loaded")
-    return info
-
-
 # --- Models ---
 
 
@@ -99,10 +90,10 @@ async def start_training(req: TrainingStartRequest):
         raise HTTPException(422, str(e)) from e
 
 
-@router.post("/train/{job_id}/cancel")
-async def cancel_training(job_id: int):
-    """Cancel a running training job."""
-    if not await get_ml_service().cancel_training(job_id):
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: int):
+    """Cancel a running job (training, evaluation, or benchmark)."""
+    if not await get_ml_service().cancel_job(job_id):
         raise HTTPException(404, "Job not found or not running")
     return {"ok": True}
 

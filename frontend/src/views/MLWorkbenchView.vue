@@ -148,7 +148,7 @@ const typeGroups = computed(() => {
 })
 
 const enabledTypes = computed(() => {
-  const sel = ml.dataPreproc.selected_channels
+  const sel = ml.dataPreproc.channel_indices
   const result: Record<string, boolean> = {}
   for (const [type, indices] of Object.entries(typeGroups.value)) {
     result[type] = !sel || indices.some(i => sel.includes(i))
@@ -156,18 +156,18 @@ const enabledTypes = computed(() => {
   return result
 })
 
-const selectedChannelCount = computed(() => ml.dataPreproc.selected_channels?.length ?? allChannels.value.length)
+const selectedChannelCount = computed(() => ml.dataPreproc.channel_indices?.length ?? allChannels.value.length)
 
 function toggleType(type: string) {
   const indices = typeGroups.value[type] || []
-  const current = ml.dataPreproc.selected_channels
+  const current = ml.dataPreproc.channel_indices
   if (!current) {
     const allIndices = allChannels.value.map((_: string, i: number) => i)
-    ml.dataPreproc.selected_channels = allIndices.filter((i: number) => !indices.includes(i))
+    ml.dataPreproc.channel_indices = allIndices.filter((i: number) => !indices.includes(i))
   } else if (enabledTypes.value[type]) {
-    ml.dataPreproc.selected_channels = current.filter((i: number) => !indices.includes(i))
+    ml.dataPreproc.channel_indices = current.filter((i: number) => !indices.includes(i))
   } else {
-    ml.dataPreproc.selected_channels = [...current, ...indices].sort((a: number, b: number) => a - b)
+    ml.dataPreproc.channel_indices = [...current, ...indices].sort((a: number, b: number) => a - b)
   }
 }
 
@@ -380,9 +380,9 @@ onUnmounted(() => { ml.disconnectWS() })
                   Channels ({{ selectedChannelCount }}/{{ allChannels.length }})
                 </span>
                 <div class="flex gap-1">
-                  <button @click="ml.dataPreproc.selected_channels = null"
+                  <button @click="ml.dataPreproc.channel_indices = null"
                     class="text-xs px-2 py-0.5 rounded bg-bg-input text-text-muted hover:text-text-main transition-colors">All</button>
-                  <button @click="ml.dataPreproc.selected_channels = []"
+                  <button @click="ml.dataPreproc.channel_indices = []"
                     class="text-xs px-2 py-0.5 rounded bg-bg-input text-text-muted hover:text-text-main transition-colors">None</button>
                 </div>
               </div>

@@ -104,6 +104,31 @@ def test_modalities_by_stream_groups_channels(svc: StreamService):
     assert len(entry["modalities"]["eog"]) == 2
 
 
+def test_modalities_local_index_is_per_modality(svc: StreamService):
+    """local_index must be 0-based per modality, not the stream-wide position.
+
+    Regression: previously local_index used the full-stream enumerate index,
+    which matched the modality-relative space only when modalities were
+    contiguous. With interleaved EOG/EEG, channel_selection ended up
+    stream-relative while the runtime expected modality-relative.
+    """
+    eeg = _make_stream(
+        channel_count=5,
+        labels=["EOG1", "C3", "EOG2", "Cz", "C4"],
+        channel_types=["eog", "eeg", "eog", "eeg", "eeg"],
+    )
+    svc.configure_streams([eeg.stable_key], {eeg.stable_key: eeg})
+
+    entry = next(iter(svc.get_modalities_by_stream().values()))
+    eeg_channels = entry["modalities"]["eeg"]
+    assert [c["label"] for c in eeg_channels] == ["C3", "Cz", "C4"]
+    assert [c["local_index"] for c in eeg_channels] == [0, 1, 2]
+
+    eog_channels = entry["modalities"]["eog"]
+    assert [c["label"] for c in eog_channels] == ["EOG1", "EOG2"]
+    assert [c["local_index"] for c in eog_channels] == [0, 1]
+
+
 def test_modalities_by_stream_excludes_markers(svc: StreamService):
     eeg = _make_stream(
         channel_count=3,

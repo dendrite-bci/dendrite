@@ -201,6 +201,15 @@ class PreflightService:
                 detail=None if has_channels else "No channels selected",
             )
         )
+        bounds_ok, bounds_detail = self._validate_selection_bounds(instance)
+        checks.append(
+            PreflightCheck(
+                id="channel_selection_bounds",
+                label="Selected channels exist in stream",
+                passed=bounds_ok,
+                detail=bounds_detail,
+            )
+        )
 
         # Mode-specific config validation
         if mode == "synchronous":
@@ -308,6 +317,39 @@ class PreflightService:
             ready=all(c.passed for c in checks if c.required),
             checks=checks,
         )
+
+    def _validate_selection_bounds(self, instance: dict) -> tuple[bool, str | None]:
+        """Verify channel_selection indices fit each modality's channel count.
+
+        Catches saved configs whose indices no longer match the current stream
+        layout (re-discovered stream with fewer channels, or different coord system).
+        """
+        ch_sel = instance.get("channel_selection") or {}
+        if not ch_sel:
+            return True, None
+        source = instance.get("source_stream")
+        entry = next(
+            (
+                e for e in self._stream_service.get_modalities_by_stream().values()
+                if (not source or e.get("stream_key") == source)
+                and any(mod in e.get("modalities", {}) for mod in ch_sel)
+            ),
+            None,
+        )
+        if entry is None:
+            return True, None
+        problems: list[str] = []
+        for mod, indices in ch_sel.items():
+            if not indices:
+                continue
+            n_ch = len(entry["modalities"].get(mod, []))
+            bad = [i for i in indices if i < 0 or i >= n_ch]
+            if bad:
+                problems.append(
+                    f"{mod}: {sorted(set(bad))[:3]} out of range "
+                    f"({n_ch} channels available)"
+                )
+        return (not problems), ("; ".join(problems) if problems else None)
 
     def _check_output_directory(self) -> PreflightCheck:
         # Check that the studies base directory is writable.

@@ -288,7 +288,7 @@ onMounted(() => {
                   class="relative w-8 h-[18px] rounded-full shrink-0 transition-colors disabled:opacity-30"
                   :class="ls.included ? 'bg-accent' : 'bg-bg-input border border-border'"
                 >
-                  <span class="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-all"
+                  <span class="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-text-main shadow transition-all"
                         :class="ls.included ? 'left-[15px]' : 'left-[1px]'" />
                 </button>
               </div>

@@ -14,7 +14,7 @@
   --color-text-disabled: #949494;
   --color-text-muted: #b8b8b8;
 
-  /* Border — visible but soft */
+  /* Border — hairline, ~one step above panel */
   --color-border: #2a2a2a;
 
   /* Brand */
@@ -82,12 +82,12 @@ html, body, #app {
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: var(--color-bg-elevated) transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-bg-elevated); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-bg-hover); }
 
 /* Form element base styles */

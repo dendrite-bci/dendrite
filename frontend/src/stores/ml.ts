@@ -44,7 +44,7 @@ export const useMLStore = defineStore('ml', () => {
     epoch_tmin: -0.2,
     epoch_tmax: 0.8,
     selected_events: null as string[] | null,
-    selected_channels: null as number[] | null,
+    channel_indices: null as number[] | null,
     use_epoch_qc: true,
     include_background: false,
     eval_split: 0.2,
@@ -172,7 +172,7 @@ export const useMLStore = defineStore('ml', () => {
       epoch_tmin: pp.epoch_tmin,
       epoch_tmax: pp.epoch_tmax,
       selected_events: pp.selected_events,
-      selected_channels: pp.selected_channels,
+      channel_indices: pp.channel_indices,
       use_epoch_qc: pp.use_epoch_qc,
       include_background: pp.include_background,
     }
@@ -206,7 +206,7 @@ export const useMLStore = defineStore('ml', () => {
   }
 
   function _onDataLoaded() {
-    dataPreproc.value.selected_channels = null
+    dataPreproc.value.channel_indices = null
     const nClasses = loadedData.value?.metadata?.class_names?.length
     if (nClasses && nClasses >= 2) {
       trainingConfig.value.num_classes = nClasses
@@ -362,15 +362,18 @@ export const useMLStore = defineStore('ml', () => {
         selectedJob.value = job
       }
     }
-    // Restore eval results into evalMetrics so EvalResultsPanel displays them
-    if (job.job_type === 'evaluation' && job.status === 'completed' && job.result_json) {
-      try {
-        const result = JSON.parse(job.result_json)
+    if (job.job_type !== 'benchmark') benchResults.value = []
+    if (job.status !== 'completed' || !job.result_json) return
+    try {
+      const result = JSON.parse(job.result_json)
+      if (job.job_type === 'evaluation') {
         result._job_id = job.job_id
         evalMetrics.value = result
         evalJobId.value = job.job_id
-      } catch (e) { console.warn('Malformed eval result_json', e) }
-    }
+      } else if (job.job_type === 'benchmark') {
+        benchResults.value = result.results ?? []
+      }
+    } catch (e) { console.warn(`Malformed ${job.job_type} result_json`, e) }
   }
 
   async function startTraining() {
@@ -382,7 +385,7 @@ export const useMLStore = defineStore('ml', () => {
     try {
       // Derive primary modality from selected channels' types
       const types = loadedData.value?.channel_types ?? []
-      const sel = dataPreproc.value.selected_channels
+      const sel = dataPreproc.value.channel_indices
       const selectedTypes = sel ? sel.map(i => types[i]?.toLowerCase() ?? 'eeg') : types.map(t => t?.toLowerCase() ?? 'eeg')
       const modality = selectedTypes[0] ?? 'eeg'
 
@@ -393,7 +396,7 @@ export const useMLStore = defineStore('ml', () => {
           ...trainingConfig.value,
           modality,
           study_id: selectedStudyId.value,
-          selected_channels: dataPreproc.value.selected_channels,
+          channel_indices: dataPreproc.value.channel_indices,
           selected_events: dataPreproc.value.selected_events,
           lowcut: dataPreproc.value.lowcut,
           highcut: dataPreproc.value.highcut,
@@ -415,9 +418,9 @@ export const useMLStore = defineStore('ml', () => {
     }
   }
 
-  async function cancelTraining(jobId: number) {
+  async function cancelJob(jobId: number) {
     try {
-      await apiFetch(`/api/ml/train/${jobId}/cancel`, { method: 'POST' })
+      await apiFetch(`/api/ml/jobs/${jobId}/cancel`, { method: 'POST' })
       await fetchJobs()
       return true
     } catch {
@@ -465,7 +468,7 @@ export const useMLStore = defineStore('ml', () => {
         json: {
           ...evalConfig.value,
           ...evalGate.value,
-          channel_indices: dataPreproc.value.selected_channels,
+          channel_indices: dataPreproc.value.channel_indices,
         },
       })
       evalJobId.value = data.job_id ?? null
@@ -502,7 +505,7 @@ export const useMLStore = defineStore('ml', () => {
         fallbackMessage: 'Benchmark failed to start',
         json: {
           ...benchConfig.value,
-          channel_indices: dataPreproc.value.selected_channels,
+          channel_indices: dataPreproc.value.channel_indices,
         },
       })
       benchJobId.value = data.job_id ?? null
@@ -619,13 +622,13 @@ export const useMLStore = defineStore('ml', () => {
     models, jobs, selectedJob, trainingProgress, trainingConfig,
     modelSchema, searchCategories,
     fetchModels, fetchModelSchema, fetchSearchCategories, applySearchParams,
-    fetchJobs, selectJob, startTraining, cancelTraining,
+    fetchJobs, selectJob, startTraining, cancelJob,
     saveDecoder, deleteJob,
     // Evaluation
-    evalConfig, evalGate, evalMetrics, evalRunning, liveEval,
+    evalConfig, evalGate, evalMetrics, evalRunning, evalJobId, liveEval,
     startEvaluation, reaggregateEval,
     // Benchmark
-    benchConfig, benchResults, benchRunning, startBenchmark,
+    benchConfig, benchResults, benchRunning, benchJobId, startBenchmark,
     // WS
     connectWS, disconnectWS,
   }

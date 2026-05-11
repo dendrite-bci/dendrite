@@ -154,7 +154,7 @@ function selectJob(job: TrainingJob) {
             </div>
           </div>
         </div>
-        <p v-else class="text-xs text-text-disabled px-3 py-4 text-center">No training jobs yet.</p>
+        <p v-else class="text-xs text-text-disabled px-3 py-4 text-center">No jobs yet.</p>
       </div>
     </Transition>
   </div>
@@ -214,7 +214,7 @@ function selectJob(job: TrainingJob) {
       </div>
     </div>
 
-    <p v-else class="text-xs text-text-disabled px-3 pb-3">No training jobs yet.</p>
+    <p v-else class="text-xs text-text-disabled px-3 pb-3">No jobs yet.</p>
   </div>
 </template>
 

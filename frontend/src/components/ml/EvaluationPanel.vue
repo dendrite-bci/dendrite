@@ -45,6 +45,12 @@ const completedJobs = computed(() =>
         <i v-if="ml.evalRunning" class="pi pi-spin pi-spinner mr-1" />
         {{ ml.evalRunning ? 'Evaluating...' : 'Evaluate' }}
       </button>
+
+      <button
+        v-if="ml.evalRunning && ml.evalJobId"
+        @click="ml.cancelJob(ml.evalJobId)"
+        class="px-3 py-1.5 text-xs font-medium rounded bg-status-error/10 text-status-error hover:bg-status-error/20 transition-colors"
+      >Cancel</button>
     </div>
 
     <!-- Progress -->

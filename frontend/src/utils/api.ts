@@ -59,7 +59,12 @@ export async function apiFetch<T = any>(url: string, options?: ApiFetchOptions):
       // Response body not JSON — use status text
     }
     if (!silent) {
-      const fromDetail = typeof detail === 'string' ? detail : detail?.message
+      const fromDetail =
+        typeof detail === 'string'
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((e: any) => `${(e.loc ?? []).join('.')}: ${e.msg}`).join('; ')
+            : detail?.message
       useToast().error(fromDetail ?? fallbackMessage ?? 'Request failed')
     }
     throw new ApiError(res.status, detail)

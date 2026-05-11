@@ -67,7 +67,7 @@ Interpolation pipeline:
 1. **Detection**: `ChannelQualityMonitor` on raw signal data (rolling 5s window, iterative MAD z-score, hysteresis)
 2. **Freeze**: After 10s warmup, list locked. Override via `PUT /api/pipeline/channel-flags`
 3. **Interpolation**: `CorrelationInterpolationMatrix` computes W from pairwise channel correlations in warmup data. `InterpolationApplicator` applies W per chunk before CAR
-4. **Training parity**: `load_recording_epochs()` applies the same interpolation to raw HDF5 data before offline preprocessing
+4. **Training parity**: `load_epochs()` applies the same interpolation to raw HDF5 data before offline preprocessing
 
 Processing order per chunk: **interpolate bad channels → CAR (all channels) → bandpass filter → downsample**
 

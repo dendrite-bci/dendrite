@@ -11,6 +11,8 @@ const toast = useToast()
 const search = ref('')
 const selectedPath = ref<string | null>(null)
 const isLoading = ref(false)
+const isDragging = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 const grouped = computed(() => {
   const groups: Record<string, ConfigFile[]> = {}
@@ -72,6 +74,45 @@ async function load(path?: string) {
   }
 }
 
+async function uploadFile(file: File) {
+  if (!file.name.toLowerCase().endsWith('.json')) {
+    toast.error('Config must be a .json file')
+    return
+  }
+  isLoading.value = true
+  try {
+    const ok = await config.uploadConfig(file)
+    if (ok) {
+      toast.success('Configuration uploaded and loaded')
+      emit('close')
+    }
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function onFilePicked(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) uploadFile(file)
+  target.value = ''
+}
+
+function onDrop(e: DragEvent) {
+  isDragging.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file) uploadFile(file)
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = true
+}
+
+function onDragLeave() {
+  isDragging.value = false
+}
+
 function onKey(e: KeyboardEvent) { if (e.key === 'Escape') emit('close') }
 onMounted(() => { config.listConfigs(); window.addEventListener('keydown', onKey) })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
@@ -80,14 +121,32 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 <template>
   <Teleport to="body">
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="emit('close')">
-      <div class="bg-bg-panel border border-border rounded-lg shadow-2xl shadow-black/40 w-[480px] max-h-[500px] flex flex-col">
+      <div
+        class="bg-bg-panel border rounded-lg shadow-2xl shadow-black/40 w-[480px] max-h-[500px] flex flex-col transition-colors"
+        :class="isDragging ? 'border-accent' : 'border-border'"
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        @drop.prevent="onDrop"
+      >
 
         <!-- Header -->
         <div class="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
           <h2 class="text-base font-semibold text-text-main">Load Configuration</h2>
-          <button @click="emit('close')" class="text-text-disabled hover:text-text-main transition-colors p-1">
-            <i class="pi pi-times" />
-          </button>
+          <div class="flex items-center gap-1">
+            <button
+              @click="fileInput?.click()"
+              :disabled="isLoading"
+              class="text-xs text-text-muted hover:text-text-main transition-colors px-2 py-1 rounded
+                     border border-border hover:border-text-muted disabled:opacity-30"
+              title="Upload a config JSON from disk"
+            >
+              <i class="pi pi-upload mr-1" />Upload
+            </button>
+            <input ref="fileInput" type="file" accept="application/json,.json" class="hidden" @change="onFilePicked" />
+            <button @click="emit('close')" class="text-text-disabled hover:text-text-main transition-colors p-1 ml-1">
+              <i class="pi pi-times" />
+            </button>
+          </div>
         </div>
 
         <!-- Search -->
@@ -97,6 +156,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             placeholder="Search configs..."
             class="w-full"
           />
+        </div>
+
+        <!-- Drop hint when dragging -->
+        <div
+          v-if="isDragging"
+          class="px-5 py-2 text-xs text-accent border-b border-accent/30 bg-accent/5 shrink-0"
+        >
+          <i class="pi pi-download mr-1" />Drop .json file to upload and load
         </div>
 
         <!-- Config list -->

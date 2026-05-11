@@ -55,6 +55,12 @@ function toggleModel(modelType: string) {
         <i v-if="ml.benchRunning" class="pi pi-spin pi-spinner mr-1" />
         {{ ml.benchRunning ? 'Running...' : `Benchmark (${ml.benchConfig.model_types.length})` }}
       </button>
+
+      <button
+        v-if="ml.benchRunning && ml.benchJobId"
+        @click="ml.cancelJob(ml.benchJobId)"
+        class="px-3 py-1.5 text-xs font-medium rounded bg-status-error/10 text-status-error hover:bg-status-error/20 transition-colors"
+      >Cancel</button>
     </div>
   </div>
 </template>

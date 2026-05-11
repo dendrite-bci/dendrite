@@ -2,7 +2,7 @@
 import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
-import { makeAxis, LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { makeAxis, LEGEND_HIDDEN, getMutedStroke } from '../../utils/chartDefaults'
 import { useUPlot } from '../../composables/useUPlot'
 import { useVisualizationStore } from '../../stores/visualization'
 import { useTelemetryStore } from '../../stores/telemetry'
@@ -115,7 +115,7 @@ let rebuildNeeded = true
 
 function seriesColor(index: number): string {
   if (props.detail) {
-    return index === 0 ? '#888' : CH_COLORS[(index - 1) % CH_COLORS.length]!
+    return index === 0 ? getMutedStroke() : CH_COLORS[(index - 1) % CH_COLORS.length]!
   }
   return EVENT_COLORS[index % EVENT_COLORS.length]!
 }

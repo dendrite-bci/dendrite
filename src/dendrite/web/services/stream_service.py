@@ -292,16 +292,13 @@ class StreamService:
             stream_modalities: dict[str, list[dict[str, Any]]] = {}
 
             if stream.channel_types and len(stream.channel_types) == len(stream.labels):
-                for i, (label, ch_type) in enumerate(
-                    zip(stream.labels, stream.channel_types, strict=False)
-                ):
+                for label, ch_type in zip(stream.labels, stream.channel_types, strict=False):
                     normalized = ch_type.lower() if ch_type else ""
                     if normalized and normalized not in METADATA_CHANNEL_TYPES:
-                        if normalized not in stream_modalities:
-                            stream_modalities[normalized] = []
-                        stream_modalities[normalized].append({
+                        bucket = stream_modalities.setdefault(normalized, [])
+                        bucket.append({
                             "label": label,
-                            "local_index": i,
+                            "local_index": len(bucket),
                         })
 
             if stream_modalities:

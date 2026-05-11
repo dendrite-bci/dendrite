@@ -90,7 +90,8 @@ watch(() => props.series, () => {
       >
         <span
           class="w-2 h-2 rounded-full shrink-0"
-          :style="{ backgroundColor: hidden.has(i) ? '#666' : seriesColor(i) }"
+          :style="hidden.has(i) ? {} : { backgroundColor: seriesColor(i) }"
+          :class="hidden.has(i) ? 'bg-text-disabled' : ''"
         />
         {{ s.label }}
       </button>

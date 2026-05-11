@@ -25,7 +25,7 @@ defineEmits<{
     ]"
   >
     <div
-      class="rounded-full bg-white absolute transition-transform"
+      class="rounded-full bg-text-main absolute transition-transform"
       :class="[
         compact ? 'w-2.5 h-2.5 top-[2px]' : 'w-4 h-4 top-[3px]',
         modelValue

@@ -93,7 +93,7 @@ function handleStudyChange(event: Event) {
           <div
             @click="toggleSelect(rec.recording_id)"
             class="flex items-center gap-2 px-2 py-2 cursor-pointer rounded transition-colors"
-            :class="isSelected(rec.recording_id) ? 'bg-accent/10 ring-1 ring-inset ring-accent/25' : 'hover:bg-white/[0.04]'"
+            :class="isSelected(rec.recording_id) ? 'bg-accent/10 ring-1 ring-inset ring-accent/25' : 'hover:bg-text-main/[0.04]'"
           >
             <!-- Checkbox -->
             <span class="w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors text-[8px]"
@@ -112,13 +112,13 @@ function handleStudyChange(event: Event) {
           </div>
 
           <!-- Expanded detail -->
-          <div v-if="expandedId === rec.recording_id" class="ml-7 mr-2 mb-1 px-2 py-2 rounded bg-white/[0.04] border-l border-border/30 text-xs space-y-1.5">
+          <div v-if="expandedId === rec.recording_id" class="ml-7 mr-2 mb-1 px-2 py-2 rounded bg-text-main/[0.04] border-l border-border/30 text-xs space-y-1.5">
             <div v-if="ml.recordingEventSummaries[rec.recording_id]" class="flex items-center gap-1.5 flex-wrap">
               <span class="text-text-disabled">Events:</span>
               <span
                 v-for="(count, name) in ml.recordingEventSummaries[rec.recording_id]"
                 :key="name"
-                class="px-1.5 py-0.5 rounded bg-white/[0.04] text-text-muted"
+                class="px-1.5 py-0.5 rounded bg-text-main/[0.04] text-text-muted"
               >{{ name }} <span class="text-text-disabled font-mono">{{ count }}</span></span>
             </div>
             <div class="text-text-disabled">

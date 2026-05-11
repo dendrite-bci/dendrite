@@ -66,7 +66,7 @@ const STATE_MAP: Record<string, StateStyle> = {
   starting: { dot: 'bg-status-warn',  bg: 'bg-status-warn/15',  text: 'text-status-warn',  label: 'Starting...' },
   stopping: { dot: 'bg-status-warn',  bg: 'bg-status-warn/15',  text: 'text-status-warn',  label: 'Stopping...' },
   error:    { dot: 'bg-status-error', bg: 'bg-status-error/15', text: 'text-status-error', label: 'Error' },
-  idle:     { dot: 'bg-text-disabled', bg: 'bg-white/[0.04]',   text: 'text-text-disabled', label: 'Idle' },
+  idle:     { dot: 'bg-text-disabled', bg: 'bg-text-main/[0.04]',   text: 'text-text-disabled', label: 'Idle' },
   stopped:  { dot: 'bg-status-warn',  bg: 'bg-status-warn/10',  text: 'text-status-warn',  label: 'Stopped' },
 }
 const IDLE_STYLE = STATE_MAP.idle!
@@ -148,7 +148,7 @@ async function spawnAsyncFromSync(name: string, instance: ModeInstance) {
       >
         <!-- Mode type icon + state dot -->
         <div
-          class="w-12 shrink-0 flex flex-col items-center justify-center gap-2 bg-white/[0.02]"
+          class="w-12 shrink-0 flex flex-col items-center justify-center gap-2 bg-text-main/[0.02]"
         >
           <i :class="MODE_ICON[instance.mode]" class="text-base text-text-disabled group-hover/card:text-text-muted transition-colors" />
           <span
@@ -202,7 +202,7 @@ async function spawnAsyncFromSync(name: string, instance: ModeInstance) {
             <span class="text-[11px] text-text-muted">{{ badgeDetail(instance) }}</span>
             <span
               v-for="ev in badgeEventNames(instance)" :key="ev"
-              class="text-[10px] text-text-disabled bg-white/[0.06] rounded px-1.5 py-0.5"
+              class="text-[10px] text-text-disabled bg-text-main/[0.06] rounded px-1.5 py-0.5"
             >{{ ev }}</span>
           </div>
         </div>
@@ -222,7 +222,7 @@ async function spawnAsyncFromSync(name: string, instance: ModeInstance) {
             @click.stop="modes.startMode(name as string)"
             class="w-10 h-10 flex items-center justify-center rounded-full
                    border border-text-muted/40 text-text-label
-                   hover:border-text-main hover:text-text-main hover:bg-white/5
+                   hover:border-text-main hover:text-text-main hover:bg-text-main/5
                    active:scale-95 transition-all"
             title="Start mode"
           >

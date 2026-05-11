@@ -18,7 +18,7 @@ import { withBase } from 'vitepress'
   <section class="features">
     <div class="feature">
       <h3>Data Acquisition</h3>
-      <p>Acquire EEG, EMG, and event markers over LSL. Record to HDF5, replay past sessions as live streams.</p>
+      <p>Acquire signals (EEG, EMG, etc.) and event markers over LSL. Record to HDF5, replay past sessions as live streams.</p>
     </div>
     <div class="feature">
       <h3>Signal Processing & ML</h3>
@@ -105,6 +105,7 @@ import { withBase } from 'vitepress'
 .landing .feature {
   padding: 1.5rem 2rem;
   border-left: 1px solid var(--vp-c-divider);
+  text-align: center;
 }
 
 .landing .feature:first-child {

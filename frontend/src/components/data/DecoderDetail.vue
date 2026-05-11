@@ -124,7 +124,7 @@ const hasTrainingConfig = computed(() =>
               <template v-if="pipelineSteps.length > 0">
                 <template v-for="(step, i) in pipelineSteps" :key="step">
                   <span v-if="i > 0" class="text-text-disabled text-[10px]">→</span>
-                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-text-muted">{{ step }}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-text-main/[0.04] text-text-muted">{{ step }}</span>
                 </template>
               </template>
             </div>
@@ -137,7 +137,7 @@ const hasTrainingConfig = computed(() =>
       </div>
 
       <!-- Input spec bar -->
-      <div class="flex items-center gap-3 px-4 py-2 bg-white/[0.02] border-t border-border/20 text-xs flex-wrap">
+      <div class="flex items-center gap-3 px-4 py-2 bg-text-main/[0.02] border-t border-border/20 text-xs flex-wrap">
         <span v-if="inputSpec?.modality" class="uppercase text-[10px] font-bold text-text-muted tracking-wider">{{ inputSpec.modality }}</span>
         <span v-if="inputSpec?.nCh" class="font-mono text-text-muted">{{ inputSpec.nCh }}ch × {{ inputSpec.nPts }}pts</span>
         <span v-if="inputSpec?.windowSec" class="font-mono text-text-disabled">({{ inputSpec.windowSec }}s)</span>
@@ -253,7 +253,7 @@ const hasTrainingConfig = computed(() =>
       <div v-if="showChannels" class="flex flex-wrap gap-1 mt-2">
         <span
           v-for="ch in channelLabels" :key="ch"
-          class="px-1.5 py-0.5 text-[10px] bg-white/[0.04] rounded text-text-muted"
+          class="px-1.5 py-0.5 text-[10px] bg-text-main/[0.04] rounded text-text-muted"
         >{{ ch }}</span>
       </div>
     </div>

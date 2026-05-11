@@ -32,7 +32,6 @@ from dendrite.processing.modes.mode_utils import (
 )
 from dendrite.utils.component_state import ComponentState, ComponentStateMachine
 from dendrite.utils.logger_central import get_logger, setup_logger
-from dendrite.utils.modality import normalize_modality_dict
 from dendrite.utils.shared_state import SharedState
 from dendrite.utils.state_keys import mode_metric_key
 
@@ -85,10 +84,8 @@ class BaseMode(multiprocessing.Process, ABC):
 
         self.instance_config = instance_config
         self.mode_name = instance_config["name"]
-        raw_channel_selection = instance_config.get("channel_selection") or {}
-        self.channel_selection = normalize_modality_dict(raw_channel_selection)
-        rb_labels = (self._rb_config or {}).get("modality_labels", {})
-        self.modality_labels = normalize_modality_dict(rb_labels)
+        self.channel_selection = instance_config.get("channel_selection") or {}
+        self.modality_labels = (self._rb_config or {}).get("modality_labels", {})
         rb_rate = self._rb_config.get("sample_rate") if self._rb_config else None
         self.sample_rate = float(rb_rate) if rb_rate else 500.0
 

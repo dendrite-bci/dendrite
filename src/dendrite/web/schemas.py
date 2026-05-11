@@ -189,7 +189,7 @@ class TrainingStartRequest(BaseModel):
     label_smoothing_factor: float = 0.0
     mixup_alpha: float = 0.0
     use_loaded_data: bool = False
-    selected_channels: list[int] | None = None
+    channel_indices: list[int] | None = None
     selected_events: list[str] | None = None
     lowcut: float | None = None
     highcut: float | None = None
@@ -229,7 +229,7 @@ class RecordingLoadRequest(BaseModel):
     epoch_tmin: float = -0.2
     epoch_tmax: float = 0.8
     selected_events: list[str] | None = None
-    selected_channels: list[int] | None = None
+    channel_indices: list[int] | None = None
     use_epoch_qc: bool = True
     include_background: bool = False
 

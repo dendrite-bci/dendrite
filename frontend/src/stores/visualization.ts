@@ -433,23 +433,14 @@ export const useVisualizationStore = defineStore('visualization', () => {
   }
 
   function _getModeChannelLabels(modeName: string, nCh: number): string[] {
-    // Derive channel labels from mode config: modality_labels or channel_selection + eegLabels
+    // Derive channel labels by indexing channel_selection into eegLabels.
+    // Both are modality-relative (per-modality local_index from stream_service).
     const modes = useModesStore()
-    const inst = modes.instances[modeName]
-    if (inst) {
-      // Try modality_labels first (explicit names per modality)
-      const modLabels = inst.modality_labels as Record<string, string[]> | undefined
-      if (modLabels) {
-        const labels = Object.values(modLabels)[0]
-        if (labels?.length === nCh) return labels
-      }
-      // Fall back to channel_selection indices into eegLabels
-      const sel = inst.channel_selection as Record<string, number[]> | undefined
-      if (sel) {
-        const indices = Object.values(sel)[0]
-        if (indices?.length === nCh) {
-          return indices.map(i => eegLabels.value[i] ?? `ch${i}`)
-        }
+    const sel = modes.instances[modeName]?.channel_selection as Record<string, number[]> | undefined
+    if (sel) {
+      const indices = Object.values(sel)[0]
+      if (indices?.length === nCh) {
+        return indices.map(i => eegLabels.value[i] ?? `ch${i}`)
       }
     }
     return Array.from({ length: nCh }, (_, i) => `ch${i}`)

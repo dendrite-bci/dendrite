@@ -169,7 +169,7 @@ const allModalities = computed(() =>
             <span class="font-mono text-level-ok">{{ qualitySummary.good }}/{{ qualitySummary.total }}</span>
             <span v-if="qualitySummary.bad > 0" class="font-mono text-level-danger">{{ qualitySummary.bad }} bad</span>
           </div>
-          <div class="w-px h-3 bg-white/[0.06]" />
+          <div class="w-px h-3 bg-text-main/[0.06]" />
           <!-- Per-process health dots + hover popover -->
           <div v-if="telemetry.data.system.processes.length > 0" class="relative group flex items-center gap-1.5 cursor-default">
             <span class="text-text-disabled">Processes</span>
@@ -311,7 +311,7 @@ const allModalities = computed(() =>
 
           <div v-for="md in modeDisplayData" :key="md.name"
                class="bg-bg-elevated rounded-md border border-border/30 overflow-hidden">
-            <div class="px-3 py-2 border-b border-border/30 bg-white/[0.02]">
+            <div class="px-3 py-2 border-b border-border/30 bg-text-main/[0.02]">
               <div class="flex items-center justify-between mb-1">
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-semibold text-text-main">{{ md.name }}</span>

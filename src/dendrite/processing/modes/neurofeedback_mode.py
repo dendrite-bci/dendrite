@@ -68,17 +68,8 @@ class NeurofeedbackMode(BaseMode):
         # Configure cluster mode (average all selected channels into one output)
         self.use_cluster_mode = self.feature_config.get("use_cluster_mode", False)
 
-        # Store modality name (already lowercase from base_mode normalization)
         self.modality_name = self._get_primary_modality()
-
-        # Get channel labels from unified modality_labels (set by BaseMode)
-        self.channel_labels = self.modality_labels.get(self.modality_name, [])
-
-        # Extract selected channel indices for proper labeling after filtering
-        # If channel_selection specifies indices, store for label mapping
-        self.selected_channel_indices = None
-        if self.channel_selection and self.modality_name in self.channel_selection:
-            self.selected_channel_indices = self.channel_selection[self.modality_name]
+        self.channel_labels = self._resolve_selected_labels()
 
         # Configure target bands (multi-band or single band)
         self.target_bands = self.feature_config.get(
@@ -112,10 +103,31 @@ class NeurofeedbackMode(BaseMode):
         self.iaf_baseline_pos: int = 0
         self.iaf_baseline_samples: int = 0
         self.iaf_value: float | None = None
-        self._original_bands: dict[str, list[float]] | None = None
 
         if self.iaf_event_id is not None:
             self._event_handlers[self.iaf_event_id] = self._on_iaf_trigger
+
+    def _resolve_selected_labels(self) -> list[str]:
+        """Per-channel labels in buffered-data order.
+
+        Buffered data has channel_selection applied upstream
+        (mode_utils.py ModalityProcessor), so labels must be resolved
+        through the same indices to stay aligned.
+        """
+        full = self.modality_labels.get(self.modality_name, [])
+        sel = (self.channel_selection or {}).get(self.modality_name)
+        if not sel:
+            return list(full)
+        if not full:
+            return []
+        try:
+            return [full[i] for i in sel]
+        except IndexError:
+            self.logger.warning(
+                f"channel_selection out of range for '{self.modality_name}' "
+                f"(have {len(full)} labels, indices {sel})"
+            )
+            return []
 
     def _resolve_iaf_range(self) -> tuple[float, float]:
         """Resolve IAF search range: explicit config or derived from target_bands."""
@@ -197,7 +209,6 @@ class NeurofeedbackMode(BaseMode):
                 self.iaf_baseline_samples = int(
                     self.iaf_baseline_sec * self.effective_sample_rate
                 )
-                self._original_bands = {k: list(v) for k, v in self.target_bands.items()}
                 self.logger.info(
                     f"IAF calibration armed: event={self.iaf_event_id}, "
                     f"baseline={self.iaf_baseline_sec}s ({self.iaf_baseline_samples} samples), "
@@ -289,20 +300,12 @@ class NeurofeedbackMode(BaseMode):
         band_names = list(self.target_bands.keys())
         channel_powers = {}
 
-        # Calculate per-channel band powers
         for ch_idx in range(n_channels):
-            # Map buffer channel index to original label via selected_channel_indices
-            if self.selected_channel_indices and self.channel_labels:
-                orig_idx = self.selected_channel_indices[ch_idx]
-                channel_label = (
-                    self.channel_labels[orig_idx]
-                    if orig_idx < len(self.channel_labels)
-                    else f"ch{ch_idx}"
-                )
-            elif self.channel_labels and ch_idx < len(self.channel_labels):
-                channel_label = self.channel_labels[ch_idx]
-            else:
-                channel_label = f"ch{ch_idx}"
+            channel_label = (
+                self.channel_labels[ch_idx]
+                if ch_idx < len(self.channel_labels)
+                else f"ch{ch_idx}"
+            )
             band_powers = {}
 
             for band_idx, band_name in enumerate(band_names):
@@ -330,8 +333,15 @@ class NeurofeedbackMode(BaseMode):
     # ---- IAF calibration ----
 
     def _on_iaf_trigger(self, sample: Mapping[str, Any]) -> None:
-        """Event handler: begin collecting baseline data for IAF."""
+        """Event handler: begin collecting baseline data for IAF.
+
+        Calibration is one-shot per session — re-triggers after completion
+        are ignored so reward bands remain stable during a run.
+        """
         if self.iaf_state != "idle":
+            self.logger.debug(
+                f"IAF trigger ignored (state={self.iaf_state})"
+            )
             return
         data = sample.get(self.modality_name)
         n_channels = data.shape[0] if data is not None else 1
@@ -343,12 +353,19 @@ class NeurofeedbackMode(BaseMode):
         self.logger.info("IAF baseline collection started")
 
     def _accumulate_iaf_sample(self, sample: Mapping[str, Any]) -> None:
-        """Add one sample to the IAF baseline accumulator."""
+        """Append a (possibly multi-sample) chunk to the IAF baseline accumulator.
+
+        Chunks can be wider than 1 when mode preprocessing downsamples, so
+        copy all columns and clamp at the buffer boundary.
+        """
         data = sample.get(self.modality_name)
         if data is None or self.iaf_baseline_buf is None:
             return
-        self.iaf_baseline_buf[:, self.iaf_baseline_pos] = data[:, 0]
-        self.iaf_baseline_pos += 1
+        remaining = self.iaf_baseline_samples - self.iaf_baseline_pos
+        take = min(data.shape[1], remaining)
+        end = self.iaf_baseline_pos + take
+        self.iaf_baseline_buf[:, self.iaf_baseline_pos:end] = data[:, :take]
+        self.iaf_baseline_pos = end
         if self.iaf_baseline_pos >= self.iaf_baseline_samples:
             self._finalize_iaf()
 
@@ -368,6 +385,13 @@ class NeurofeedbackMode(BaseMode):
             if bands != self.target_bands[name]:
                 self.logger.info(
                     f"  {name}: {self.target_bands[name]} → {bands}"
+                )
+
+        nyquist = self.effective_sample_rate / 2.0
+        for name, bands in shifted.items():
+            if bands[1] > nyquist:
+                self.logger.warning(
+                    f"Shifted band '{name}' high {bands[1]:.2f} Hz exceeds Nyquist {nyquist:.2f} Hz"
                 )
 
         # Send result before updating bands

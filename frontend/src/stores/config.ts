@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { useToast } from '../composables/useToast'
 import type { ConfigFile, GeneralConfig, ProtocolAvailability, ProtocolFieldError } from '../types/api'
 import { apiFetch, apiFetchOrNull, ApiError } from '../utils/api'
 import { usePipelineStore } from './pipeline'
@@ -111,19 +112,48 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
+  async function _refreshAfterApply() {
+    await fetchGeneral()
+    await fetchOutput()
+    const { useModesStore } = await import('./modes')
+    const { useStreamsStore } = await import('./streams')
+    const { useDataStore } = await import('./data')
+    await useModesStore().fetchAll()
+    await useStreamsStore().fetchConfigured()
+    // Backend auto-creates the study row on load/upload; refresh so the
+    // data explorer reflects the (possibly new) study.
+    await useDataStore().fetchStudies()
+    usePipelineStore().fetchPreflight()
+  }
+
   async function loadConfig(filePath: string) {
     try {
       await apiFetch(`/api/config/load?file_path=${encodeURIComponent(filePath)}`, {
         method: 'POST',
       })
-      await fetchGeneral()
-      await fetchOutput()
-      // Refresh modes and streams from backend (restored by load_configuration)
-      const { useModesStore } = await import('./modes')
-      const { useStreamsStore } = await import('./streams')
-      await useModesStore().fetchAll()
-      await useStreamsStore().fetchConfigured()
-      usePipelineStore().fetchPreflight()
+      await _refreshAfterApply()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function uploadConfig(file: File): Promise<boolean> {
+    let cfg: unknown
+    try {
+      cfg = JSON.parse(await file.text())
+    } catch {
+      useToast().error('File is not valid JSON')
+      return false
+    }
+    try {
+      await apiFetch('/api/config/apply', {
+        method: 'POST',
+        json: cfg,
+        fallbackMessage: 'Failed to apply configuration',
+      })
+      await _refreshAfterApply()
+      await listConfigs()
       return true
     } catch {
       return false
@@ -149,6 +179,6 @@ export const useConfigStore = defineStore('config', () => {
     availableConfigs, knownStudyNames, validationErrors,
     fetchGeneral, updateGeneral, fetchNextRun,
     fetchOutput, updateOutput, fetchOutputAvailability, fetchOutputDefaults,
-    listConfigs, loadConfig, saveConfig,
+    listConfigs, loadConfig, uploadConfig, saveConfig,
   }
 })

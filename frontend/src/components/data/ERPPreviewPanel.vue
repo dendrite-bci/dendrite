@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
-import { makeAxis } from '../../utils/chartDefaults'
+import { makeAxis, getMutedStroke } from '../../utils/chartDefaults'
 import { useUPlot } from '../../composables/useUPlot'
 import { useDataStore } from '../../stores/data'
 import { CHART_COLORS } from '../../utils/colors'
@@ -112,7 +112,8 @@ function zeroLinePlugin(): uPlot.Plugin {
           const x0 = u.valToPos(0, 'x', true)
           if (x0 >= u.bbox.left && x0 <= u.bbox.left + u.bbox.width) {
             ctx.save()
-            ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+            ctx.globalAlpha = 0.4
+            ctx.strokeStyle = getMutedStroke()
             ctx.lineWidth = 1
             ctx.setLineDash([4, 4])
             ctx.beginPath()

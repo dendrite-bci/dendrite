@@ -136,7 +136,7 @@ onMounted(() => {
               <span v-if="i > 0" class="text-text-disabled">→</span>
               <span
                 class="px-1.5 py-0.5 rounded"
-                :class="stepTypes[step] === 'classifier' ? 'bg-accent/15 text-accent font-semibold' : 'bg-white/[0.04] text-text-muted'"
+                :class="stepTypes[step] === 'classifier' ? 'bg-accent/15 text-accent font-semibold' : 'bg-text-main/[0.04] text-text-muted'"
               >{{ step }}</span>
             </template>
           </div>

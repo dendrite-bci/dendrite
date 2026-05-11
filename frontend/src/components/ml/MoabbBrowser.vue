@@ -72,7 +72,7 @@ function selectDataset(ds: MoabbDataset) {
       <div
         v-for="ds in filtered" :key="ds.code"
         @click="selectDataset(ds)"
-        class="flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded hover:bg-white/[0.03] transition-colors border-l-2"
+        class="flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded hover:bg-text-main/[0.03] transition-colors border-l-2"
         :class="ml.selectedMoabbDataset?.code === ds.code ? 'border-l-accent' : 'border-l-transparent'"
       >
         <div class="flex-1 min-w-0">

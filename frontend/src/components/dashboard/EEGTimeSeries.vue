@@ -255,7 +255,7 @@ const eegCAR = vizPreprocField('apply_rereferencing', true)
         >
           <!-- Channel label + QC dot (click to toggle bad flag) -->
           <button
-            class="absolute top-0.5 left-1 z-10 flex items-center gap-1 cursor-pointer rounded px-0.5 hover:bg-white/5"
+            class="absolute top-0.5 left-1 z-10 flex items-center gap-1 cursor-pointer rounded px-0.5 hover:bg-text-main/5"
             @click="onChannelClick(viz.visibleChannelRange.start + i - 1)"
             :title="`Click to flag/unflag channel ${viz.eegLabels[viz.visibleChannelRange.start + i - 1] || 'CH' + (viz.visibleChannelRange.start + i)}`"
           >

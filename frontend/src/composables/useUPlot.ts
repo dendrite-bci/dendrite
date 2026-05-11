@@ -1,14 +1,14 @@
-import { onUnmounted, type Ref } from 'vue'
+import { onUnmounted, watch, type Ref } from 'vue'
 import uPlot from 'uplot'
+import { useTheme } from './useTheme'
 
 type OptsFactory = (dims: { width: number; height: number }) => uPlot.Options
 
 /**
  * Wraps uPlot's create/resize/destroy lifecycle.
  *
- * Pass the template ref (declared by the caller with `ref()`) as `target`.
- * The caller owns the ref so template-ref usage is visible to vue-tsc's
- * unused-variable check.
+ * Rebuilds on theme change: uPlot caches series/axis colors at construction,
+ * so when CSS color tokens flip we recreate the chart with the last data.
  */
 export function useUPlot(target: Ref<HTMLDivElement | null>) {
   let plot: uPlot | null = null
@@ -46,6 +46,14 @@ export function useUPlot(target: Ref<HTMLDivElement | null>) {
   }
 
   function getPlot() { return plot }
+
+  const { theme } = useTheme()
+  watch(theme, () => {
+    if (!plot || !currentFactory) return
+    const factory = currentFactory
+    const data = plot.data as uPlot.AlignedData
+    create(factory, data)
+  })
 
   onUnmounted(destroy)
 

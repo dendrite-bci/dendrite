@@ -92,6 +92,13 @@ class TestBaseModeInstanceConfig:
         cfg = BaseModeInstanceConfig(**{**BASE_FIELDS, "channel_selection": {"emg": [0, 1]}})
         assert "emg" in cfg.mode_preprocessing
 
+    def test_channel_selection_keys_lowercased(self):
+        """Schema is the single source of truth for modality-key normalization."""
+        cfg = BaseModeInstanceConfig(
+            **{**BASE_FIELDS, "channel_selection": {"EEG": [0, 1, 2]}}
+        )
+        assert cfg.channel_selection == {"eeg": [0, 1, 2]}
+
 
 # ---------------------------------------------------------------------------
 # SynchronousInstanceConfig

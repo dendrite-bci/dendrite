@@ -405,7 +405,7 @@ async function handleSave() {
           <span v-if="i > 0" class="text-text-disabled">&rarr;</span>
           <span class="px-1.5 py-0.5 rounded" :class="currentStepTypes[step] === 'classifier'
             ? 'bg-accent/15 text-accent font-semibold'
-            : 'bg-white/[0.04] text-text-muted'">{{ step }}</span>
+            : 'bg-text-main/[0.04] text-text-muted'">{{ step }}</span>
         </template>
       </span>
       <span class="text-sm text-text-disabled">#{{ ml.selectedJob.job_id }}</span>
@@ -419,7 +419,7 @@ async function handleSave() {
         <span v-if="progress?.val_acc != null" class="text-xs text-accent font-mono">
           {{ (progress.val_acc * 100).toFixed(1) }}%
         </span>
-        <button @click="ml.cancelTraining(ml.selectedJob!.job_id)"
+        <button @click="ml.cancelJob(ml.selectedJob!.job_id)"
           class="px-3 py-1 text-xs font-medium rounded-lg bg-status-error/10 text-status-error hover:bg-status-error/20 transition-colors"
         >Cancel</button>
       </template>

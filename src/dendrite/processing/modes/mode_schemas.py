@@ -48,13 +48,6 @@ class BaseModeInstanceConfig(BaseModel):
         default_factory=dict,
         description="Channel indices per modality: {'eeg': [0,1,2,3]}",
     )
-    stream_sources: dict[str, str] = Field(
-        default_factory=dict,
-        description="Stream name per modality: {'eeg': 'BioSemi', 'emg': 'EMGDevice'}",
-    )
-    modality_labels: dict[str, list[str]] = Field(
-        default_factory=dict, description="Channel labels per modality for decoder validation"
-    )
     source_stream: str | None = Field(
         default=None,
         description="Preferred source stream key for ring buffer selection",
@@ -93,7 +86,8 @@ class BaseModeInstanceConfig(BaseModel):
         if not v:
             return v  # Allow empty — preflight validates before pipeline start
 
-        # Enforce single modality per mode instance
+        v = {normalize_modality(k): ch for k, ch in v.items()}
+
         if len(v) > 1:
             raise ValueError(
                 f"Only one modality allowed per mode. Got: {list(v.keys())}. "

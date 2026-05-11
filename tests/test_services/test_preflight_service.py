@@ -161,3 +161,53 @@ def test_ready_with_streams_only():
     assert len(warnings) >= 1
 
 
+# --- run_mode_preflight: channel_selection bounds ---
+
+
+def _mode_preflight(modalities_by_stream: dict, mode_cfg: dict) -> object:
+    """Build a PreflightService with a stubbed modalities_by_stream and run mode preflight."""
+    svc = _make_services(modes={"NF": mode_cfg})
+    svc._stream_service.get_modalities_by_stream.return_value = modalities_by_stream
+    return svc.run_mode_preflight("NF")
+
+
+def test_mode_preflight_in_bounds_passes():
+    by_stream = {
+        "s1": {
+            "stream_key": "EEG",
+            "modalities": {
+                "eeg": [{"label": lbl, "local_index": i} for i, lbl in enumerate(["C3", "Cz", "C4"])],
+            },
+        }
+    }
+    result = _mode_preflight(by_stream, {
+        "name": "NF", "mode": "neurofeedback",
+        "channel_selection": {"eeg": [0, 1, 2]},
+        "feature_config": {"target_bands": {"alpha": [8.0, 12.0]}},
+    })
+    check = _get_check(result, "channel_selection_bounds")
+    assert check is not None
+    assert check.passed is True
+
+
+def test_mode_preflight_out_of_bounds_fails():
+    by_stream = {
+        "s1": {
+            "stream_key": "EEG",
+            "modalities": {
+                "eeg": [{"label": lbl, "local_index": i} for i, lbl in enumerate(["C3", "Cz", "C4"])],
+            },
+        }
+    }
+    result = _mode_preflight(by_stream, {
+        "name": "NF", "mode": "neurofeedback",
+        "channel_selection": {"eeg": [7, 23, 24]},  # stale stream-relative indices
+        "feature_config": {"target_bands": {"alpha": [8.0, 12.0]}},
+    })
+    check = _get_check(result, "channel_selection_bounds")
+    assert check is not None
+    assert check.passed is False
+    assert "eeg" in (check.detail or "")
+    assert "3 channels available" in (check.detail or "")
+
+

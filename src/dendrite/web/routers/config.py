@@ -2,6 +2,11 @@
 Configuration REST endpoints.
 """
 
+import json
+import tempfile
+from pathlib import Path
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
@@ -134,13 +139,39 @@ async def load_config(file_path: str, _=Depends(require_not_recording)):
     service = get_config_service()
     try:
         result = service.load_configuration(file_path)
-        return {"status": "loaded", "file_path": file_path, "warnings": result["warnings"]}
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
     except PermissionError as e:
         raise HTTPException(403, str(e)) from e
     except Exception as e:
-        raise HTTPException(400, str(e)) from e
+        raise HTTPException(400, f"{type(e).__name__}: {e}") from e
+
+    # Loaded config carries a study_name label; ensure the DB row exists so
+    # the UI's study list stays in sync with the now-active config.
+    get_data_service().studies.get_or_create(service.study_name)
+    return {"status": "loaded", "file_path": file_path, "warnings": result["warnings"]}
+
+
+@router.post("/apply")
+async def apply_config(cfg: dict[str, Any], _=Depends(require_not_recording)):
+    """Apply a config JSON directly to the running ConfigService without saving.
+
+    Use this for drag-drop import. The body is the same shape `/save` writes;
+    hit `/save` afterwards if the imported config should be kept in the study
+    library on disk. The DB study row is created on demand.
+    """
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+        json.dump(cfg, tf, default=str)
+        tmp_path = tf.name
+    try:
+        result = get_config_service().load_configuration(tmp_path)
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}") from e
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    get_data_service().studies.get_or_create(get_config_service().study_name)
+    return {"status": "loaded", "warnings": result["warnings"]}
 
 
 @router.post("/save")

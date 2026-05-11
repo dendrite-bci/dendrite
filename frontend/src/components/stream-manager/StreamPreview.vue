@@ -52,7 +52,7 @@ const emit = defineEmits<{
         @click="emit('update:enableEvents', !enableEvents)"
       >
         <div
-          class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
+          class="absolute top-0.5 w-4 h-4 rounded-full bg-text-main shadow transition-transform"
           :class="enableEvents ? 'translate-x-4' : 'translate-x-0.5'"
         />
       </div>

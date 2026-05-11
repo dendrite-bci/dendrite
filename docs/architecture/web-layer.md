@@ -46,7 +46,7 @@ Three long-lived background tasks run in the FastAPI event loop (not inside the 
 
 **`run_visualization_bridge()`** (`ws/visualization_bridge.py`) — async task spawned/cancelled on recording start/stop. Reads raw signal data from the primary stream's ring buffer, applies preprocessing (CAR + bandpass), monitors channel quality, broadcasts via QueueBridge. Mode outputs drained from `visualization_queue` to `mode_data` channel.
 
-**Online Training Task** (`app.py`) -- Background task that waits for recording start, then drains `training_queue` (from SynchronousMode or manual requests). MLService loads data from SWMR HDF5, trains in a subprocess, publishes decoder path to SharedState for hot-swap.
+**Online Training Task** (`web/services/pipeline_service.py`) -- Spawned by `PipelineService.start()` when a pipeline is active; drains `training_queue` (from SynchronousMode or manual requests) by invoking `MLService.run_online_training_loop()`. MLService loads data from SWMR HDF5, trains in a subprocess, publishes decoder path to SharedState for hot-swap.
 
 **Background Optimizer** (`ml/search/optuna_runner.py`, managed by `ml_service.py`) -- Per-mode asyncio tasks running Optuna search during recording. Loads fresh session data, searches within mode's model type, promotes winners (5%+ improvement) via SharedState. Profiles (quick/balanced/full) control trial count and scope.
 

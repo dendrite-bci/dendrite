@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import 'uplot/dist/uPlot.min.css'
-import { LEGEND_HIDDEN } from '../../utils/chartDefaults'
+import { LEGEND_HIDDEN, makeAxis, getDisabledStroke } from '../../utils/chartDefaults'
 import { useUPlot } from '../../composables/useUPlot'
 import { useVisualizationStore } from '../../stores/visualization'
 
@@ -38,11 +38,11 @@ function createPlot() {
       {},
       { stroke: '#34d399', width: 2, label: 'Accuracy', fill: '#34d39918' },
       { stroke: '#fbbf24', width: 2, label: 'Confidence', fill: '#fbbf2418' },
-      { stroke: '#8A8A8A', width: 1, dash: [5, 3], label: 'Chance' },
+      { stroke: getDisabledStroke(), width: 1, dash: [5, 3], label: 'Chance' },
     ],
     axes: [
-      { stroke: '#666', grid: { stroke: '#1e1e1e', width: 1 }, size: 28, font: '10px Inter, sans-serif', label: 'Trial' },
-      { stroke: '#666', grid: { stroke: '#1e1e1e', width: 1 }, size: 45, font: '10px Inter, sans-serif', values: (_, ticks) => ticks.map(v => (v * 100).toFixed(0) + '%') },
+      makeAxis({ size: 28, label: 'Trial' }),
+      makeAxis({ size: 45, values: (_, ticks) => ticks.map(v => (v * 100).toFixed(0) + '%') }),
     ],
     scales: {
       x: { time: false },
@@ -92,7 +92,7 @@ onMounted(() => {
           <span class="inline-block w-2.5 h-0.5 rounded-full bg-[#fbbf24]" />Confidence
         </span>
         <span class="flex items-center gap-1 text-xs text-text-disabled">
-          <span class="inline-block w-2.5 h-0.5 rounded-full bg-[#8A8A8A] opacity-60" style="border-top: 1px dashed #8A8A8A" />Chance
+          <span class="inline-block w-2.5 h-0.5 rounded-full bg-text-disabled opacity-60" />Chance
         </span>
       </div>
     </div>
