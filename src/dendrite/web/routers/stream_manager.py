@@ -22,6 +22,7 @@ class StartStreamRequest(BaseModel):
     # Options
     stream_name: str | None = None
     enable_events: bool = False
+    modality: str | None = None
 
 
 class FileInfoRequest(BaseModel):

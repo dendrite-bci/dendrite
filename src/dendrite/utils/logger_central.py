@@ -55,24 +55,23 @@ def _create_handlers(log_file: str | None = None, rotating: bool = True) -> list
 def configure_file_logging(
     file_identifier: str | None = None, log_dir: str | None = None, level: int = logging.DEBUG
 ) -> str | None:
-    """Configure file-based logging for the main process."""
-    global _current_log_file
+    """Configure file-based logging for the main process.
 
-    existing_log = _current_log_file or os.environ.get(ENV_LOG_FILE)
-    if existing_log and os.path.exists(existing_log):
-        _current_log_file = existing_log
-        return existing_log
+    Each call installs fresh handlers for the given file_identifier so
+    per-run logs land in their own file. The long-lived backend process
+    calls this on every pipeline start.
+    """
+    global _current_log_file
 
     if file_identifier is None:
         file_identifier = f"app_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    log_dir_path: Path = (
-        Path(log_dir)
-        if log_dir is not None
+
+    log_dir_path = (
+        Path(log_dir) if log_dir is not None
         else DATA_DIR / "studies" / _current_study_name / "logs"
     )
-
     log_dir_path.mkdir(parents=True, exist_ok=True)
-    log_file = f"{log_dir_path}/{file_identifier}.log"
+    log_file = str(log_dir_path / f"{file_identifier}.log")
 
     try:
         logging.basicConfig(
@@ -81,13 +80,10 @@ def configure_file_logging(
             handlers=_create_handlers(log_file),
             force=True,
         )
-
         _current_log_file = log_file
         os.environ[ENV_LOG_FILE] = log_file
-
         logging.info(f"File logging configured to {log_file}")
         return log_file
-
     except (OSError, PermissionError):
         logging.exception("Error setting up file logging")
         return None

@@ -53,6 +53,7 @@ class StreamManagerService:
             moabb_session=config.get("session"),
             enable_event_stream=config.get("enable_events", False),
             info_queue=info_queue,
+            modality=config.get("modality"),
         )
         streamer.daemon = True
         streamer.start()
@@ -148,9 +149,19 @@ class StreamManagerService:
         if not is_supported_format(path):
             return {"error": f"Unsupported format: {path}"}
         try:
+            from pathlib import Path
+
+            from dendrite.data.io.h5_explorer import list_modalities
             from dendrite.data.loaders import load_file
+            from dendrite.data.loaders.raw_h5_loader import RawH5Loader
 
             loaded = load_file(path)
+            ext = Path(path).suffix.lower()
+            if ext in RawH5Loader.EXTENSIONS:
+                modalities = list_modalities(path)
+            else:
+                # FIF and other single-dataset formats: derive from channel types.
+                modalities = sorted({t.lower() for t in loaded.channel_types if t})
             return {
                 "path": path,
                 "duration_s": loaded.duration,
@@ -159,6 +170,7 @@ class StreamManagerService:
                 "channel_names": loaded.channel_names[:20],
                 "n_events": len(loaded.events),
                 "event_id": loaded.event_id,
+                "available_modalities": modalities,
             }
         except Exception as e:
             return {"error": str(e)}

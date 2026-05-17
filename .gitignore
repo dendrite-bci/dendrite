@@ -1,3 +1,4 @@
 *.pyc
 .env
 /data
+/tests/e2e/_output/

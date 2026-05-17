@@ -58,6 +58,34 @@ def find_dataset(h5f: h5py.File, stream_type: str | None = None) -> str | None:
     return None
 
 
+def list_modalities(path: str) -> list[str]:
+    """Return sorted unique modality labels present in an H5 file.
+
+    Reads the root `stream_index` attribute first, then falls back to per-dataset
+    `type` attributes for older files. Event datasets are excluded.
+    """
+    found: set[str] = set()
+    with h5py.File(path, "r", swmr=True) as h5f:
+        raw_index = h5f.attrs.get("stream_index")
+        if raw_index is not None:
+            index = json.loads(raw_index) if isinstance(raw_index, str) else raw_index
+            for value in index.values():
+                v = str(value).lower()
+                if not v.startswith("event"):
+                    found.add(v)
+
+        if not found:
+            for name in h5f.keys():
+                obj = h5f[name]
+                if not isinstance(obj, h5py.Dataset):
+                    continue
+                ds_type = str(obj.attrs.get("type", name)).lower()
+                if not ds_type.startswith("event"):
+                    found.add(ds_type)
+
+    return sorted(found)
+
+
 def load_dataset(path: str, name: str) -> pd.DataFrame:
     """
     Load a dataset from an H5 file.

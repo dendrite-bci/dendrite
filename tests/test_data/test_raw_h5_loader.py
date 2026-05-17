@@ -245,3 +245,55 @@ def _find_first_data(h5_file: h5py.File) -> str:
         if not k.startswith("Event") and isinstance(h5_file[k], h5py.Dataset):
             return k
     raise ValueError("No data dataset found")
+
+
+class TestSwmrLiveRead:
+    """EMG path reads the separate Event dataset; it must be refreshed under SWMR."""
+
+    def test_emg_load_picks_up_events_flushed_after_open(self, tmp_path):
+        h5_path = str(tmp_path / "live.h5")
+        sample_rate = 500.0
+        chunk = 200
+
+        data_dtype = _make_data_dtype(["EMG_1", "EMG_2"])
+
+        with h5py.File(h5_path, "w", libver="latest") as writer:
+            data_ds = writer.create_dataset(
+                "EMG", shape=(0,), maxshape=(None,), dtype=data_dtype, chunks=(chunk,)
+            )
+            data_ds.attrs["sampling_frequency"] = sample_rate
+            data_ds.attrs["type"] = "emg"
+            event_ds = writer.create_dataset(
+                "Event_EMG", shape=(0,), maxshape=(None,), dtype=EVENT_DTYPE, chunks=(8,)
+            )
+            writer.swmr_mode = True
+
+            def append(ds, rows):
+                start = ds.shape[0]
+                ds.resize((start + len(rows),))
+                ds[start:] = rows
+                ds.flush()
+
+            samples = np.zeros(chunk, dtype=data_dtype)
+            samples["timestamp"] = np.arange(chunk, dtype=np.float64) / sample_rate
+            append(data_ds, samples)
+            append(event_ds, np.array(
+                [(7, "left", 0.1, 0.1, "")], dtype=EVENT_DTYPE
+            ))
+
+            loaded_before = RawH5Loader(h5_path, swmr=True).load(modality="emg")
+            assert len(loaded_before.events) == 1
+            assert loaded_before.event_id == {"left": 7}
+
+            more_samples = np.zeros(chunk, dtype=data_dtype)
+            more_samples["timestamp"] = (
+                np.arange(chunk, 2 * chunk, dtype=np.float64) / sample_rate
+            )
+            append(data_ds, more_samples)
+            append(event_ds, np.array(
+                [(9, "right", 0.3, 0.3, "")], dtype=EVENT_DTYPE
+            ))
+
+            loaded_after = RawH5Loader(h5_path, swmr=True).load(modality="emg")
+            assert len(loaded_after.events) == 2
+            assert loaded_after.event_id == {"left": 7, "right": 9}

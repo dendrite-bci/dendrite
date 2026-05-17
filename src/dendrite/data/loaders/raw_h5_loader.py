@@ -55,23 +55,28 @@ class RawH5Loader:
                 ds.refresh()
             ds_data: np.ndarray = ds[()]
 
-            if "channel_labels" in ds.attrs:
-                all_labels = _decode_labels(ds.attrs["channel_labels"])
-            elif ds_data.dtype.names:
-                all_labels = list(ds_data.dtype.names)
-            else:
-                raise ValueError("Cannot determine channel labels")
-
-            data_labels = _filter_metadata(all_labels)
-            has_markers = "Markers" in data_labels
-
-            channel_data = []
-            channel_names = []
             ds_names = ds_data.dtype.names or ()
-            for label in data_labels:
-                if label in ds_names:
-                    channel_data.append(ds_data[label].astype(np.float32))
-                    channel_names.append(label)
+            if not ds_names:
+                raise ValueError("Dataset is not a structured array")
+
+            # Field names index into the structured array; display labels
+            # are what consumers see. They can diverge (e.g. 'EMG_1' vs 'EMG 1').
+            data_field_names = _filter_metadata(list(ds_names))
+            if "channel_labels" in ds.attrs:
+                raw_labels = _decode_labels(ds.attrs["channel_labels"])
+                display_labels = (
+                    raw_labels if len(raw_labels) == len(data_field_names) else data_field_names
+                )
+            else:
+                display_labels = data_field_names
+
+            has_markers = "Markers" in data_field_names
+
+            channel_data: list[np.ndarray] = []
+            channel_names: list[str] = []
+            for field_name, display_name in zip(data_field_names, display_labels, strict=True):
+                channel_data.append(ds_data[field_name].astype(np.float32))
+                channel_names.append(display_name)
 
             data = np.array(channel_data)  # (channels, samples)
 
@@ -81,24 +86,24 @@ class RawH5Loader:
             raw_types = ds.attrs.get("channel_types", None)
             if raw_types is not None:
                 all_types = [t.lower() for t in _decode_labels(raw_types)]
-                # Map label→type (all_labels includes timestamp etc., all_types aligns with it)
+                # channel_types aligns positionally with data_field_names (channel-only)
                 type_map = (
-                    dict(zip(all_labels, all_types, strict=True))
-                    if len(all_types) == len(all_labels)
+                    dict(zip(data_field_names, all_types, strict=True))
+                    if len(all_types) == len(data_field_names)
                     else {}
                 )
-                channel_types = [type_map.get(name, fallback_type) for name in channel_names]
+                channel_types = [type_map.get(name, fallback_type) for name in data_field_names]
             else:
                 channel_types = [
                     fallback_type if name != "Markers" else "markers"
-                    for name in channel_names
+                    for name in data_field_names
                 ]
             sample_rate = float(ds.attrs.get("sampling_frequency", ds.attrs.get("sample_rate", 500.0)))
 
             events: list[tuple[int, int]] = []
             event_id: dict[str, int] | None = None
             if has_markers:
-                markers_idx = channel_names.index("Markers")
+                markers_idx = data_field_names.index("Markers")
                 markers = data[markers_idx]
                 for i, m in enumerate(markers):
                     if m > 0:
@@ -107,7 +112,7 @@ class RawH5Loader:
                     event_id = _extract_event_id_mapping(f)
 
             if not events:
-                events, event_id = _extract_h5_events(f, ds_data, sample_rate)
+                events, event_id = _extract_h5_events(f, ds_data, sample_rate, swmr=self._swmr)
 
             logger.info(f"Loaded: {data.shape[1]} samples, {len(channel_names)} channels @ {sample_rate} Hz")
             return RawData(data, channel_names, channel_types, sample_rate, events, event_id)
@@ -141,6 +146,8 @@ def _extract_h5_events(
     h5_file: h5py.File,
     ds_data: np.ndarray,
     sample_rate: float,
+    *,
+    swmr: bool = False,
 ) -> tuple[list[tuple[int, int]], dict[str, int] | None]:
     """Extract events from separate Event datasets in H5 file."""
     event_ds_names = _find_event_datasets(h5_file)
@@ -150,6 +157,8 @@ def _extract_h5_events(
     event_ds = h5_file[event_ds_names[0]]
     if not isinstance(event_ds, h5py.Dataset):
         return [], None
+    if swmr:
+        event_ds.refresh()
     event_data: np.ndarray = event_ds[()]
     if not event_data.dtype.names:
         return [], None

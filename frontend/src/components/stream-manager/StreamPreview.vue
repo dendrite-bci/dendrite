@@ -1,18 +1,25 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { FileInfo } from '../../stores/streamManager'
 
-defineProps<{
+const props = defineProps<{
   info: FileInfo
   filePath?: string
   enableEvents: boolean
   loading: boolean
   startLabel?: string
+  modality?: string | null
 }>()
 
 const emit = defineEmits<{
   start: []
+  'start-all': []
   'update:enableEvents': [value: boolean]
+  'update:modality': [value: string | null]
 }>()
+
+const modalities = computed(() => props.info.available_modalities ?? [])
+const hasMulti = computed(() => modalities.value.length > 1)
 </script>
 
 <template>
@@ -30,6 +37,16 @@ const emit = defineEmits<{
         <span v-if="info.n_events > 0" class="text-text-muted">Events <span class="font-mono text-text-main">{{ info.n_events }}</span></span>
       </div>
 
+      <!-- Modalities row -->
+      <div v-if="modalities.length > 0" class="flex items-center gap-1.5 px-3 py-2 border-t border-border/50">
+        <span class="text-xs text-text-muted">Modalities</span>
+        <span
+          v-for="m in modalities"
+          :key="m"
+          class="px-1.5 py-0.5 rounded bg-bg-input text-xs font-mono uppercase tracking-wide text-text-main"
+        >{{ m }}</span>
+      </div>
+
       <!-- Event mapping -->
       <div v-if="info.event_id && Object.keys(info.event_id).length > 0"
            class="px-3 py-2 border-t border-border/50 space-y-1">
@@ -43,6 +60,18 @@ const emit = defineEmits<{
         </div>
       </div>
     </div>
+
+    <!-- Modality selector (multi-modality files) -->
+    <label v-if="hasMulti" class="flex items-center gap-3">
+      <span class="text-xs text-text-main shrink-0">Replay</span>
+      <select
+        :value="modality ?? modalities[0]"
+        @change="emit('update:modality', ($event.target as HTMLSelectElement).value)"
+        class="flex-1 text-xs"
+      >
+        <option v-for="m in modalities" :key="m" :value="m">{{ m.toUpperCase() }}</option>
+      </select>
+    </label>
 
     <!-- Separate events stream toggle -->
     <label v-if="info.n_events > 0" class="flex items-center gap-3 cursor-pointer">
@@ -59,16 +88,30 @@ const emit = defineEmits<{
       <span class="text-xs text-text-main">Create separate events stream</span>
     </label>
 
-    <!-- Start button -->
-    <button
-      @click="emit('start')"
-      :disabled="loading"
-      class="w-full py-2 rounded text-xs font-medium text-white transition-colors
-             bg-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
-    >
-      <i v-if="loading" class="pi pi-spin pi-spinner mr-1" />
-      <i v-else class="pi pi-play mr-1" />
-      {{ startLabel ?? 'Start Replay' }}
-    </button>
+    <!-- Start buttons -->
+    <div class="flex gap-2">
+      <button
+        @click="emit('start')"
+        :disabled="loading"
+        class="flex-1 py-2 rounded text-xs font-medium text-white transition-colors
+               bg-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <i v-if="loading" class="pi pi-spin pi-spinner mr-1" />
+        <i v-else class="pi pi-play mr-1" />
+        {{ startLabel ?? 'Start Replay' }}
+      </button>
+      <button
+        v-if="hasMulti"
+        @click="emit('start-all')"
+        :disabled="loading"
+        class="px-3 py-2 rounded text-xs font-medium transition-colors
+               bg-bg-elevated border border-border text-text-main
+               hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed"
+        :title="`Start all ${modalities.length} modalities in parallel`"
+      >
+        <i class="pi pi-th-large mr-1" />
+        Start All
+      </button>
+    </div>
   </div>
 </template>

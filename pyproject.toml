@@ -58,8 +58,10 @@ markers = [
     "slow: Slow running tests",
     "integration: Integration tests (require LSL/hardware)",
     "benchmark: Eval benchmarks (require local data files, slow)",
+    "e2e: Full live-system e2e harness tests (spawn the backend; require local data or MOABB)",
+    "e2e_regression: e2e harness regression — all sessions, diffed against a committed baseline",
 ]
-addopts = "-m 'not benchmark and not integration'"
+addopts = "-m 'not benchmark and not integration and not e2e and not e2e_regression'"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

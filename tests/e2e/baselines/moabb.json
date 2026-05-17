@@ -1,0 +1,13 @@
+{
+  "dataset": "moabb",
+  "generated_at": "2026-05-14T17:19:36.033771+00:00",
+  "n_sessions": 1,
+  "sessions": [
+    "moabb-AlexMI-sub04"
+  ],
+  "metrics": {
+    "sync_mean_accuracy": 0.3413019188520054,
+    "async_overall_accuracy": 0.5520902455209025,
+    "step_interval_ms_p95": 99.60940275050234
+  }
+}

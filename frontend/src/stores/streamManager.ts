@@ -32,6 +32,7 @@ export interface FileInfo {
   channel_names: string[]
   n_events: number
   event_id: Record<string, number> | null
+  available_modalities?: string[]
 }
 
 export const useStreamManagerStore = defineStore('streamManager', () => {

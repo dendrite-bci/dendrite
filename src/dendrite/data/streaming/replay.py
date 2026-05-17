@@ -62,6 +62,8 @@ class ReplayStreamer(Process):
         moabb_session: str | None = None,
         enable_event_stream: bool = False,
         info_queue: Queue | None = None,
+        modality: str | None = None,
+        start_at: float | None = None,
     ):
         super().__init__()
         self.stop_event = stop_event
@@ -72,6 +74,12 @@ class ReplayStreamer(Process):
         self.moabb_session = moabb_session
         self.enable_event_stream = enable_event_stream
         self.info_queue = info_queue
+        # modality: when set, selects a non-primary dataset from the file
+        # (e.g. "emg" picks the EMG dataset over EEG).
+        # start_at: absolute local_clock() time to begin streaming — lets two
+        # streamers replaying the same file share one timeline.
+        self.modality = modality
+        self.start_at = start_at
         self.logger = logging.getLogger("ReplayStreamer")
 
     def _get_stream_name(self, base_name: str) -> str:
@@ -93,7 +101,7 @@ class ReplayStreamer(Process):
     # ------------------------------------------------------------------
 
     def _replay_file(self):
-        loaded = load_file(self.data_file_path)
+        loaded = load_file(self.data_file_path, modality=self.modality)
         data = loaded.data
         n_samples = loaded.n_samples
 
@@ -101,8 +109,12 @@ class ReplayStreamer(Process):
         type_summary = ", ".join(f"{count} {t}" for t, count in type_counts.items())
         self.logger.info(f"Replaying {type_summary} @ {loaded.sample_rate} Hz")
 
-        # Derive stream name from filename (e.g., "sub-01_ses-03_eeg")
+        # Derive stream name from filename (e.g., "sub-01_ses-03_eeg").
+        # Append modality so two streamers replaying the same H5 (EEG + EMG)
+        # produce distinct LSL outlet names.
         file_stem = Path(self.data_file_path).stem
+        if self.modality:
+            file_stem = f"{file_stem}_{self.modality.lower()}"
         stream_name = self._get_stream_name(file_stem)
 
         config = _build_stream_config(
@@ -227,6 +239,13 @@ class ReplayStreamer(Process):
         Pushes pure data samples (no markers appended). Events are sent
         via the separate event_outlet if provided.
         """
+        # Block until the shared start_at instant so two streamers replaying
+        # different modalities from the same file align their stream loops
+        # after their setup costs have completed.
+        if self.start_at is not None:
+            delay = self.start_at - local_clock()
+            if delay > 0:
+                time.sleep(delay)
         n_samples = data.shape[1]
         start_time = time.perf_counter()
         interval = 1.0 / sample_rate

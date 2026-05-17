@@ -1,6 +1,6 @@
-"""Tests for DecisionGate."""
+"""Tests for DecisionGate and dwell_detect_any."""
 
-from dendrite.ml.decision_gate import DecisionGate
+from dendrite.ml.decision_gate import DecisionGate, dwell_detect_any
 
 
 class TestDecisionGate:
@@ -58,3 +58,32 @@ class TestDecisionGate:
     def test_use_dwell_property(self):
         assert DecisionGate(strategy="dwell").use_dwell is True
         assert DecisionGate(strategy="majority").use_dwell is False
+
+
+class TestDwellDetectAny:
+    def test_empty_input(self):
+        assert dwell_detect_any([], 3) == 0
+
+    def test_single_element(self):
+        assert dwell_detect_any([1], 1) == 0
+
+    def test_all_same_class(self):
+        assert dwell_detect_any([1] * 10, 3) == 3
+
+    def test_alternating_no_detections(self):
+        assert dwell_detect_any([0, 1] * 20, 2) == 0
+
+    def test_exact_streak(self):
+        assert dwell_detect_any([0, 0, 0, 1, 1, 1], 3) == 2
+
+    def test_gated_predictions_break_streak(self):
+        assert dwell_detect_any([1, 1, -1, 1, 1], 3) == 0
+
+    def test_dwell_n_1(self):
+        assert dwell_detect_any([1, 1, 1, 1], 1) == 3
+
+    def test_mixed_classes(self):
+        assert dwell_detect_any([0, 0, 0, 1, 1, 1, 2, 2, 2], 3) == 3
+
+    def test_large_dwell_no_detection(self):
+        assert dwell_detect_any([0, 0, 1, 1, 0, 0], 3) == 0

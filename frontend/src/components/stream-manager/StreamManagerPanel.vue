@@ -23,6 +23,7 @@ const fileInfo = ref<FileInfo | null>(null)
 const fileLoading = ref(false)
 const fileError = ref('')
 const fileEnableEvents = ref(false)
+const fileModality = ref<string | null>(null)
 
 async function browseFile() {
   fileLoading.value = true
@@ -39,6 +40,7 @@ async function browseFile() {
     if (info) {
       fileInfo.value = info
       fileEnableEvents.value = info.n_events > 0
+      fileModality.value = info.available_modalities?.[0] ?? null
     } else {
       fileError.value = 'Could not read file.'
     }
@@ -72,6 +74,7 @@ const selectedRecordingId = ref<number | null>(null)
 const recordingInfo = ref<FileInfo | null>(null)
 const recordingInfoLoading = ref(false)
 const recordingEnableEvents = ref(false)
+const recordingModality = ref<string | null>(null)
 
 const selectedRecordingData = computed(() =>
   recordings.value.find(r => r.recording_id === selectedRecordingId.value) ?? null
@@ -100,6 +103,7 @@ watch(recordingsStudyId, async () => {
 watch(selectedRecordingId, async (id) => {
   recordingInfo.value = null
   recordingEnableEvents.value = false
+  recordingModality.value = null
   if (!id) return
   const rec = recordings.value.find(r => r.recording_id === id)
   if (!rec) return
@@ -107,7 +111,10 @@ watch(selectedRecordingId, async (id) => {
   try {
     const info = await store.fetchFileInfo(rec.hdf5_file_path)
     recordingInfo.value = info
-    if (info) recordingEnableEvents.value = info.n_events > 0
+    if (info) {
+      recordingEnableEvents.value = info.n_events > 0
+      recordingModality.value = info.available_modalities?.[0] ?? null
+    }
   } finally {
     recordingInfoLoading.value = false
   }
@@ -141,10 +148,38 @@ async function launchStream(config: Record<string, any>, label: string) {
 
 function startFile() {
   if (!fileInfo.value) return
+  const info = fileInfo.value
+  const baseLabel = filePath.value.split(/[\\/]/).pop() ?? 'File'
+  const hasMulti = (info.available_modalities?.length ?? 0) > 1
+  const modality = hasMulti ? fileModality.value : null
   launchStream(
-    { source: 'file', path: fileInfo.value.path, enable_events: fileEnableEvents.value },
-    filePath.value.split(/[\\/]/).pop() ?? 'File',
+    {
+      source: 'file',
+      path: info.path,
+      enable_events: fileEnableEvents.value,
+      ...(modality ? { modality } : {}),
+    },
+    modality ? `${baseLabel} (${modality.toUpperCase()})` : baseLabel,
   )
+}
+
+async function startAllFile() {
+  if (!fileInfo.value) return
+  const info = fileInfo.value
+  const baseLabel = filePath.value.split(/[\\/]/).pop() ?? 'File'
+  const mods = info.available_modalities ?? []
+  await Promise.all(mods.map((m, idx) =>
+    launchStream(
+      {
+        source: 'file',
+        path: info.path,
+        // Only let the first modality emit events to avoid duplicate event streams.
+        enable_events: idx === 0 && fileEnableEvents.value,
+        modality: m,
+      },
+      `${baseLabel} (${m.toUpperCase()})`,
+    ),
+  ))
 }
 
 function startMoabb() {
@@ -158,10 +193,36 @@ function startMoabb() {
 function startRecording() {
   const rec = selectedRecordingData.value
   if (!rec) return
+  const info = recordingInfo.value
+  const hasMulti = (info?.available_modalities?.length ?? 0) > 1
+  const modality = hasMulti ? recordingModality.value : null
   launchStream(
-    { source: 'file', path: rec.hdf5_file_path, enable_events: recordingEnableEvents.value },
-    rec.recording_name,
+    {
+      source: 'file',
+      path: rec.hdf5_file_path,
+      enable_events: recordingEnableEvents.value,
+      ...(modality ? { modality } : {}),
+    },
+    modality ? `${rec.recording_name} (${modality.toUpperCase()})` : rec.recording_name,
   )
+}
+
+async function startAllRecording() {
+  const rec = selectedRecordingData.value
+  const info = recordingInfo.value
+  if (!rec || !info) return
+  const mods = info.available_modalities ?? []
+  await Promise.all(mods.map((m, idx) =>
+    launchStream(
+      {
+        source: 'file',
+        path: rec.hdf5_file_path,
+        enable_events: idx === 0 && recordingEnableEvents.value,
+        modality: m,
+      },
+      `${rec.recording_name} (${m.toUpperCase()})`,
+    ),
+  ))
 }
 
 async function stopStream(id: string) {
@@ -354,8 +415,11 @@ onUnmounted(() => {
             :file-path="filePath"
             :enable-events="fileEnableEvents"
             :loading="store.loading"
+            :modality="fileModality"
             @start="startFile"
+            @start-all="startAllFile"
             @update:enable-events="fileEnableEvents = $event"
+            @update:modality="fileModality = $event"
           />
 
           <!-- Empty state -->
@@ -411,8 +475,11 @@ onUnmounted(() => {
               :file-path="selectedRecordingData.hdf5_file_path"
               :enable-events="recordingEnableEvents"
               :loading="store.loading"
+              :modality="recordingModality"
               @start="startRecording"
+              @start-all="startAllRecording"
               @update:enable-events="recordingEnableEvents = $event"
+              @update:modality="recordingModality = $event"
             />
           </div>
         </div>
