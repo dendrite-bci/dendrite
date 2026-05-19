@@ -282,11 +282,9 @@ class NeurofeedbackInstanceConfig(BaseModeInstanceConfig):
         bands_to_validate = {}
         if "target_bands" in v and isinstance(v["target_bands"], dict):
             bands_to_validate.update(v["target_bands"])
-        if "target_band" in v and isinstance(v["target_band"], list):
-            bands_to_validate["target_band"] = v["target_band"]
 
         if not bands_to_validate:
-            raise ValueError("feature_config must contain 'target_bands' or 'target_band'")
+            raise ValueError("feature_config must contain 'target_bands'")
 
         for band_name, freq_range in bands_to_validate.items():
             validate_band(band_name, freq_range)

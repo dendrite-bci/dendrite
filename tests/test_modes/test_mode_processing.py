@@ -11,6 +11,7 @@ import queue
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 
 from dendrite.processing.modes.mode_utils import Buffer, FanOutQueue, extract_event_code
 
@@ -241,16 +242,9 @@ def _make_nfb_mode(n_channels=4, sample_rate=250.0, modality="eeg"):
     mode._mode_type = "neurofeedback"
     mode._gpu_last_emit_time = 0.0
 
-    # IAF defaults (disabled)
-    mode.iaf_event_id = None
+    # IAF disabled by default; tests that need it construct an IAFCalibrator.
+    mode.iaf = None
     mode.iaf_baseline_sec = 5.0
-    mode.iaf_range = (7.0, 14.0)
-    mode.iaf_state = "idle"
-    mode.iaf_baseline_buf = None
-    mode.iaf_baseline_pos = 0
-    mode.iaf_baseline_samples = 0
-    mode.iaf_value = None
-    mode._event_handlers = {}
     mode.use_relative_power = True
 
     # Initialize band power transform
@@ -428,60 +422,62 @@ class TestIAFDetection:
         iaf = compute_iaf(data, fs, (7.0, 14.0))
         assert 9.0 < iaf < 10.0, f"Expected ~9.5 Hz, got {iaf:.2f}"
 
-    def test_shift_bands_overlapping(self):
-        """Bands overlapping iaf_range should be shifted; others untouched."""
+    def test_shift_bands_alpha_only(self):
+        """Only the band named "alpha" should be shifted; others stay canonical."""
         from dendrite.ml.features.iaf import shift_bands
 
         bands = {"alpha": [8.0, 12.0], "beta": [15.0, 30.0]}
-        shifted = shift_bands(bands, iaf=9.5, iaf_range=(7.0, 14.0))
+        shifted = shift_bands(bands, iaf=9.5)
         assert shifted["alpha"] == [7.5, 11.5], f"Got {shifted['alpha']}"
         assert shifted["beta"] == [15.0, 30.0], "Beta should not shift"
 
-    def test_shift_bands_partial_overlap(self):
-        """Band partially overlapping iaf_range should be shifted."""
+    def test_shift_bands_smr_and_theta_unchanged(self):
+        """SMR and theta have separate generators — must not track IAF."""
         from dendrite.ml.features.iaf import shift_bands
 
         bands = {"smr": [12.0, 15.0], "theta": [4.0, 7.0]}
-        shifted = shift_bands(bands, iaf=11.0, iaf_range=(7.0, 14.0))
-        assert shifted["smr"] == [13.0, 16.0], f"Got {shifted['smr']}"
+        shifted = shift_bands(bands, iaf=11.5)
+        assert shifted["smr"] == [12.0, 15.0], "SMR is mu-rhythm-anchored, not alpha"
         assert shifted["theta"] == [4.0, 7.0], "Theta should not shift"
 
-    def test_shift_bands_clamp_zero(self):
-        """Shifted band should not go below 0 Hz."""
+    def test_shift_bands_non_alpha_names_unchanged(self):
+        """Only the literal name 'alpha' is recognized — sub-band names don't shift."""
         from dendrite.ml.features.iaf import shift_bands
 
-        bands = {"low_alpha": [7.0, 10.0]}
-        shifted = shift_bands(bands, iaf=6.0, iaf_range=(5.0, 14.0))
-        assert shifted["low_alpha"][0] >= 0, "Clamped to 0"
-        assert shifted["low_alpha"] == [3.0, 6.0]
+        bands = {"alpha1": [8.0, 10.0], "low_alpha": [6.0, 9.0]}
+        shifted = shift_bands(bands, iaf=9.0)
+        assert shifted["alpha1"] == [8.0, 10.0]
+        assert shifted["low_alpha"] == [6.0, 9.0]
+
+    def test_shift_bands_clamp_zero(self):
+        """Shifted alpha band should not go below 0 Hz."""
+        from dendrite.ml.features.iaf import shift_bands
+
+        bands = {"alpha": [3.0, 7.0]}
+        shifted = shift_bands(bands, iaf=6.0)
+        assert shifted["alpha"][0] >= 0, "Clamped to 0"
+        assert shifted["alpha"] == [0.0, 3.0]
 
     def test_iaf_integration(self):
         """Full integration: trigger event → collect baseline → verify IAF."""
+        from dendrite.ml.features.iaf import IAFCalibrator
 
         iaf_event_id = 99
-        baseline_sec = 0.5  # short for test
+        baseline_sec = 2.0  # Corcoran needs enough samples for Sav-Gol PSD smoothing
         fs = 250.0
         n_channels = 2
         target_freq = 9.0
 
-        mode, main_q, pred_q = _make_nfb_mode(n_channels=n_channels, sample_rate=fs)
-        mode.feature_config["iaf_event_id"] = iaf_event_id
-        mode.feature_config["iaf_baseline_sec"] = baseline_sec
-        mode.feature_config["iaf_range"] = [7.0, 14.0]
-        mode.iaf_event_id = iaf_event_id
-        mode.iaf_baseline_sec = baseline_sec
-        mode.iaf_range = (7.0, 14.0)
-        mode.iaf_state = "idle"
-        mode.iaf_baseline_buf = None
-        mode.iaf_baseline_pos = 0
-        mode.iaf_baseline_samples = int(baseline_sec * fs)
-        mode.iaf_value = None
-        mode._event_handlers = {iaf_event_id: mode._on_iaf_trigger}
+        mode, main_q, _ = _make_nfb_mode(n_channels=n_channels, sample_rate=fs)
+        mode.iaf = IAFCalibrator(
+            event_id=iaf_event_id,
+            baseline_samples=int(baseline_sec * fs),
+            iaf_range=(7.0, 14.0),
+        )
         original_bands_before = {k: list(v) for k, v in mode.target_bands.items()}
 
         rng = np.random.default_rng(42)
 
-        # Fill buffer first (window_length_samples + step)
         total_fill = mode.window_length_samples + mode.window_step_samples
         for i in range(total_fill):
             sample = _make_sample(n_channels=n_channels, modality="eeg", timestamp=i / fs)
@@ -492,20 +488,19 @@ class TestIAFDetection:
             mode.last_lsl_timestamp = processed.get("lsl_timestamp", 0.0)
             mode.buffer.add_sample(processed)
 
-        # Now send IAF trigger event
         trigger = _make_sample(n_channels=n_channels, modality="eeg", timestamp=total_fill / fs)
         trigger["markers"] = np.array([[iaf_event_id]])
         trigger["eeg"] = rng.standard_normal((n_channels, 1)).astype(np.float32)
         processed = mode._preprocess_sample(trigger)
         mode.last_lsl_timestamp = processed.get("lsl_timestamp", 0.0)
-        if extract_event_code(processed) == iaf_event_id:
-            mode._on_iaf_trigger(processed)
+        if extract_event_code(processed) == mode.iaf.event_id:
+            data = processed.get(mode.modality_name)
+            mode.iaf.trigger(data.shape[0])
         mode.buffer.add_sample(processed)
 
-        assert mode.iaf_state == "collecting"
+        assert mode.iaf.state == "collecting"
 
-        # Feed baseline samples with 9 Hz tone
-        baseline_samples = mode.iaf_baseline_samples
+        baseline_samples = mode.iaf.baseline_samples
         for i in range(baseline_samples):
             t = (total_fill + 1 + i) / fs
             sample = _make_sample(n_channels=n_channels, modality="eeg", timestamp=t)
@@ -515,85 +510,168 @@ class TestIAFDetection:
             if processed is None:
                 continue
             mode.last_lsl_timestamp = processed.get("lsl_timestamp", 0.0)
-            mode._accumulate_iaf_sample(processed)
+            data = processed.get(mode.modality_name)
+            if data is not None and mode.iaf.accumulate(data):
+                mode._on_iaf_complete()
             mode.buffer.add_sample(processed)
 
-        assert mode.iaf_state == "done"
-        assert mode.iaf_value is not None
-        assert 8.0 < mode.iaf_value < 10.5, f"Expected ~{target_freq}, got {mode.iaf_value:.2f}"
-
-        # Bands should have been shifted
+        assert mode.iaf.state == "done"
         assert mode.target_bands != original_bands_before
 
-        # IAF result should be in the output queue
         outputs = _drain(main_q)
         iaf_outputs = [o for o in outputs if isinstance(o, dict) and o.get("type") == "iaf_result"]
         assert len(iaf_outputs) == 1
-        assert "iaf_hz" in iaf_outputs[0]["data"]
+        iaf_hz = iaf_outputs[0]["data"]["iaf_hz"]
+        assert 8.0 < iaf_hz < 10.5, f"Expected ~{target_freq}, got {iaf_hz:.2f}"
 
-    def test_iaf_multi_sample_chunks(self):
-        """Multi-column chunks (downsampler output) must be fully accumulated.
+    def test_compute_iaf_raises_on_no_peak(self):
+        """When PSD has no alpha peak, compute_iaf must raise — no silent fallback."""
+        from dendrite.ml.features.iaf import compute_iaf
 
-        Regression: _accumulate_iaf_sample previously copied only data[:, 0]
-        per call, dropping k-1 of every k samples whenever the preprocessor
-        emitted downsampled chunks of width k>1. That produced an IAF off
-        by factor k. Verify with a 10 Hz tone fed in width-4 chunks plus a
-        final overshooting chunk that exercises the boundary clamp.
+        fs = 250.0
+        rng = np.random.default_rng(0)
+        # Pink-ish noise via cumsum of white noise; no embedded peak.
+        data = np.cumsum(rng.standard_normal((4, int(8 * fs))), axis=1).astype(np.float32)
+        with pytest.raises(RuntimeError, match=r"alpha peak|savgol_iaf failed"):
+            compute_iaf(data, fs, (7.0, 14.0))
+
+    def test_on_iaf_complete_skips_on_failure(self):
+        """When the calibrator's finalize() returns None, the mode skips cleanly."""
+        from dendrite.ml.features.iaf import IAFCalibrator
+
+        fs = 250.0
+        n_channels = 2
+        mode, main_q, _ = _make_nfb_mode(n_channels=n_channels, sample_rate=fs)
+        original_bands = {k: list(v) for k, v in mode.target_bands.items()}
+
+        mode.iaf = IAFCalibrator(
+            event_id=99,
+            baseline_samples=int(2.0 * fs),
+            iaf_range=(7.0, 14.0),
+        )
+        mode.iaf.trigger(n_channels)
+        # Fill with zeros → no peak detectable, finalize() returns None.
+        mode.iaf.accumulate(
+            np.zeros((n_channels, mode.iaf.baseline_samples), dtype=np.float32)
+        )
+
+        mode._on_iaf_complete()
+
+        assert mode.iaf.state == "done", "Must mark done so the mode doesn't loop"
+        assert mode.target_bands == original_bands, "Bands must be untouched on failure"
+        outputs = _drain(main_q)
+        iaf_outputs = [o for o in outputs if isinstance(o, dict) and o.get("type") == "iaf_result"]
+        assert iaf_outputs == [], "No IAFPayload should be sent on failure"
+
+    def test_iaf_disabled_ignores_markers(self):
+        """Without an IAFCalibrator, markers are ignored."""
+        mode, main_q, _ = _make_nfb_mode()
+        assert mode.iaf is None
+
+        _feed_nfb(mode, 4, 250.0)
+        assert mode.iaf is None
+        outputs = _drain(main_q)
+        iaf_outputs = [o for o in outputs if isinstance(o, dict) and o.get("type") == "iaf_result"]
+        assert iaf_outputs == []
+
+
+# ---------------------------------------------------------------------------
+# IAFCalibrator (state machine + finalize, unit-tested without a mode)
+# ---------------------------------------------------------------------------
+
+
+class TestIAFCalibrator:
+    """Direct tests of the IAFCalibrator state machine."""
+
+    def _calibrator(self, baseline_samples=500, iaf_range=(7.0, 14.0)):
+        from dendrite.ml.features.iaf import IAFCalibrator
+        return IAFCalibrator(
+            event_id=99, baseline_samples=baseline_samples, iaf_range=iaf_range
+        )
+
+    def test_trigger_from_idle(self):
+        c = self._calibrator()
+        assert c.state == "idle"
+        assert c.trigger(n_channels=4) is True
+        assert c.state == "collecting"
+
+    def test_reject_re_trigger_from_done(self):
+        c = self._calibrator(baseline_samples=10)
+        c.trigger(n_channels=2)
+        c.accumulate(np.zeros((2, 10), dtype=np.float32))
+        c.finalize(250.0, {"alpha": [8.0, 12.0]})
+        assert c.state == "done"
+        assert c.trigger(n_channels=2) is False
+        assert c.state == "done"
+
+    def test_accumulate_partial_then_full(self):
+        c = self._calibrator(baseline_samples=10)
+        c.trigger(n_channels=2)
+        assert c.accumulate(np.zeros((2, 3), dtype=np.float32)) is False
+        assert c.accumulate(np.zeros((2, 3), dtype=np.float32)) is False
+        assert c.accumulate(np.zeros((2, 3), dtype=np.float32)) is False
+        assert c.accumulate(np.zeros((2, 1), dtype=np.float32)) is True
+
+    def test_finalize_returns_payload(self):
+        fs = 250.0
+        n_samples = int(5 * fs)
+        n_channels = 2
+        c = self._calibrator(baseline_samples=n_samples)
+        c.trigger(n_channels)
+        t = np.arange(n_samples) / fs
+        tone = np.sin(2 * np.pi * 10 * t).astype(np.float32)
+        c.accumulate(np.tile(tone, (n_channels, 1)))
+        result = c.finalize(fs, {"alpha": [8.0, 12.0]})
+        assert result is not None
+        assert 9.5 < result.iaf_hz < 10.5
+
+    def test_finalize_returns_none_on_no_peak(self):
+        fs = 250.0
+        n_samples = int(5 * fs)
+        c = self._calibrator(baseline_samples=n_samples)
+        c.trigger(n_channels=4)
+        c.accumulate(np.zeros((4, n_samples), dtype=np.float32))
+        result = c.finalize(fs, {"alpha": [8.0, 12.0]})
+        assert result is None
+        assert c.state == "done"
+
+    def test_accumulate_multi_sample_chunks(self):
+        """Multi-column chunks must be fully accumulated.
+
+        Regression: accumulate previously copied only data[:, 0] per call,
+        dropping k-1 of every k samples when feeding width-k chunks.
         """
         fs = 250.0
         n_channels = 2
-        baseline_sec = 1.0
         target_freq = 10.0
         chunk_width = 4
+        n_samples = int(1.0 * fs)
 
-        mode, _, _ = _make_nfb_mode(n_channels=n_channels, sample_rate=fs)
-        mode.iaf_baseline_samples = int(baseline_sec * fs)
-        mode.iaf_baseline_buf = np.zeros(
-            (n_channels, mode.iaf_baseline_samples), dtype=np.float32
-        )
-        mode.iaf_baseline_pos = 0
-        mode.iaf_state = "collecting"
-        mode.iaf_range = (7.0, 14.0)
-
-        n_samples = mode.iaf_baseline_samples
+        c = self._calibrator(baseline_samples=n_samples)
+        c.trigger(n_channels)
         t = np.arange(n_samples) / fs
         tone = np.sin(2 * np.pi * target_freq * t).astype(np.float32)
         full = np.tile(tone, (n_channels, 1))
 
-        # Feed in width-4 chunks; final iteration deliberately overshoots
-        # to exercise the boundary clamp in _accumulate_iaf_sample.
         pos = 0
+        filled = False
         while pos < n_samples:
             end = pos + chunk_width
             if end > n_samples:
-                # Pad with zeros past the tone end — must be clamped, not copied.
+                # Pad past the tone end — must be clamped by accumulate().
                 chunk = np.zeros((n_channels, chunk_width), dtype=np.float32)
                 chunk[:, : n_samples - pos] = full[:, pos:n_samples]
             else:
                 chunk = full[:, pos:end]
-            mode._accumulate_iaf_sample({"eeg": chunk})
+            filled = c.accumulate(chunk) or filled
             pos = end
 
-        assert mode.iaf_state == "done"
-        assert mode.iaf_value is not None
-        assert 9.5 < mode.iaf_value < 10.5, (
-            f"Expected ~{target_freq} Hz, got {mode.iaf_value:.2f}"
+        assert filled
+        result = c.finalize(fs, {"alpha": [8.0, 12.0]})
+        assert result is not None
+        assert 9.5 < result.iaf_hz < 10.5, (
+            f"Expected ~{target_freq} Hz, got {result.iaf_hz:.2f}"
         )
-
-    def test_iaf_disabled_ignores_markers(self):
-        """Without iaf_event_id, markers should be ignored."""
-        mode, main_q, _ = _make_nfb_mode()
-        mode.iaf_event_id = None
-        mode.iaf_state = "idle"
-        mode.iaf_baseline_buf = None
-        mode.iaf_baseline_pos = 0
-        mode.iaf_baseline_samples = 0
-        mode.iaf_value = None
-        mode._event_handlers = {}
-
-        _feed_nfb(mode, 4, 250.0)
-        assert mode.iaf_state == "idle"
-        assert mode.iaf_value is None
 
 
 # ---------------------------------------------------------------------------

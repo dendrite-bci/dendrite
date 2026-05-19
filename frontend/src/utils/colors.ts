@@ -30,6 +30,16 @@ export function getModeColor(mode: string): string {
   return MODE_COLORS[mode] ?? '#5b9cf0'
 }
 
+const BAND_COLORS: Record<string, string> = {
+  alpha: '#a78bfa', beta: '#60a5fa', theta: '#34d399',
+  delta: '#f59e0b', gamma: '#fb923c', smr: '#22d3ee',
+  default: '#6B7280',
+}
+
+export function getBandColor(band: string): string {
+  return BAND_COLORS[band.toLowerCase()] ?? BAND_COLORS.default!
+}
+
 const PRED_CLASS_COLORS = [
   '#34d399', '#fbbf24', '#60a5fa', '#f472b6', '#a78bfa',
   '#fb923c', '#38bdf8', '#e879f9', '#4ade80', '#f87171',
