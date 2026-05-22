@@ -265,8 +265,8 @@ class NeurofeedbackMode(BaseMode):
             return
 
         self.logger.info(
-            f"IAF detected: {result.iaf_hz:.2f} Hz "
-            f"(offset {result.offset_hz:+.2f} Hz from canonical 10 Hz)"
+            f"IAF detected: {result.iaf_hz:.2f} Hz (CoG: {result.cog_hz:.2f}, "
+            f"offset {result.offset_hz:+.2f} Hz from canonical 10 Hz)"
         )
         nyquist = self.effective_sample_rate / 2.0
         for name, bands in result.shifted_bands.items():

@@ -18,16 +18,29 @@ import numpy as np
 from philistine.mne import savgol_iaf
 
 
+@dataclass
+class IAFEstimate:
+    """compute_iaf result. paf_hz drives band shifting; cog_hz is diagnostic.
+
+    Per philistine's contract (`_base.py:141-157`), a successful return
+    guarantees both fields are finite — `savgol_iaf` nulls both estimators
+    together in every failure branch.
+    """
+
+    paf_hz: float
+    cog_hz: float
+
+
 def compute_iaf(
     data: np.ndarray,
     fs: float,
     iaf_range: tuple[float, float] = (7.0, 14.0),
-) -> float:
+) -> IAFEstimate:
     """Compute Individual Alpha Frequency via Corcoran 2018 (Sav-Gol peak).
 
-    Wraps philistine's `savgol_iaf` on a synthetic `mne.Raw`. Any philistine
-    failure (buffer too short for Sav-Gol window, pink-noise PSD, no peak in
-    band, etc.) surfaces as a single `RuntimeError`.
+    Wraps philistine's `savgol_iaf`, which returns both PAF (peak alpha
+    frequency) and CoG (center of gravity over the alpha band) together.
+    PAF is the IAF estimate; CoG is exposed alongside as a diagnostic.
 
     Args:
         data: (n_channels, n_samples) preprocessed EEG.
@@ -35,10 +48,11 @@ def compute_iaf(
         iaf_range: (low, high) Hz alpha-band bounds passed as fmin/fmax.
 
     Returns:
-        Peak Alpha Frequency in Hz.
+        `IAFEstimate(paf_hz, cog_hz)` — both finite on success.
 
     Raises:
-        RuntimeError: when philistine cannot detect a peak in the band.
+        RuntimeError: when philistine cannot detect alpha (pink-noise R²
+            guard or pathological center-of-mass branch — both null PAF).
     """
     fmin, fmax = float(iaf_range[0]), float(iaf_range[1])
     n_channels, n_samples = data.shape[0], data.shape[-1]
@@ -57,10 +71,11 @@ def compute_iaf(
             )
     except Exception as e:
         raise RuntimeError(f"savgol_iaf failed: {e}") from e
-    paf = result.PeakAlphaFrequency
-    if paf is None or not np.isfinite(paf):
+
+    raw_paf = result.PeakAlphaFrequency
+    if raw_paf is None or not np.isfinite(raw_paf):
         raise RuntimeError(f"No detectable alpha peak in {fmin}–{fmax} Hz")
-    return float(paf)
+    return IAFEstimate(paf_hz=float(raw_paf), cog_hz=float(result.CenterOfGravity))
 
 
 def shift_bands(
@@ -87,6 +102,7 @@ class IAFPayload:
 
     iaf_hz: float
     offset_hz: float
+    cog_hz: float
     original_bands: dict[str, list[float]] = field(default_factory=dict)
     shifted_bands: dict[str, list[float]] = field(default_factory=dict)
 
@@ -138,15 +154,16 @@ class IAFCalibrator:
         if self._buf is None:
             return None
         try:
-            iaf = compute_iaf(self._buf, fs, self.iaf_range)
+            est = compute_iaf(self._buf, fs, self.iaf_range)
         except RuntimeError:
             return None
         finally:
             self.state = "done"
             self._buf = None
         return IAFPayload(
-            iaf_hz=round(iaf, 3),
-            offset_hz=round(iaf - 10.0, 3),
+            iaf_hz=round(est.paf_hz, 3),
+            offset_hz=round(est.paf_hz - 10.0, 3),
+            cog_hz=round(est.cog_hz, 3),
             original_bands={k: list(v) for k, v in target_bands.items()},
-            shifted_bands=shift_bands(target_bands, iaf),
+            shifted_bands=shift_bands(target_bands, est.paf_hz),
         )

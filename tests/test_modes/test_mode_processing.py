@@ -398,7 +398,7 @@ class TestIAFDetection:
     """Test IAF computation and band shifting."""
 
     def test_compute_iaf_known_peak(self):
-        """CoG on a pure 10 Hz sinusoid should return ~10 Hz."""
+        """PAF on a clean 10 Hz sinusoid should return ~10 Hz with finite CoG diagnostic."""
         from dendrite.ml.features.iaf import compute_iaf
 
         fs = 250.0
@@ -407,11 +407,12 @@ class TestIAFDetection:
         data = np.sin(2 * np.pi * 10 * t)[np.newaxis, :].repeat(n_channels, axis=0)
         data += np.random.default_rng(0).standard_normal(data.shape) * 0.1
 
-        iaf = compute_iaf(data, fs, (7.0, 14.0))
-        assert 9.5 < iaf < 10.5, f"Expected ~10 Hz, got {iaf:.2f}"
+        est = compute_iaf(data, fs, (7.0, 14.0))
+        assert 9.5 < est.paf_hz < 10.5, f"Expected ~10 Hz, got {est.paf_hz:.2f}"
+        assert np.isfinite(est.cog_hz)
 
     def test_compute_iaf_shifted_peak(self):
-        """CoG on a 9.5 Hz sinusoid should return ~9.5 Hz."""
+        """PAF on a clean 9.5 Hz sinusoid should return ~9.5 Hz."""
         from dendrite.ml.features.iaf import compute_iaf
 
         fs = 250.0
@@ -419,8 +420,27 @@ class TestIAFDetection:
         t = np.arange(n_samples) / fs
         data = np.sin(2 * np.pi * 9.5 * t)[np.newaxis, :].repeat(n_channels, axis=0)
 
-        iaf = compute_iaf(data, fs, (7.0, 14.0))
-        assert 9.0 < iaf < 10.0, f"Expected ~9.5 Hz, got {iaf:.2f}"
+        est = compute_iaf(data, fs, (7.0, 14.0))
+        assert 9.0 < est.paf_hz < 10.0, f"Expected ~9.5 Hz, got {est.paf_hz:.2f}"
+        assert np.isfinite(est.cog_hz)
+
+    def test_compute_iaf_emits_both_on_success(self):
+        """Philistine's success branch always emits both PAF and CoG together."""
+        from dendrite.ml.features.iaf import compute_iaf
+
+        fs = 250.0
+        n_channels, n_samples = 4, int(5 * fs)
+        t = np.arange(n_samples) / fs
+        data = np.sin(2 * np.pi * 10 * t)[np.newaxis, :].repeat(n_channels, axis=0)
+        data += np.random.default_rng(1).standard_normal(data.shape) * 0.1
+
+        est = compute_iaf(data, fs, (7.0, 14.0))
+        assert np.isfinite(est.paf_hz)
+        assert np.isfinite(est.cog_hz)
+        # On a clean peak the two estimators should agree within ~1 Hz.
+        assert abs(est.paf_hz - est.cog_hz) < 1.0, (
+            f"PAF={est.paf_hz:.2f} and CoG={est.cog_hz:.2f} diverge unexpectedly"
+        )
 
     def test_shift_bands_alpha_only(self):
         """Only the band named "alpha" should be shifted; others stay canonical."""
@@ -523,16 +543,17 @@ class TestIAFDetection:
         assert len(iaf_outputs) == 1
         iaf_hz = iaf_outputs[0]["data"]["iaf_hz"]
         assert 8.0 < iaf_hz < 10.5, f"Expected ~{target_freq}, got {iaf_hz:.2f}"
+        assert np.isfinite(iaf_outputs[0]["data"]["cog_hz"])
 
     def test_compute_iaf_raises_on_no_peak(self):
-        """When PSD has no alpha peak, compute_iaf must raise — no silent fallback."""
+        """Pink-ish noise trips philistine's pink-noise R² guard → compute_iaf raises."""
         from dendrite.ml.features.iaf import compute_iaf
 
         fs = 250.0
         rng = np.random.default_rng(0)
         # Pink-ish noise via cumsum of white noise; no embedded peak.
         data = np.cumsum(rng.standard_normal((4, int(8 * fs))), axis=1).astype(np.float32)
-        with pytest.raises(RuntimeError, match=r"alpha peak|savgol_iaf failed"):
+        with pytest.raises(RuntimeError, match=r"alpha|savgol_iaf failed"):
             compute_iaf(data, fs, (7.0, 14.0))
 
     def test_on_iaf_complete_skips_on_failure(self):
