@@ -24,6 +24,11 @@ const DEFAULT_SAMPLE_RATE = 250
 const MAX_METRICS_HISTORY = 200
 const HIGH_FREQ_NOTIFY_MS = 100  // ~4Hz throttle for metrics + predictions
 const LOW_FREQ_NOTIFY_MS = 500   // ~2Hz throttle for ERPs + band power
+// NF rolling window: 30s @ 4Hz (default step_size_ms=250). Buffer is a fixed
+// sample count, so a longer step shows a longer real-time window (we read the
+// step from the mode config to label the x-axis correctly).
+const BAND_POWER_BUFFER_SAMPLES = 120
+const DEFAULT_BAND_POWER_STEP_SEC = 0.25
 
 // Pre-allocated scratch buffer for de-interleaving batched channel data (avoids per-frame GC)
 let _scratchBuf = new Float32Array(64)
@@ -91,10 +96,13 @@ export const useVisualizationStore = defineStore('visualization', () => {
   }
   const modeERPs = shallowRef<Record<string, Record<string, ERPAccum>>>({})
 
-  // Mode data — band power (latest per mode)
-  const modeBandPowers = shallowRef<Record<string, {
-    channelPowers: Record<string, Record<string, number>>
-    targetBands: Record<string, number[]>
+  // Mode data — band power rolling history per (channel, band) for time-series plots.
+  // Buffers are mutated in place via .append(); the throttled notify spreads
+  // the top-level object so Vue picks up a new reference each tick.
+  const modeBandPowerHistory = shallowRef<Record<string, {
+    channels: Record<string, Record<string, RingBuffer>>
+    bandNames: string[]
+    stepSec: number
   }>>({})
 
   // Mode data — latest prediction per mode
@@ -190,7 +198,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     eventHistory.value = []
     modeMetrics.value = {}
     modeERPs.value = {}
-    modeBandPowers.value = {}
+    modeBandPowerHistory.value = {}
     modeIAF.value = {}
     modeNamesList.value = []
     modePredictions.value = {}
@@ -408,7 +416,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
 
   const _scheduleLowFreqNotify = _makeThrottledNotify(LOW_FREQ_NOTIFY_MS, () => {
     modeERPs.value = { ...modeERPs.value }
-    modeBandPowers.value = { ...modeBandPowers.value }
+    modeBandPowerHistory.value = { ...modeBandPowerHistory.value }
   })
 
   let _namesChanged = false
@@ -505,9 +513,35 @@ export const useVisualizationStore = defineStore('visualization', () => {
 
   function _handleBandPower(name: string, d: any) {
     if (!d.channel_powers) return
-    modeBandPowers.value[name] = {
-      channelPowers: d.channel_powers,
-      targetBands: d.target_bands || {},
+
+    let hist = modeBandPowerHistory.value[name]
+    if (!hist) {
+      const modes = useModesStore()
+      const stepMs = modes.instances[name]?.step_size_ms as number | undefined
+      hist = {
+        channels: {},
+        bandNames: [],
+        stepSec: stepMs ? stepMs / 1000 : DEFAULT_BAND_POWER_STEP_SEC,
+      }
+      modeBandPowerHistory.value[name] = hist
+    }
+    for (const [chName, bandPowers] of Object.entries(
+      d.channel_powers as Record<string, Record<string, number>>,
+    )) {
+      let chBufs = hist.channels[chName]
+      if (!chBufs) {
+        chBufs = {}
+        hist.channels[chName] = chBufs
+      }
+      for (const [bandName, power] of Object.entries(bandPowers)) {
+        let buf = chBufs[bandName]
+        if (!buf) {
+          buf = new RingBuffer(BAND_POWER_BUFFER_SAMPLES)
+          chBufs[bandName] = buf
+          if (!hist.bandNames.includes(bandName)) hist.bandNames.push(bandName)
+        }
+        buf.append(power)
+      }
     }
   }
 
@@ -580,7 +614,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     eventHistory,
     // Mode data
     modeMetrics, modeNamesList,
-    modeERPs, modeBandPowers, modeIAF, modePredictions, modePredictionHistory, modeTypes,
+    modeERPs, modeBandPowerHistory, modeIAF, modePredictions, modePredictionHistory, modeTypes,
     // State
     initialized, connected,
     // Viz preprocessing

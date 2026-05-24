@@ -326,7 +326,7 @@ function validate(): string | null {
   }
 
   if (isNeurofeedback.value) {
-    const validBands = targetBands.value.filter(b => b.name)
+    const validBands = targetBands.value.filter(b => b.name.trim())
     if (validBands.length === 0) return 'Add at least one frequency band'
     for (const b of validBands) {
       if (b.low >= b.high) return `Band "${b.name}": low (${b.low}) must be < high (${b.high})`
@@ -405,7 +405,9 @@ async function save() {
       config.step_size_ms = nfbStepSize.value
       config.feature_config = {
         target_bands: Object.fromEntries(
-          targetBands.value.filter(b => b.name).map(b => [b.name, [b.low, b.high]])
+          targetBands.value
+            .filter(b => b.name.trim())
+            .map(b => [b.name.trim(), [b.low, b.high]])
         ),
         use_relative_power: useRelativePower.value,
         use_cluster_mode: useClusterMode.value,
@@ -848,12 +850,15 @@ async function save() {
                 Each band produces one feature per selected channel.
               </p>
 
-              <!-- IAF: shift bands to individual alpha frequency -->
+              <!-- IAF: shift alpha band to individual alpha frequency -->
               <div class="border-t border-border pt-3 mt-3 space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-[11px] text-text-muted">Shift bands to Individual Alpha Frequency</span>
+                  <span class="text-[11px] text-text-muted">Shift alpha band to Individual Alpha Frequency</span>
                   <ToggleSwitch v-model="iafEnabled" />
                 </div>
+                <p v-if="iafEnabled" class="text-xs text-text-disabled italic">
+                  Only the band named "alpha" is shifted; other bands stay at their canonical ranges.
+                </p>
                 <div v-if="iafEnabled" class="flex items-center gap-3">
                   <label class="flex items-center gap-1.5">
                     <span class="text-[11px] text-text-muted">Event ID</span>

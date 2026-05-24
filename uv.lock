@@ -555,6 +555,7 @@ dependencies = [
     { name = "msgpack" },
     { name = "numpy" },
     { name = "optuna" },
+    { name = "philistine" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pylsl" },
@@ -589,6 +590,7 @@ requires-dist = [
     { name = "msgpack", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "optuna", specifier = ">=4.1.0" },
+    { name = "philistine", specifier = ">=0.2.0" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.11" },
     { name = "pylsl", specifier = ">=1.16" },
@@ -1739,6 +1741,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/25/b0/98d6ae2e1abac4f35230aa756005e8654649d305df9a28b16b9ae4353bff/pandas-2.2.3-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1db71525a1538b30142094edb9adc10be3f3e176748cd7acc2240c2f2e5aa3a4", size = 11871013, upload-time = "2024-09-20T13:09:44.39Z" },
     { url = "https://files.pythonhosted.org/packages/cc/57/0f72a10f9db6a4628744c8e8f0df4e6e21de01212c7c981d31e50ffc8328/pandas-2.2.3-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:15c0e1e02e93116177d29ff83e8b1619c93ddc9c49083f237d4312337a61165d", size = 15711620, upload-time = "2024-09-20T19:02:20.639Z" },
     { url = "https://files.pythonhosted.org/packages/ab/5f/b38085618b950b79d2d9164a711c52b10aefc0ae6833b96f626b7021b2ed/pandas-2.2.3-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:ad5b65698ab28ed8d7f18790a0dc58005c7629f227be9ecc1072aa74c0c1d43a", size = 13098436, upload-time = "2024-09-20T13:09:48.112Z" },
+]
+
+[[package]]
+name = "philistine"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/35/73a9ed906fa821b33c6a11fb3b599089f3112f17a7767c54ea47cbfe2007/philistine-0.2.0.tar.gz", hash = "sha256:bafa713a81f9f4ccf0e61292ad577ed928798c970ad9e3bdfc6a3470293894a2", size = 14713, upload-time = "2023-01-13T08:03:19.114Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/d1/993b67549733afbaeb665c3369eb824ae1253d7027069d78fd63c6ced796/philistine-0.2.0-py2.py3-none-any.whl", hash = "sha256:82183dff5b0e34d1179dc4ce40902b10809749c63efbd4634455c82c9cc21dbc", size = 14951, upload-time = "2023-01-13T08:03:17.498Z" },
 ]
 
 [[package]]
