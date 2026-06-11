@@ -69,12 +69,47 @@ def _reduce_async_group(grp, n_classes: int, prefix: str) -> tuple[dict, np.ndar
     return metrics, inter_pred_ms
 
 
+def _reduce_nf_group(grp, prefix: str) -> dict:
+    """Reduce a neurofeedback-mode HDF5 group to prefix-keyed band-power summaries.
+
+    The metrics saver flattens each `BandPowerPayload` into per-channel-per-band datasets
+    named `channel_powers_<channel>_<band>` (with parallel `_timestamps`). We pool every
+    such dataset to report, per band, the number of frames and the median/p95/mean/variance
+    of the band-power across channels and time — enough to confirm NF ran and to compare the
+    EOG-off vs EOG-on variants. Median is the robust comparison metric: the uncorrected
+    feedback's mean is dominated by rare artifact-spike frames (mean ≫ median), so compare
+    on median, not mean.
+    """
+    power_keys = [
+        k for k in grp.keys()
+        if k.startswith("channel_powers_") and not k.endswith("_timestamps")
+    ]
+    bands: dict[str, list] = {}
+    n_frames = 0
+    for k in power_keys:
+        band = k.rsplit("_", 1)[-1]  # channel_powers_<ch>_<band>
+        vals = grp[k][:]
+        n_frames = max(n_frames, int(vals.size))
+        bands.setdefault(band, []).append(vals)
+
+    metrics: dict = {f"{prefix}n_frames": n_frames, f"{prefix}bands": sorted(bands)}
+    for band, arrs in bands.items():
+        pooled = np.concatenate([a.ravel() for a in arrs]) if arrs else np.array([])
+        pooled = pooled[np.isfinite(pooled)]
+        metrics[f"{prefix}{band}_median"] = float(np.median(pooled)) if pooled.size else None
+        metrics[f"{prefix}{band}_p95"] = float(np.percentile(pooled, 95)) if pooled.size else None
+        metrics[f"{prefix}{band}_mean"] = float(np.mean(pooled)) if pooled.size else None
+        metrics[f"{prefix}{band}_var"] = float(np.var(pooled)) if pooled.size else None
+    return metrics
+
+
 def read_session_row(h5_path: Path, *, n_classes: int = 2) -> dict:
     """Reduce one metrics HDF5 to a per-session result row.
 
     `n_classes` only affects the Wolpaw ITR calc — the rest of the row is
     dataset-agnostic. The `pretrained_*` keys are present only when the run
-    included a `BenchAsync_Pretrained` mode.
+    included a `BenchAsync_Pretrained` mode; the `nf_*` keys only when the run
+    included the neurofeedback EOG-correction A/B pair.
     """
     import h5py
 
@@ -119,5 +154,14 @@ def read_session_row(h5_path: Path, *, n_classes: int = 2) -> dict:
         if pretrained_grp is not None:
             metrics, _ = _reduce_async_group(pretrained_grp, n_classes, "pretrained_")
             row.update(metrics)
+
+        for name, prefix in (
+            (config.NF_MODE_NAME, "nf_alpha_"),
+            (config.NF_EOG_MODE_NAME, "nf_alpha_eog_"),
+            (config.NF_HP6_MODE_NAME, "nf_alpha_hp6_"),
+        ):
+            nf_grp = h.get(name)
+            if nf_grp is not None:
+                row.update(_reduce_nf_group(nf_grp, prefix))
 
     return row

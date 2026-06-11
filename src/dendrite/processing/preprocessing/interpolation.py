@@ -124,6 +124,139 @@ class CorrelationInterpolationMatrix:
         )
 
 
+_MIN_GOOD_POSITIONED = 12  # need enough positioned channels for a stable spline
+
+
+def _montage_positions(
+    labels: list[str], montage_name: str
+) -> dict[int, np.ndarray]:
+    """Map channel labels to 3D electrode positions from a standard montage.
+
+    Matching is case-insensitive (montage keys are canonical-cased, e.g. "Fp1").
+    Labels that don't correspond to a standard electrode (e.g. "Ch_01") are
+    simply absent from the result.
+    """
+    import mne
+
+    ch_pos = mne.channels.make_standard_montage(montage_name).get_positions()["ch_pos"]
+    ci = {name.lower(): pos for name, pos in ch_pos.items()}
+    return {i: ci[lbl.lower()] for i, lbl in enumerate(labels) if lbl.lower() in ci}
+
+
+def _fit_sphere_origin(pos: np.ndarray) -> np.ndarray:
+    """Least-squares center of the sphere best fitting the electrode positions.
+
+    Solves [2P | 1] x = |P|^2 for x; the first three components are the center.
+    Mirrors MNE's _interpolate_bads_eeg intent (subtract origin before building
+    the spline) without needing a full mne.Info with digitization.
+    """
+    a = np.hstack([2 * pos, np.ones((len(pos), 1))])
+    b = (pos**2).sum(axis=1)
+    sol, *_ = np.linalg.lstsq(a, b, rcond=None)
+    return sol[:3]
+
+
+class SplineInterpolationMatrix:
+    """Compute spherical-spline interpolation weights from electrode geometry.
+
+    Implements the geometry-based Perrin et al. (1989) method via MNE's spline
+    operator.  Channel positions are derived from a standard montage by name, so
+    this works with no configuration as long as channels use standard 10-20/10-05
+    labels.  Returns None when geometry is unavailable (non-standard labels) so
+    the caller can fall back to correlation-based interpolation.
+
+    Like the correlation method, the result is a linear operator W with
+        interpolated_bad = W @ data_good
+    so the downstream InterpolationApplicator is identical.  Note that here
+    ``good_indices`` are only the good channels that *have* positions (the spline
+    basis); unpositioned good channels are left untouched.
+    """
+
+    @staticmethod
+    def compute(
+        all_labels: list[str],
+        bad_indices: list[int],
+        montage_name: str = "standard_1005",
+    ) -> InterpolationResult | None:
+        """Compute spherical-spline interpolation weights from a montage.
+
+        Args:
+            all_labels: Channel labels for ALL channels.
+            bad_indices: Indices of bad channels to interpolate.
+            montage_name: Standard montage name for position lookup.
+
+        Returns:
+            InterpolationResult with weight matrix, or None if spline
+            interpolation is not possible (no/too many bad channels, a bad
+            channel without a position, or too few positioned good channels).
+        """
+        if not bad_indices:
+            return None
+
+        n_total = len(all_labels)
+        bad_set = set(bad_indices)
+
+        if len(bad_set) / n_total > _MAX_BAD_FRACTION:
+            logger.warning(
+                f"Too many bad channels ({len(bad_set)}/{n_total} = "
+                f"{len(bad_set) / n_total:.0%}), skipping spline interpolation"
+            )
+            return None
+
+        try:
+            positions = _montage_positions(all_labels, montage_name)
+        except (ValueError, RuntimeError) as e:
+            logger.info(f"Spline interpolation unavailable (montage error): {e}")
+            return None
+
+        bad_sorted = sorted(bad_set)
+        missing_bad = [all_labels[i] for i in bad_sorted if i not in positions]
+        if missing_bad:
+            logger.info(
+                f"Spline interpolation skipped: bad channels {missing_bad} have no "
+                f"montage position — falling back"
+            )
+            return None
+
+        good_positioned = sorted(i for i in positions if i not in bad_set)
+        if len(good_positioned) < _MIN_GOOD_POSITIONED:
+            logger.info(
+                f"Spline interpolation skipped: only {len(good_positioned)} positioned "
+                f"good channels (need {_MIN_GOOD_POSITIONED}) — falling back"
+            )
+            return None
+
+        from mne.channels.interpolation import _make_interpolation_matrix
+
+        all_positioned = np.array([positions[i] for i in (good_positioned + bad_sorted)])
+        origin = _fit_sphere_origin(all_positioned)
+        pos_good = np.array([positions[i] for i in good_positioned]) - origin
+        pos_bad = np.array([positions[i] for i in bad_sorted]) - origin
+
+        w = np.asarray(_make_interpolation_matrix(pos_good, pos_bad), dtype=np.float64)
+        if w.shape != (len(bad_sorted), len(good_positioned)):
+            logger.error(
+                f"Unexpected spline matrix shape {w.shape}, expected "
+                f"{(len(bad_sorted), len(good_positioned))} — falling back"
+            )
+            return None
+
+        bad_labels = [all_labels[i] for i in bad_sorted]
+        good_labels = [all_labels[i] for i in good_positioned]
+        logger.info(
+            f"Spline interpolation matrix computed: {len(bad_sorted)} bad channels "
+            f"({bad_labels}) interpolated from {len(good_positioned)} positioned good"
+        )
+
+        return InterpolationResult(
+            W=w,
+            bad_indices=np.array(bad_sorted, dtype=int),
+            good_indices=np.array(good_positioned, dtype=int),
+            bad_labels=bad_labels,
+            good_labels=good_labels,
+        )
+
+
 class InterpolationApplicator:
     """Apply precomputed interpolation weights per chunk.
 

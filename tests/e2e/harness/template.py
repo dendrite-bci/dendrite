@@ -67,7 +67,135 @@ def build_config(
     cfg = _build_moabb_config(spec) if spec.key == "moabb" else _build_local_config(spec)
     if pretrained_decoder_path is not None:
         _add_pretrained_mode(cfg, Path(pretrained_decoder_path))
+    _apply_eeg_preproc_env_overrides(cfg)
+    _add_neurofeedback_eog_ab(cfg)
     return cfg
+
+
+def _apply_eeg_preproc_env_overrides(cfg: dict) -> None:
+    """Optional, non-destructive EEG preprocessing overrides via env vars.
+
+    Lets a run exercise e.g. EOG correction in a band where ocular is present,
+    without editing the committed `template_config.json` (which carries the
+    regression baselines):
+      DENDRITE_E2E_EEG_LOWCUT       -> mode_preprocessing.eeg.lowcut (float)
+      DENDRITE_E2E_EOG_CORRECTION   -> mode_preprocessing.eeg.apply_eog_correction (truthy)
+      DENDRITE_E2E_EOG_AB           -> off/on A/B in one run: each mode runs with
+                                       correction OFF, plus a `<name>_eog` duplicate ON.
+    """
+    import os
+
+    lowcut = os.environ.get("DENDRITE_E2E_EEG_LOWCUT", "").strip()
+    eog = os.environ.get("DENDRITE_E2E_EOG_CORRECTION", "").strip().lower()
+    ab = os.environ.get("DENDRITE_E2E_EOG_AB", "").strip().lower() not in ("", "0", "false", "no")
+    if not (lowcut or eog or ab):
+        return
+
+    modes = cfg.get("mode_instances", {})
+    for mode in modes.values():
+        eeg = mode.setdefault("mode_preprocessing", {}).setdefault("eeg", {})
+        if lowcut:
+            eeg["lowcut"] = float(lowcut)
+        if eog and not ab:
+            eeg["apply_eog_correction"] = eog not in ("0", "false", "no", "")
+
+    if ab:
+        duplicates: dict = {}
+        for name, mode in list(modes.items()):
+            mode["mode_preprocessing"]["eeg"]["apply_eog_correction"] = False
+            dup = copy.deepcopy(mode)
+            dup["name"] = f"{name}_eog"
+            dup["mode_preprocessing"]["eeg"]["apply_eog_correction"] = True
+            duplicates[f"{name}_eog"] = dup
+        modes.update(duplicates)
+
+
+# Parieto-occipital channels (Pz/P3/P7/O1/Oz/O2/P4/P8/PO7/PO3/POz/PO4/PO8) as indices
+# into the eeg-modality array — the natural montage for an alpha-band NF. These match the
+# in-house swarm 60-channel layout (index 0 == Fz, the 4 EOG channels excluded). For other
+# montages (e.g. MOABB 16ch) they may not fit, so _add_neurofeedback_eog_ab falls back to
+# all eeg channels.
+_NF_ALPHA_EEG_INDICES = [10, 11, 12, 13, 14, 15, 16, 17, 42, 43, 44, 45, 46]
+
+
+def _add_neurofeedback_eog_ab(cfg: dict) -> None:
+    """Append a 3-way alpha-band neurofeedback EOG comparison (env-gated).
+
+    When DENDRITE_E2E_NF_EOG_AB is truthy, adds three `neurofeedback` mode instances that
+    run alongside the existing MI decoders in the same pipeline:
+      NF_Alpha      -- lowcut 1.0, EOG off  (ocular present, full [1,45] passband)
+      NF_Alpha_eog  -- lowcut 1.0, EOG on   (band-split correction engages; lowcut < 6)
+      NF_Alpha_hp6  -- lowcut 6.0, EOG off  (ocular high-passed out, no regression — control)
+    All report ABSOLUTE power (use_relative_power=False) across delta…gamma over parieto-
+    occipital channels, so the three are directly comparable per band: if on ≈ hp6 the
+    regression preserves real signal (its drop vs off is the 6 Hz filter edge + ocular removal,
+    which hp6 also has); if on ≪ hp6 the regression is over-subtracting into that band. The
+    delta/theta bands are the ones the old ungated fit over-removed posteriorly — they should
+    now sit near hp6/off, not far below.
+    Non-destructive: only fires when the env var is set, so committed baselines are untouched.
+    """
+    import os
+
+    flag = os.environ.get("DENDRITE_E2E_NF_EOG_AB", "").strip().lower()
+    if flag in ("", "0", "false", "no"):
+        return
+
+    # Channel count of the eeg modality (to validate the parieto-occipital indices).
+    mbs = next(iter(cfg["modalities_by_stream"].values()))
+    n_eeg = len(mbs["modalities"].get("eeg", []))
+    indices = _NF_ALPHA_EEG_INDICES
+    if not indices or max(indices) >= n_eeg:
+        indices = list(range(n_eeg))  # fallback for montages without the swarm layout
+
+    base = {
+        "name": config.NF_MODE_NAME,
+        "mode": "neurofeedback",
+        "enabled": True,
+        # Single-modality, EEG-only — exactly what the mode dialog saves (no `eog` entry).
+        # The subprocess still RECEIVES the raw eog channels (SampleReader reads every
+        # ring-buffer modality), and when apply_eog_correction is on, OnlinePreprocessor
+        # takes its ocular reference from that raw EOG and wires the correction lazily on
+        # the first EOG chunk — no `eog` config entry needed, exactly the production path.
+        "channel_selection": {"eeg": indices},
+        "stream_sources": {},
+        "modality_labels": {},
+        "source_stream": "EEG",
+        "mode_preprocessing": {
+            "eeg": {
+                "lowcut": 1.0,  # < 6 Hz so EOG correction engages
+                "highcut": 45.0,
+                "filter_order": 4,
+                "apply_rereferencing": True,
+                "apply_eog_correction": False,
+            },
+        },
+        "study_name": cfg.get("study_name", "default_study"),
+        "window_length_sec": 1.0,
+        "step_size_ms": 250,
+        "feature_config": {
+            "target_bands": {
+                "delta": [1.0, 4.0], "theta": [4.0, 8.0], "alpha": [8.0, 12.0],
+                "beta": [13.0, 30.0], "gamma": [30.0, 45.0],
+            },
+            # Absolute power (μV²·Hz), not relative — relative normalizes over the whole
+            # [1,45] passband, which the EOG correction shrinks, confounding exactly the
+            # "does it destroy this band?" comparison. Absolute power is comparable across modes.
+            "use_relative_power": False,
+        },
+    }
+    eog = copy.deepcopy(base)
+    eog["name"] = config.NF_EOG_MODE_NAME
+    eog["mode_preprocessing"]["eeg"]["apply_eog_correction"] = True
+
+    # Control: high-pass at 6 Hz, EOG off. Same [6,45] filter edge as the EOG-on high band,
+    # but no regression — isolates filter-edge + ocular removal from regression effects.
+    hp6 = copy.deepcopy(base)
+    hp6["name"] = config.NF_HP6_MODE_NAME
+    hp6["mode_preprocessing"]["eeg"]["lowcut"] = 6.0  # ≥ _EOG_REF_HIGHCUT → correction skipped
+
+    cfg["mode_instances"][config.NF_MODE_NAME] = base
+    cfg["mode_instances"][config.NF_EOG_MODE_NAME] = eog
+    cfg["mode_instances"][config.NF_HP6_MODE_NAME] = hp6
 
 
 def _add_pretrained_mode(cfg: dict, decoder_path: Path) -> None:

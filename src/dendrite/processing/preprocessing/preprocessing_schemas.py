@@ -24,6 +24,8 @@ class ModalityPreprocessing(BaseModel):
     highcut: float | None = Field(None, gt=0)
     filter_order: int = Field(4, ge=1, le=10)
     apply_rereferencing: bool = False
+    apply_eog_correction: bool = False  # regress EOG reference channels out of EEG
+    eog_crossover_hz: float | None = Field(None, gt=0)  # ocular/preserved band split; default 6 Hz
     line_freq: float | None = Field(None, ge=0)
     target_sample_rate: float | None = Field(None, gt=0)
     downsample_factor: int | None = Field(None, ge=1)
@@ -53,6 +55,24 @@ class ModalityPreprocessing(BaseModel):
                 raise ValueError(
                     f"Lowcut ({self.lowcut}Hz) must be less than Nyquist "
                     f"({nyquist}Hz for {self.sample_rate}Hz sampling)"
+                )
+            if self.eog_crossover_hz is not None and self.eog_crossover_hz >= nyquist:
+                raise ValueError(
+                    f"eog_crossover_hz ({self.eog_crossover_hz}Hz) must be less than Nyquist "
+                    f"({nyquist}Hz for {self.sample_rate}Hz sampling)"
+                )
+        # The crossover splits [lowcut, crossover] | [crossover, highcut]; it must sit
+        # strictly inside the passband or the high-band filter becomes degenerate.
+        if self.eog_crossover_hz is not None:
+            if self.lowcut is not None and self.eog_crossover_hz <= self.lowcut:
+                raise ValueError(
+                    f"eog_crossover_hz ({self.eog_crossover_hz}Hz) must be above "
+                    f"lowcut ({self.lowcut}Hz)"
+                )
+            if self.highcut is not None and self.eog_crossover_hz >= self.highcut:
+                raise ValueError(
+                    f"eog_crossover_hz ({self.eog_crossover_hz}Hz) must be below "
+                    f"highcut ({self.highcut}Hz)"
                 )
         return self
 

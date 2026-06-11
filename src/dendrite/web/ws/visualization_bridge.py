@@ -132,7 +132,7 @@ class QualityTracker:
     def _apply_interpolation(self, preprocessor: OnlinePreprocessor | None) -> None:
         """Freeze interpolation on the preprocessor's EEG processor."""
         eeg_bad = self._last_effective_bad.get("eeg")
-        if not preprocessor or not eeg_bad or self._calibration_corr is None:
+        if not preprocessor or not eeg_bad:
             return
         eeg_proc = preprocessor.processors.get("eeg")
         if eeg_proc:
@@ -154,6 +154,13 @@ class QualityTracker:
         if data.shape[1] < 2:
             self._logger.warning("Not enough warmup samples for correlation")
             return
+
+        # Common-average reference before correlation: raw data shares a common
+        # reference, so common-mode inflates every pairwise correlation toward 1
+        # and washes out the spatial neighbourhood structure the weights need.
+        # (Channels bad throughout warmup still have no usable correlation and
+        # fall back to equal weights — geometry/spline is the only fix there.)
+        data = data - data.mean(axis=0, keepdims=True)
 
         corr: np.ndarray = np.asarray(np.corrcoef(data))
         corr = np.nan_to_num(corr, nan=0.0)
@@ -390,6 +397,14 @@ async def _drain_ring_buffer(
     sample_counter = 0
     pending_marker = 0.0
 
+    # Rolling raw buffer (~warmstart window) replayed into a freshly-built
+    # preprocessor so adaptive EOG correction engages immediately on toggle.
+    # Only kept when the stream has EOG channels — warm-start is a no-op otherwise.
+    warmstart_target = int(_VIZ_WARMSTART_S * sample_rate)
+    track_raw = "eog" in modalities
+    raw_buffer: list[np.ndarray] = []
+    raw_buffer_samples = 0
+
     try:
         while True:
             # Check for dynamic preprocessor config changes
@@ -401,6 +416,7 @@ async def _drain_ring_buffer(
                 active_config = new_config
                 if quality:
                     quality.reapply_interpolation(preprocessor)
+                _warmstart_eog(preprocessor, raw_buffer, modalities)
                 logger.info(f"Viz preprocessor reconfigured: {new_config or 'defaults'}")
 
             # Poll ring buffer in executor
@@ -410,6 +426,14 @@ async def _drain_ring_buffer(
             if len(data) == 0:
                 continue
             read_pos = new_pos
+
+            # Maintain the rolling raw buffer for warm-starting on the next toggle.
+            if track_raw:
+                raw_buffer.append(data.copy())
+                raw_buffer_samples += len(data)
+                while (len(raw_buffer) > 1
+                       and raw_buffer_samples - len(raw_buffer[0]) >= warmstart_target):
+                    raw_buffer_samples -= len(raw_buffer.pop(0))
 
             # Quality monitoring on raw EEG (before preprocessing)
             if quality and eeg_indices:
@@ -501,6 +525,35 @@ async def _drain_ring_buffer(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# Rolling raw buffer replayed into a new viz preprocessor so adaptive EOG correction
+# is already converged when a config toggle goes live. Sized just above the estimator's
+# 30 s min-fit window (AdaptiveEOGRegression.min_fit_s) so the first refit can fire.
+_VIZ_WARMSTART_S = 35.0
+
+
+def _warmstart_eog(
+    preprocessor: OnlinePreprocessor | None,
+    raw_chunks: list[np.ndarray],
+    modalities: dict[str, list[int]],
+) -> None:
+    """Replay buffered raw chunks through a freshly-built preprocessor so its
+    adaptive EOG estimator (and causal filter states) are warm before going live.
+
+    Without this, enabling EOG correction shows nothing for ~30 s (cold fit). With
+    it, the regression is already fit on recent data, so the effect is visible
+    within a frame. No-op when EOG correction isn't configured (EOG off or high-pass
+    above the ocular band) — the replay itself is what builds the lazy estimator, so
+    gate on `eog_correction_enabled`, not on the not-yet-built estimator.
+    """
+    if preprocessor is None or not preprocessor.eog_correction_enabled:
+        return
+    for chunk in raw_chunks:
+        data_dict = {
+            mod: chunk[:, idx].T.astype(np.float64) for mod, idx in modalities.items()
+        }
+        preprocessor.process(data_dict)
+
 
 def _create_viz_preprocessor(
     modalities: dict[str, list[int]],

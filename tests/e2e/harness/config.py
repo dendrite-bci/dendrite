@@ -39,3 +39,13 @@ SYNC_MODE_NAME = "BenchSync"
 ASYNC_MODE_NAME = "BenchAsync"
 PRETRAINED_MODE_NAME = "BenchAsync_Pretrained"
 RECORDING_NAME = "e2e"
+
+# Neurofeedback EOG-correction A/B pair, injected by template._add_neurofeedback_eog_ab
+# when DENDRITE_E2E_NF_EOG_AB is set: same alpha-band NF run with EOG correction off
+# (NF) vs on (NF_eog), so a single run shows the correction's effect on band-power.
+NF_MODE_NAME = "NF_Alpha"
+NF_EOG_MODE_NAME = "NF_Alpha_eog"
+# Control mode for the "does correction destroy alpha?" test: high-pass at 6 Hz with EOG
+# OFF — removes the ocular band via the same [6,45] filter edge as the EOG-on high band,
+# but applies no regression. on ≈ hp6 (absolute alpha) ⇒ regression preserves real alpha.
+NF_HP6_MODE_NAME = "NF_Alpha_hp6"

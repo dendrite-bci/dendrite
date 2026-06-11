@@ -81,21 +81,33 @@ def load_epochs(
         data_types = [t for t in loaded.channel_types if t != "markers"]
         modality = Counter(data_types).most_common(1)[0][0] if data_types else None
 
-    if modality:
-        loaded.filter_modality(modality)
-
-    # Preprocessing: prefer mode_preprocessing (online), fall back to workbench config
     mode_preproc = config.get("mode_preprocessing", {})
-    if modality and modality in mode_preproc:
-        loaded.preprocess(
-            mode_preproc[modality],
-            modality=modality,
+
+    # EOG correction is cross-modality (needs EEG+EOG together) and intertwined with
+    # CAR/bandpass, so it does the whole EEG preprocessing in one pass via the live
+    # path while EOG channels are still present (before the modality filter).
+    eog_corrected = False
+    if modality == "eeg" and mode_preproc.get("eeg", {}).get("apply_eog_correction"):
+        eog_corrected = loaded.preprocess_with_eog_correction(
+            mode_preproc.get("eeg", {}),
             bad_channels=config.get("effective_bad"),
         )
-    else:
-        preprocessing = build_preprocessing_config(config)
-        if preprocessing:
-            loaded.preprocess(preprocessing)
+
+    if not eog_corrected:
+        if modality:
+            loaded.filter_modality(modality)
+
+        # Preprocessing: prefer mode_preprocessing (online), fall back to workbench config
+        if modality and modality in mode_preproc:
+            loaded.preprocess(
+                mode_preproc[modality],
+                modality=modality,
+                bad_channels=config.get("effective_bad"),
+            )
+        else:
+            preprocessing = build_preprocessing_config(config)
+            if preprocessing:
+                loaded.preprocess(preprocessing)
 
     # Workbench: selected_events → rebuild event_mapping from recording's own event_id
     selected_events = config.get("selected_events")

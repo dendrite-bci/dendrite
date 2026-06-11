@@ -1,4 +1,4 @@
-"""Tests for correlation-based interpolation (interpolation.py)."""
+"""Tests for bad-channel interpolation (interpolation.py)."""
 
 import numpy as np
 import pytest
@@ -6,10 +6,27 @@ import pytest
 from dendrite.processing.preprocessing.interpolation import (
     CorrelationInterpolationMatrix,
     InterpolationApplicator,
+    SplineInterpolationMatrix,
 )
 
 LABELS_10 = ["Ch1", "Ch2", "Ch3", "Ch4", "Ch5", "Ch6", "Ch7", "Ch8", "Ch9", "Ch10"]
 LABELS_20 = [f"Ch{i}" for i in range(1, 21)]
+
+# Real 10-20 names — all present in MNE's standard_1005 montage.
+MONTAGE_24 = [
+    "Fp1", "Fp2", "Fz", "F3", "F4", "F7", "F8", "FC5", "FC6", "C3", "C4", "Cz",
+    "T7", "T8", "CP5", "CP6", "P3", "P4", "Pz", "P7", "P8", "O1", "O2", "Oz",
+]
+
+
+def _montage_field(labels: list[str], montage_name: str = "standard_1005"):
+    """Per-channel scalar field equal to a smooth function (z-coordinate) of
+    each electrode's 3D position. A spherical spline should reconstruct it well."""
+    import mne
+
+    ch_pos = mne.channels.make_standard_montage(montage_name).get_positions()["ch_pos"]
+    pos = np.array([ch_pos[lbl] for lbl in labels])
+    return pos[:, 2], pos  # field, positions
 
 
 def _make_correlated_data(n_ch: int, n_samples: int = 5000, seed: int = 42):
@@ -128,6 +145,65 @@ class TestCorrelationInterpolationMatrix:
         assert list(result.good_indices) == sorted(result.good_indices)
 
 
+# --- SplineInterpolationMatrix.compute() tests ---
+
+class TestSplineInterpolationMatrix:
+    def test_reconstructs_smooth_field(self):
+        """Hold out a real channel and reconstruct a smooth spatial field."""
+        field, _ = _montage_field(MONTAGE_24)
+        bad = MONTAGE_24.index("Cz")
+        result = SplineInterpolationMatrix.compute(MONTAGE_24, [bad])
+        assert result is not None
+        recon = (result.W @ field[result.good_indices])[0]
+        field_range = float(field.max() - field.min())
+        rel_err = abs(recon - field[bad]) / field_range
+        assert rel_err < 0.05, f"reconstruction rel err {rel_err:.3f} too high"
+
+    def test_rows_sum_to_one(self):
+        result = SplineInterpolationMatrix.compute(MONTAGE_24, [2, 11])
+        assert result is not None
+        for row in range(result.W.shape[0]):
+            np.testing.assert_allclose(result.W[row].sum(), 1.0, atol=1e-6)
+
+    def test_w_shape_matches_positioned_good(self):
+        result = SplineInterpolationMatrix.compute(MONTAGE_24, [11])
+        assert result is not None
+        assert result.W.shape == (1, len(MONTAGE_24) - 1)
+        assert list(result.good_indices) == [i for i in range(len(MONTAGE_24)) if i != 11]
+        assert result.bad_labels == ["Cz"]
+
+    def test_case_insensitive_labels(self):
+        upper = [lbl.upper() for lbl in MONTAGE_24]
+        r_canon = SplineInterpolationMatrix.compute(MONTAGE_24, [11])
+        r_upper = SplineInterpolationMatrix.compute(upper, [11])
+        assert r_canon is not None and r_upper is not None
+        np.testing.assert_allclose(r_canon.W, r_upper.W, atol=1e-10)
+
+    def test_returns_none_generic_labels(self):
+        """Generic names don't resolve to montage positions → None (fallback)."""
+        labels = [f"Ch_{i:02d}" for i in range(24)]
+        assert SplineInterpolationMatrix.compute(labels, [5]) is None
+
+    def test_returns_none_when_bad_channel_unpositioned(self):
+        """A bad channel with no montage position can't be splined → None."""
+        labels = list(MONTAGE_24)
+        labels[5] = "Ch_99"
+        assert SplineInterpolationMatrix.compute(labels, [5]) is None
+
+    def test_returns_none_too_few_positioned_good(self):
+        """Too few positioned good channels for a well-conditioned spline → None."""
+        labels = MONTAGE_24[:8]
+        assert SplineInterpolationMatrix.compute(labels, [0]) is None
+
+    def test_returns_none_empty_bad(self):
+        assert SplineInterpolationMatrix.compute(MONTAGE_24, []) is None
+
+    def test_returns_none_too_many_bad(self):
+        """More than 20% bad should return None."""
+        bad = list(range(7))  # 7/24 > 20%
+        assert SplineInterpolationMatrix.compute(MONTAGE_24, bad) is None
+
+
 # --- InterpolationApplicator tests ---
 
 class TestInterpolationApplicator:
@@ -230,7 +306,8 @@ class TestModalityProcessorInterpolation:
         proc.freeze_interpolation([0, 1], corr_matrix=corr)
         assert proc._interpolator is None
 
-    def test_freeze_no_corr_is_noop(self):
+    def test_freeze_no_corr_and_generic_labels_is_noop(self):
+        """Generic labels (no montage) + no corr matrix → nothing to interpolate."""
         from dendrite.processing.preprocessing.preprocessor import ModalityProcessor
         proc = ModalityProcessor({
             "num_channels": 10,
@@ -239,6 +316,37 @@ class TestModalityProcessorInterpolation:
         })
         proc.freeze_interpolation([0, 1])
         assert proc._interpolator is None
+
+    def test_spline_used_for_real_labels(self):
+        """Standard 10-20 labels enable spline even without a correlation matrix."""
+        from dendrite.processing.preprocessing.preprocessor import ModalityProcessor
+        proc = ModalityProcessor({
+            "num_channels": len(MONTAGE_24),
+            "sample_rate": 500.0,
+            "lowcut": 0.5,
+            "highcut": 50.0,
+            "channel_labels": MONTAGE_24,
+        })
+        proc.freeze_interpolation([MONTAGE_24.index("Cz")], corr_matrix=None)
+        assert proc._interpolator is not None
+
+    def test_falls_back_to_correlation_for_generic_labels(self):
+        """Generic labels + a correlation matrix → correlation interpolation."""
+        from dendrite.processing.preprocessing.preprocessor import ModalityProcessor
+        proc = ModalityProcessor({
+            "num_channels": 20,
+            "sample_rate": 500.0,
+            "lowcut": 0.5,
+            "highcut": 50.0,
+            "channel_labels": LABELS_20,
+        })
+        _, corr = _make_correlated_data(20)
+        proc.freeze_interpolation([9], corr_matrix=corr)
+        assert proc._interpolator is not None
+        data = np.random.randn(20, 100)
+        data[9, :] = 999.0
+        result = proc.process_chunk(data)
+        assert np.all(np.isfinite(result))
 
     def test_freeze_empty_bad_is_noop(self):
         from dendrite.processing.preprocessing.preprocessor import ModalityProcessor

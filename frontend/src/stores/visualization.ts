@@ -144,7 +144,8 @@ export const useVisualizationStore = defineStore('visualization', () => {
 
   // Viz preprocessing (mutable during recording)
   const vizPreproc = ref<Record<string, Record<string, any>>>({
-    eeg: { filter_low: 0.5, filter_high: 50.0, apply_rereferencing: true },
+    eeg: { lowcut: 0.5, highcut: 50.0, apply_rereferencing: true,
+           apply_eog_correction: false },
   })
   let _vizPreprocDebounce: ReturnType<typeof setTimeout> | null = null
 

@@ -67,23 +67,35 @@ const statusDotColor = computed(() => {
 
 // --- Per-mode preprocessing (defined early — used by channel selection + decoder picker) ---
 const PREPROC_DEFAULTS: Record<string, Record<string, any>> = {
-  eeg: { lowcut: 0.5, highcut: 50.0, apply_rereferencing: true },
+  eeg: { lowcut: 0.5, highcut: 50.0, apply_rereferencing: true, apply_eog_correction: false },
   emg: { lowcut: 20.0, highcut: 200.0, line_freq: 50 },
   eog: { lowcut: 0.1, highcut: 10.0 },
 }
 const NFB_DEFAULTS: Record<string, Record<string, any>> = {
-  eeg: { lowcut: 1.0, highcut: 45.0, apply_rereferencing: true },
+  eeg: { lowcut: 1.0, highcut: 45.0, apply_rereferencing: true, apply_eog_correction: false },
 }
 
 function getDefaults() {
   return isNeurofeedback.value ? { ...PREPROC_DEFAULTS, ...NFB_DEFAULTS } : PREPROC_DEFAULTS
 }
 
-const modePreproc = ref<Record<string, Record<string, any>>>(
-  inst.mode_preprocessing
-    ? JSON.parse(JSON.stringify(inst.mode_preprocessing))
-    : JSON.parse(JSON.stringify(getDefaults()))
-)
+// Init from existing config, backfilling missing default keys (e.g. fields added
+// after the instance was saved) without clobbering user-set values or introducing
+// modalities the instance didn't have.
+function initModePreproc(): Record<string, Record<string, any>> {
+  const defaults = getDefaults()
+  if (!inst.mode_preprocessing) {
+    return JSON.parse(JSON.stringify(defaults))
+  }
+  const existing = JSON.parse(JSON.stringify(inst.mode_preprocessing))
+  const merged: Record<string, Record<string, any>> = {}
+  for (const [mod, cfg] of Object.entries(existing)) {
+    merged[mod] = { ...(defaults[mod] ?? {}), ...(cfg as Record<string, any>) }
+  }
+  return merged
+}
+
+const modePreproc = ref<Record<string, Record<string, any>>>(initModePreproc())
 
 
 // --- Channel selection (single modality per mode, scoped to one stream) ---
@@ -560,6 +572,14 @@ async function save() {
                 <ToggleSwitch
                   :model-value="currentModalityPreproc.apply_rereferencing"
                   @update:model-value="updatePreproc('apply_rereferencing', $event)"
+                />
+              </div>
+              <!-- EEG: EOG correction toggle (regress EOG reference channels out of EEG) -->
+              <div v-if="selectedModality === 'eeg'" class="flex items-center justify-between">
+                <span class="text-xs text-text-muted">EOG correction</span>
+                <ToggleSwitch
+                  :model-value="currentModalityPreproc.apply_eog_correction"
+                  @update:model-value="updatePreproc('apply_eog_correction', $event)"
                 />
               </div>
               <!-- EMG: notch frequency -->

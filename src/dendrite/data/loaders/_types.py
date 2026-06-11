@@ -24,6 +24,29 @@ def build_preprocessing_config(config: dict[str, Any]) -> Any | None:
     return ModalityPreprocessing(**fields) if fields else None
 
 
+def _interpolate_bad_channels(
+    data: np.ndarray, channel_names: list[str], bad_indices: list[int],
+) -> None:
+    """Correlation-based bad-channel interpolation, in-place.
+
+    Offline counterpart of the live interpolation freeze: the correlation matrix
+    comes from the recording data itself.
+    """
+    if not bad_indices or not channel_names:
+        return
+    from dendrite.processing.preprocessing.interpolation import (
+        CorrelationInterpolationMatrix,
+        InterpolationApplicator,
+    )
+
+    corr = np.nan_to_num(np.corrcoef(data), nan=0.0)
+    result = CorrelationInterpolationMatrix.compute(
+        channel_names, bad_indices, corr, bad_during_warmup=bad_indices,
+    )
+    if result is not None:
+        InterpolationApplicator(result).apply(data)
+
+
 @dataclass
 class RawData:
     """Standardized output from file loaders.
@@ -72,6 +95,60 @@ class RawData:
             self.channel_names = [self.channel_names[i] for i in indices]
             self.channel_types = [self.channel_types[i] for i in indices]
 
+    def preprocess_with_eog_correction(
+        self, eeg_config,
+        bad_channels: dict[str, list[int]] | None = None,
+    ) -> bool:
+        """CAR + bandpass the EEG and regress out EOG, via the live code path.
+
+        Offline counterpart of the online EOG correction.  Interpolates bad EEG
+        channels, then runs EEG+EOG through an ``OnlinePreprocessor`` (EOG regression
+        fit on the whole recording in the live CAR-referenced, band-limited domain),
+        so training data follows the same adaptive trajectory online inference
+        produces.  Collapses ``self`` to the processed EEG channels in-place.
+
+        The correction is driven by the EEG ``apply_eog_correction`` flag and the raw
+        EOG channels (``eog``/``veog``/``heog``) found in the recording — no ``eog``
+        config is needed.  Returns True if correction was applied; False (no EOG / no
+        EEG present) so the caller can fall back to the normal single-modality
+        preprocess.
+        """
+        if not self.channel_types:
+            return False
+        types = [t.lower() for t in self.channel_types]
+        eeg_idx = [i for i, t in enumerate(types) if t == "eeg"]
+        eog_idx = [i for i, t in enumerate(types) if t in ("eog", "veog", "heog")]
+        if not eeg_idx or not eog_idx:
+            return False
+
+        from dendrite.processing.preprocessing.offline_adapter import (
+            apply_eeg_eog_correction_offline,
+        )
+
+        def _cfg(c) -> dict:
+            return c.model_dump(exclude_none=True) if hasattr(c, "model_dump") else dict(c or {})
+
+        eeg = self.data[eeg_idx].astype(np.float64)
+        if bad_channels:
+            _interpolate_bad_channels(
+                eeg, [self.channel_names[i] for i in eeg_idx],
+                bad_channels.get("eeg", []),
+            )
+
+        eeg_cfg = _cfg(eeg_config)
+        processed = apply_eeg_eog_correction_offline(
+            eeg,
+            self.data[eog_idx].astype(np.float64),
+            self.sample_rate, eeg_cfg,
+        )
+        self.data = processed
+        self.channel_names = [self.channel_names[i] for i in eeg_idx]
+        self.channel_types = [self.channel_types[i] for i in eeg_idx]
+        ds = eeg_cfg.get("downsample_factor", 1)
+        if ds and ds > 1:
+            self.sample_rate = self.sample_rate / ds
+        return True
+
     def pick_channels(self, names: list[str]) -> None:
         """Keep only the named channels, in-place."""
         name_set = set(names)
@@ -98,21 +175,9 @@ class RawData:
 
         # Bad channel interpolation (before bandpass/CAR)
         if bad_channels:
-            bad_indices = bad_channels.get(modality, [])
-            if bad_indices and self.channel_names:
-                from dendrite.processing.preprocessing.interpolation import (
-                    CorrelationInterpolationMatrix,
-                    InterpolationApplicator,
-                )
-                # Compute correlation from the recording data itself
-                corr = np.corrcoef(self.data)
-                corr = np.nan_to_num(corr, nan=0.0)
-                result = CorrelationInterpolationMatrix.compute(
-                    self.channel_names, bad_indices, corr,
-                    bad_during_warmup=bad_indices,
-                )
-                if result is not None:
-                    InterpolationApplicator(result).apply(self.data)
+            _interpolate_bad_channels(
+                self.data, self.channel_names, bad_channels.get(modality, []),
+            )
 
         self.data = apply_preprocessing_offline(
             self.data, self.sample_rate, modality, cfg,

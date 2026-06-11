@@ -181,9 +181,12 @@ function vizPreprocField<T>(field: string, defaultVal: T) {
     },
   })
 }
-const eegLow = vizPreprocField('filter_low', 0.5)
-const eegHigh = vizPreprocField('filter_high', 50.0)
+const eegLow = vizPreprocField('lowcut', 0.5)
+const eegHigh = vizPreprocField('highcut', 50.0)
 const eegCAR = vizPreprocField('apply_rereferencing', true)
+const eegEOGCorr = vizPreprocField('apply_eog_correction', false)
+// Only meaningful when the stream has EOG reference channels.
+const hasEog = computed(() => 'eog' in viz.modalityBuffers)
 </script>
 
 <template>
@@ -207,6 +210,11 @@ const eegCAR = vizPreprocField('apply_rereferencing', true)
         <label class="flex items-center gap-1" title="Common Average Reference">
           <span class="text-xs text-text-muted">CAR</span>
           <ToggleSwitch v-model="eegCAR" compact />
+        </label>
+        <label v-if="hasEog" class="flex items-center gap-1"
+               title="Adaptive EOG / ocular-artifact correction (converges over ~2 min)">
+          <span class="text-xs text-text-muted">EOG</span>
+          <ToggleSwitch v-model="eegEOGCorr" compact />
         </label>
         <div class="w-px h-4 bg-border mx-1" />
         <!-- Density toggle -->

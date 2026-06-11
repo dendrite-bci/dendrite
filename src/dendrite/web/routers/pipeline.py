@@ -77,7 +77,7 @@ async def pipeline_status():
 async def set_viz_preprocessing(request: Request):
     """Update visualization preprocessing config (safe during recording).
 
-    Body: per-modality config, e.g. {"eeg": {"filter_low": 1.0, "filter_high": 40.0, "apply_rereferencing": true}}
+    Body: per-modality config, e.g. {"eeg": {"lowcut": 1.0, "highcut": 40.0, "apply_rereferencing": true}}
     Empty dict {} resets to defaults.
     """
     body = await request.json()

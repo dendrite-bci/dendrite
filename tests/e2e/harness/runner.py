@@ -173,6 +173,10 @@ def main() -> None:
         help="Run only the first N sessions",
     )
     p.add_argument(
+        "--match", type=str, default=None,
+        help="Run only sessions whose label contains this substring (e.g. ses-03)",
+    )
+    p.add_argument(
         "--update-baseline", action="store_true",
         help="Write the aggregate to tests/e2e/baselines/<dataset>.json",
     )
@@ -180,6 +184,12 @@ def main() -> None:
 
     dataset = resolve_dataset()
     print(f"Resolved dataset: {dataset.key} ({len(dataset.sessions)} session(s))")
+
+    if args.match:
+        dataset.sessions = [s for s in dataset.sessions if args.match in s.label]
+        if not dataset.sessions:
+            raise SystemExit(f"No session label contains {args.match!r}")
+        print(f"Filtered to {len(dataset.sessions)} session(s) matching {args.match!r}")
 
     manage = not (args.no_server or is_healthy())
     if not manage:

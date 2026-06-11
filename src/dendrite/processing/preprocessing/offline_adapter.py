@@ -53,3 +53,38 @@ def apply_preprocessing_offline(
     )
 
     return processed_data
+
+
+def apply_eeg_eog_correction_offline(
+    eeg: np.ndarray,
+    eog: np.ndarray,
+    sample_rate: float,
+    eeg_config: dict[str, Any],
+    chunk_size: int | None = None,
+) -> np.ndarray:
+    """Full-recording EEG preprocessing with EOG correction, via the live code path.
+
+    Builds an ``OnlinePreprocessor`` and streams the recording through ``process()``
+    in chunks, so the offline result goes through exactly the live code path: the
+    adaptive EOG regression converges along the same trajectory it would online
+    (refit timing can differ by at most one chunk boundary).  Returns the processed
+    (CAR + band-passed + EOG-corrected) EEG.
+
+    The correction is configured by the EEG ``apply_eog_correction`` flag alone and
+    takes its reference from the raw EOG passed to ``process()`` — no ``eog`` config
+    entry is needed.
+    """
+    chunk_size = chunk_size or int(sample_rate)
+    # This helper is only called when correction is wanted — ensure it activates.
+    eeg_cfg = {**eeg_config, "apply_eog_correction": True,
+               "num_channels": eeg.shape[0], "sample_rate": sample_rate}
+    pre = OnlinePreprocessor({"eeg": eeg_cfg})
+
+    out = []
+    for start in range(0, eeg.shape[1], chunk_size):
+        chunk = pre.process({
+            "eeg": eeg[:, start : start + chunk_size],
+            "eog": eog[:, start : start + chunk_size],
+        })
+        out.append(chunk["eeg"])
+    return np.concatenate(out, axis=1)

@@ -303,7 +303,8 @@ class TestActivateDecoderPreprocessing:
 
         mode = _make_async_mode()
         mode._sample_preprocessor = self._make_preprocessor(
-            mode, {"eeg": {"lowcut": 8.0, "highcut": 30.0, "apply_rereferencing": True, "filter_order": 4}},
+            mode, {"eeg": {"lowcut": 8.0, "highcut": 30.0, "apply_rereferencing": True,
+                           "apply_eog_correction": False, "filter_order": 4}},
         )
         sentinel = object()
         mode._sample_preprocessor._preprocessor = sentinel
